@@ -6,6 +6,7 @@ import { getMe } from "../services/auth.service";
 interface AuthContextType {
     user: any;
     token: string | null;
+    loading: boolean;
     login: (data: any) => void;
     logout: () => void;
 }
@@ -15,6 +16,7 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider = ({ children }: any) => {
     const [user, setUser] = useState<any>(null);
     const [token, setToken] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);  // ✅ déclaré ici
 
     useEffect(() => {
         const storedToken = localStorage.getItem("token");
@@ -25,7 +27,6 @@ export const AuthProvider = ({ children }: any) => {
             if (storedRole) {
                 document.cookie = `user_role=${storedRole}; path=/; max-age=604800`;
             }
-
             setToken(storedToken);
             getMe(storedToken)
                 .then((data) => setUser(data))
@@ -34,22 +35,19 @@ export const AuthProvider = ({ children }: any) => {
                     localStorage.removeItem("user");
                     document.cookie = "access_token=; path=/; max-age=0";
                     document.cookie = "user_role=; path=/; max-age=0";
-                });
+                })
+                .finally(() => setLoading(false));  // ✅ appelé après getMe
         } else {
-            setLoading(false);
+            setLoading(false);  // ✅ fonctionne maintenant
         }
     }, []);
 
     const login = (data: any) => {
         setToken(data.tokens.access);
         setUser(data.utilisateur);
-
-        // localStorage
         localStorage.setItem("token", data.tokens.access);
         localStorage.setItem("refresh", data.tokens.refresh);
         localStorage.setItem("user_role", data.utilisateur.role);
-
-        // Cookies pour le middleware
         document.cookie = `access_token=${data.tokens.access}; path=/; max-age=3600`;
         document.cookie = `user_role=${data.utilisateur.role}; path=/; max-age=604800`;
     };
@@ -57,18 +55,15 @@ export const AuthProvider = ({ children }: any) => {
     const logout = () => {
         setToken(null);
         setUser(null);
-
         localStorage.removeItem("token");
         localStorage.removeItem("refresh");
         localStorage.removeItem("user_role");
-
-        // Supprime les cookies
         document.cookie = "access_token=; path=/; max-age=0";
         document.cookie = "user_role=; path=/; max-age=0";
     };
 
     return (
-        <AuthContext.Provider value={{ user, token, login, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, logout }}>
             {children}
         </AuthContext.Provider>
     );

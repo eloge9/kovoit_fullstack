@@ -4,6 +4,11 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 
 
+def chemin_photo(instance, filename):
+    ext = filename.split('.')[-1]
+    return f"profils/{instance.pk}/{instance.pk}.{ext}"
+
+
 # ----------------- Utilisateur -----------------
 class Utilisateur(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
