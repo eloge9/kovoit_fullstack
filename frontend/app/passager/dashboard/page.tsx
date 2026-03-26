@@ -40,12 +40,6 @@ export default function PassagerDashboard() {
                         })}
                     </p>
                 </div>
-                <Link
-                    href="/passager/trajets"
-                    className="btn btn-primary btn-sm rounded-full px-6 w-fit"
-                >
-                    Rechercher un trajet
-                </Link>
             </div>
 
             {/* BARRE DE RECHERCHE */}
@@ -116,8 +110,8 @@ export default function PassagerDashboard() {
                                     </p>
                                 </div>
                                 <span className={`badge badge-sm rounded-full font-medium ${resa.statut === "confirmé"
-                                        ? "badge-success badge-outline"
-                                        : "badge-warning badge-outline"
+                                    ? "badge-success badge-outline"
+                                    : "badge-warning badge-outline"
                                     }`}>
                                     {resa.statut}
                                 </span>

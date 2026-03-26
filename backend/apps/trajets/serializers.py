@@ -1,11 +1,13 @@
 from rest_framework import serializers
+from django.utils import timezone
 from ..modeles.models import Trajet
 
 
 class TrajetSerializer(serializers.ModelSerializer):
-    conducteur_nom = serializers.SerializerMethodField()
-    conducteur_note = serializers.SerializerMethodField()
+    conducteur_nom   = serializers.SerializerMethodField()
+    conducteur_note  = serializers.SerializerMethodField()
     places_restantes = serializers.SerializerMethodField()
+    type_vehicule    = serializers.SerializerMethodField()
 
     class Meta:
         model = Trajet
@@ -13,11 +15,10 @@ class TrajetSerializer(serializers.ModelSerializer):
             'id', 'conducteur', 'conducteur_nom', 'conducteur_note',
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
-            'escales',
-            'distance_km', 'prix_par_place',
+            'distance_km', 'cout_total', 'prix_par_place',
             'date_heure_depart', 'places_disponibles', 'places_restantes',
             'description', 'est_regulier', 'jours_semaine',
-            'statut', 'created_at',
+            'statut', 'created_at', 'type_vehicule',
         ]
         read_only_fields = ['conducteur', 'created_at', 'updated_at']
 
@@ -28,9 +29,14 @@ class TrajetSerializer(serializers.ModelSerializer):
         return obj.conducteur.note
 
     def get_places_restantes(self, obj):
-        # places_disponibles - réservations confirmées
         reservations_confirmees = obj.reservations.filter(statut='confirmee').count()
         return obj.places_disponibles - reservations_confirmees
+
+    def get_type_vehicule(self, obj):
+        try:
+            return obj.conducteur.profil_conducteur.type_vehicule
+        except Exception:
+            return None
 
 
 class TrajetCreateSerializer(serializers.ModelSerializer):
@@ -39,8 +45,7 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         fields = [
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
-            'escales',
-            'distance_km', 'prix_par_place',
+            'distance_km', 'cout_total', 'prix_par_place',
             'date_heure_depart', 'places_disponibles',
             'description', 'est_regulier', 'jours_semaine',
         ]
@@ -52,19 +57,11 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Maximum 8 places.")
         return value
 
-    def validate_distance_km(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("La distance doit être positive.")
-        return value
-
     def validate(self, attrs):
-        # Vérifier que la date est dans le futur
-        from django.utils import timezone
         if attrs.get('date_heure_depart') and attrs['date_heure_depart'] < timezone.now():
             raise serializers.ValidationError(
                 {"date_heure_depart": "La date de départ doit être dans le futur."}
             )
-        # Si trajet régulier, jours_semaine obligatoire
         if attrs.get('est_regulier') and not attrs.get('jours_semaine'):
             raise serializers.ValidationError(
                 {"jours_semaine": "Sélectionnez au moins un jour pour un trajet régulier."}
@@ -72,6 +69,5 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        # Le conducteur est injecté depuis la vue (request.user)
         validated_data['conducteur'] = self.context['request'].user
         return super().create(validated_data)

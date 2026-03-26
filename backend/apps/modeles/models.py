@@ -65,20 +65,43 @@ class Trajet(models.Model):
     conducteur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='trajets')
     depart = models.CharField(max_length=255)
     destination = models.CharField(max_length=255)
+
+    # Coordonnées GPS (alignées avec les migrations et serializer)
+    depart_lat = models.FloatField()
+    depart_lng = models.FloatField()
+    destination_lat = models.FloatField()
+    destination_lng = models.FloatField()
+
+    # Champs supplémentaires ajoutés par migrations
+    distance_km = models.FloatField(null=True, blank=True)
+    cout_total = models.FloatField(null=True, blank=True)
+    escales = models.JSONField(default=list, blank=True)
+    est_regulier = models.BooleanField(default=False)
+    jours_semaine = models.JSONField(blank=True, null=True)
+
     date_heure_depart = models.DateTimeField()
     places_disponibles = models.IntegerField()
     prix_par_place = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField(blank=True)
-    statut = models.CharField(max_length=20, choices=(
-        ('ouvert', 'Ouvert'),
-        ('termine', 'Terminé'),
-        ('annule', 'Annulé')
-    ), default='ouvert')
+    statut = models.CharField(
+        max_length=20,
+        choices=(
+            ('ouvert', 'Ouvert'),
+            ('termine', 'Terminé'),
+            ('annule', 'Annulé')
+        ),
+        default='ouvert'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['-date_heure_depart']
+
     def __str__(self):
         return f"{self.depart} → {self.destination} ({self.conducteur.username})"
+
+
 
 
 # ----------------- Réservation -----------------
