@@ -13,7 +13,6 @@ import {
 
 const MapRecherche = dynamic(() => import("@/components/MapRecherche"), { ssr: false });
 
-// ─── Types ────────────────────────────────────────────────────────────────
 interface LieuSelectionne {
     nom: string;
     lat: number;
@@ -22,11 +21,10 @@ interface LieuSelectionne {
 
 type TriOption = "pertinence" | "prix_asc" | "prix_desc" | "date" | "places";
 
-// ─── Autocomplete ─────────────────────────────────────────────────────────
+// ─── Autocomplete lieu ────────────────────────────────────────────────────
 function AutocompleteInput({
-    label, placeholder, value, onSelect, onClear,
+    placeholder, value, onSelect, onClear,
 }: {
-    label: string;
     placeholder: string;
     value: LieuSelectionne | null;
     onSelect: (lieu: LieuSelectionne) => void;
@@ -90,7 +88,7 @@ function AutocompleteInput({
                         value={query}
                         onChange={handleChange}
                         placeholder={placeholder}
-                        className={`input input-bordered input-sm w-full rounded-xl bg-white/10 backdrop-blur-sm border-white/20 text-white placeholder-white/50 focus:bg-white focus:text-base-content focus:placeholder-base-content/40 transition-all pr-8 ${value ? "bg-white/20 border-white/40" : ""
+                        className={`input input-bordered input-sm w-full rounded-xl bg-white/10 border-white/20 text-white placeholder-white/50 focus:bg-white focus:text-base-content focus:placeholder-base-content/40 transition-all pr-8 ${value ? "bg-white/20 border-white/40" : ""
                             }`}
                     />
                     {loading && (
@@ -135,12 +133,13 @@ function AutocompleteInput({
 export default function RechercherTrajetPage() {
     const router = useRouter();
 
+    // Filtres — tous vides par défaut, rien de présélectionné
     const [depart, setDepart] = useState<LieuSelectionne | null>(null);
     const [destination, setDestination] = useState<LieuSelectionne | null>(null);
     const [date, setDate] = useState("");
-    const [places, setPlaces] = useState(1);
+    const [placesInput, setPlacesInput] = useState("");   // texte libre, pas de valeur par défaut
     const [typeVehicule, setTypeVehicule] = useState("");
-    const [tri, setTri] = useState<TriOption>("pertinence");
+    const [tri, setTri] = useState<TriOption>("date");
 
     const [tousLesTrajets, setTousLesTrajets] = useState<Trajet[]>([]);
     const [loading, setLoading] = useState(true);
@@ -148,38 +147,53 @@ export default function RechercherTrajetPage() {
 
     const TYPES = ["", "voiture", "moto", "minibus", "camion"];
     const TYPES_LABELS: Record<string, string> = {
-        "": "Tous", voiture: "Voiture", moto: "Moto", minibus: "Minibus", camion: "Camion"
+        "": "Tous", voiture: "Voiture", moto: "Moto", minibus: "Minibus", camion: "Camion",
     };
+
+    const TRI_OPTIONS: { value: TriOption; label: string }[] = [
+        { value: "date", label: "Date" },
+        { value: "pertinence", label: "Pertinence" },
+        { value: "prix_asc", label: "Prix ↑" },
+        { value: "prix_desc", label: "Prix ↓" },
+        { value: "places", label: "Places" },
+    ];
 
     // Charger tous les trajets au démarrage
     useEffect(() => {
-        const fetchTous = async () => {
+        const fetch = async () => {
             setLoading(true);
             try {
                 const data = await rechercherTrajets({});
-                setTousLesTrajets(data);
+                setTousLesTrajets(Array.isArray(data) ? data : []);
+            } catch {
+                setTousLesTrajets([]);
             } finally {
                 setLoading(false);
             }
         };
-        fetchTous();
+        fetch();
     }, []);
 
-    // Filtrage + tri en temps réel (côté frontend)
+    // Nombre de places demandées (0 = pas de filtre)
+    const placesRecherchees = parseInt(placesInput) || 0;
+
+    // Filtrage + tri en temps réel côté frontend
     const trajetsFiltres = useMemo(() => {
         let result = [...tousLesTrajets];
 
-        // Filtre départ
+        // Filtre départ — recherche partielle insensible à la casse
         if (depart) {
+            const motDepart = depart.nom.split(",")[0].toLowerCase().trim();
             result = result.filter((t) =>
-                t.depart.toLowerCase().includes(depart.nom.split(",")[0].toLowerCase())
+                t.depart.toLowerCase().includes(motDepart)
             );
         }
 
         // Filtre destination
         if (destination) {
+            const motDest = destination.nom.split(",")[0].toLowerCase().trim();
             result = result.filter((t) =>
-                t.destination.toLowerCase().includes(destination.nom.split(",")[0].toLowerCase())
+                t.destination.toLowerCase().includes(motDest)
             );
         }
 
@@ -190,17 +204,19 @@ export default function RechercherTrajetPage() {
             );
         }
 
-        // Filtre places
-        if (places > 1) {
-            result = result.filter((t) =>
-                (t.places_restantes ?? t.places_disponibles) >= places
-            );
+        // Filtre places — le trajet doit avoir AU MOINS autant de places restantes
+        // que ce que le passager recherche
+        if (placesRecherchees > 0) {
+            result = result.filter((t) => {
+                const restantes = t.places_restantes ?? t.places_disponibles;
+                return restantes >= placesRecherchees;
+            });
         }
 
-        // Filtre type véhicule
+        // Filtre type de véhicule
         if (typeVehicule) {
             result = result.filter((t) =>
-                t.type_vehicule?.toLowerCase().includes(typeVehicule)
+                t.type_vehicule?.toLowerCase().includes(typeVehicule.toLowerCase())
             );
         }
 
@@ -224,23 +240,24 @@ export default function RechercherTrajetPage() {
                 break;
             case "pertinence":
             default:
-                // Trajets où départ ET destination correspondent en premier
                 if (depart || destination) {
                     result.sort((a, b) => {
-                        const scoreA =
-                            (depart && a.depart.toLowerCase().includes(depart.nom.split(",")[0].toLowerCase()) ? 1 : 0) +
-                            (destination && a.destination.toLowerCase().includes(destination.nom.split(",")[0].toLowerCase()) ? 1 : 0);
-                        const scoreB =
-                            (depart && b.depart.toLowerCase().includes(depart.nom.split(",")[0].toLowerCase()) ? 1 : 0) +
-                            (destination && b.destination.toLowerCase().includes(destination.nom.split(",")[0].toLowerCase()) ? 1 : 0);
-                        return scoreB - scoreA;
+                        const motD = depart?.nom.split(",")[0].toLowerCase() || "";
+                        const motA = destination?.nom.split(",")[0].toLowerCase() || "";
+                        const sA =
+                            (motD && a.depart.toLowerCase().includes(motD) ? 1 : 0) +
+                            (motA && a.destination.toLowerCase().includes(motA) ? 1 : 0);
+                        const sB =
+                            (motD && b.depart.toLowerCase().includes(motD) ? 1 : 0) +
+                            (motA && b.destination.toLowerCase().includes(motA) ? 1 : 0);
+                        return sB - sA;
                     });
                 }
                 break;
         }
 
         return result;
-    }, [tousLesTrajets, depart, destination, date, places, typeVehicule, tri]);
+    }, [tousLesTrajets, depart, destination, date, placesRecherchees, typeVehicule, tri]);
 
     const formatDate = (iso: string) =>
         new Date(iso).toLocaleDateString("fr-FR", {
@@ -248,54 +265,43 @@ export default function RechercherTrajetPage() {
             hour: "2-digit", minute: "2-digit",
         });
 
-    const TRI_OPTIONS: { value: TriOption; label: string }[] = [
-        { value: "pertinence", label: "Pertinence" },
-        { value: "date", label: "Date" },
-        { value: "prix_asc", label: "Prix ↑" },
-        { value: "prix_desc", label: "Prix ↓" },
-        { value: "places", label: "Places" },
-    ];
+    const aDesF = depart || destination || date || placesInput || typeVehicule;
+
+    const reinitialiser = () => {
+        setDepart(null);
+        setDestination(null);
+        setDate("");
+        setPlacesInput("");
+        setTypeVehicule("");
+    };
 
     return (
         <div className="space-y-0 -mt-8 -mx-4 lg:-mx-8">
 
-            {/* ── HERO RECHERCHE — style Togo ───────────────────────── */}
+            {/* ── HERO RECHERCHE ────────────────────────────────────── */}
             <div
                 className="relative px-4 lg:px-8 pt-10 pb-8"
-                style={{
-                    background: "linear-gradient(135deg, #1e3a5f 0%, #2d6a4f 50%, #1e3a5f 100%)",
-                }}
+                style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #2d6a4f 50%, #1e3a5f 100%)" }}
             >
-                {/* Motif de fond discret */}
-                <div className="absolute inset-0 opacity-5"
-                    style={{
-                        backgroundImage: `repeating-linear-gradient(
-                            45deg,
-                            transparent,
-                            transparent 20px,
-                            rgba(255,255,255,0.3) 20px,
-                            rgba(255,255,255,0.3) 21px
-                        )`
-                    }}
-                />
+                <div className="absolute inset-0 opacity-5" style={{
+                    backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(255,255,255,0.3) 20px, rgba(255,255,255,0.3) 21px)`
+                }} />
 
                 <div className="relative max-w-4xl mx-auto">
-                    <p className="text-white/60 text-xs uppercase tracking-widest font-medium mb-2">
-                        Passager
-                    </p>
-                    <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
-                        Où allez-vous ?
-                    </h1>
+                    <p className="text-white/60 text-xs uppercase tracking-widest font-medium mb-2">Passager</p>
+                    <h1 className="text-2xl font-bold text-white tracking-tight mb-1">Où allez-vous ?</h1>
                     <p className="text-white/50 text-sm mb-6">
-                        {tousLesTrajets.length} trajet{tousLesTrajets.length > 1 ? "s" : ""} disponible{tousLesTrajets.length > 1 ? "s" : ""} au Togo
+                        {loading
+                            ? "Chargement des trajets..."
+                            : `${tousLesTrajets.length} trajet${tousLesTrajets.length > 1 ? "s" : ""} disponible${tousLesTrajets.length > 1 ? "s" : ""} au Togo`
+                        }
                     </p>
 
-                    {/* Formulaire recherche */}
+                    {/* Filtres */}
                     <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                         <div>
                             <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">Départ</p>
                             <AutocompleteInput
-                                label=""
                                 placeholder="D'où partez-vous ?"
                                 value={depart}
                                 onSelect={setDepart}
@@ -305,7 +311,6 @@ export default function RechercherTrajetPage() {
                         <div>
                             <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">Destination</p>
                             <AutocompleteInput
-                                label=""
                                 placeholder="Où allez-vous ?"
                                 value={destination}
                                 onSelect={setDestination}
@@ -323,17 +328,17 @@ export default function RechercherTrajetPage() {
                             />
                         </div>
                         <div>
-                            <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">Places</p>
+                            <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">
+                                Nombre de places
+                            </p>
                             <input
                                 type="number"
                                 min={1}
                                 max={8}
-                                value={places}
-                                onChange={(e) => {
-                                    const v = parseInt(e.target.value);
-                                    if (!isNaN(v)) setPlaces(v);
-                                }}
-                                className="input input-sm w-full rounded-xl bg-white/10 border-white/20 text-white focus:bg-white focus:text-base-content transition-all"
+                                value={placesInput}
+                                placeholder="Ex: 2"
+                                onChange={(e) => setPlacesInput(e.target.value)}
+                                className="input input-sm w-full rounded-xl bg-white/10 border-white/20 text-white placeholder-white/40 focus:bg-white focus:text-base-content transition-all"
                             />
                         </div>
                     </div>
@@ -344,15 +349,27 @@ export default function RechercherTrajetPage() {
                         {TYPES.map((t) => (
                             <button
                                 key={t}
-                                onClick={() => setTypeVehicule(t)}
-                                className={`btn btn-xs rounded-full transition-all ${typeVehicule === t
+                                onClick={() => setTypeVehicule(t === typeVehicule ? "" : t)}
+                                className={`btn btn-xs rounded-full transition-all ${typeVehicule === t && t !== ""
                                         ? "bg-white text-base-content border-white font-semibold"
-                                        : "bg-white/10 text-white border-white/20 hover:bg-white/20"
+                                        : t === "" && typeVehicule === ""
+                                            ? "bg-white text-base-content border-white font-semibold"
+                                            : "bg-white/10 text-white border-white/20 hover:bg-white/20"
                                     }`}
                             >
                                 {TYPES_LABELS[t]}
                             </button>
                         ))}
+
+                        {/* Réinitialiser */}
+                        {aDesF && (
+                            <button
+                                onClick={reinitialiser}
+                                className="btn btn-xs rounded-full bg-white/5 text-white/50 border-white/10 hover:bg-white/20 ml-2"
+                            >
+                                Effacer les filtres
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -369,26 +386,22 @@ export default function RechercherTrajetPage() {
                         ) : (
                             <>
                                 <span className="font-semibold text-base-content">{trajetsFiltres.length}</span>
-                                {" "}trajet{trajetsFiltres.length > 1 ? "s" : ""} trouvé{trajetsFiltres.length > 1 ? "s" : ""}
-                                {(depart || destination) && (
+                                {" "}trajet{trajetsFiltres.length > 1 ? "s" : ""} affiché{trajetsFiltres.length > 1 ? "s" : ""}
+                                {aDesF && (
                                     <span className="text-base-content/30 ml-1">
-                                        {depart && `depuis ${depart.nom.split(",")[0]}`}
-                                        {depart && destination && " → "}
-                                        {destination && destination.nom.split(",")[0]}
+                                        sur {tousLesTrajets.length} disponible{tousLesTrajets.length > 1 ? "s" : ""}
                                     </span>
                                 )}
                             </>
                         )}
                     </p>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs text-base-content/40 mr-1">Trier :</span>
                         {TRI_OPTIONS.map((opt) => (
                             <button
                                 key={opt.value}
                                 onClick={() => setTri(opt.value)}
-                                className={`btn btn-xs rounded-full transition-all ${tri === opt.value
-                                        ? "btn-primary"
-                                        : "btn-ghost border border-base-300"
+                                className={`btn btn-xs rounded-full transition-all ${tri === opt.value ? "btn-primary" : "btn-ghost border border-base-300"
                                     }`}
                             >
                                 {opt.label}
@@ -406,7 +419,7 @@ export default function RechercherTrajetPage() {
                         {/* Liste trajets */}
                         <div className="lg:col-span-3 space-y-3 pb-8">
 
-                            {/* Skeleton */}
+                            {/* Skeleton chargement */}
                             {loading && [1, 2, 3, 4].map((i) => (
                                 <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-5 animate-pulse">
                                     <div className="h-4 bg-base-300 rounded w-1/2 mb-3" />
@@ -419,97 +432,116 @@ export default function RechercherTrajetPage() {
                             {!loading && trajetsFiltres.length === 0 && (
                                 <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
                                     <p className="text-base-content/40 text-sm">
-                                        Aucun trajet ne correspond à vos critères.
+                                        {tousLesTrajets.length === 0
+                                            ? "Aucun trajet disponible pour le moment."
+                                            : "Aucun trajet ne correspond à vos critères."
+                                        }
                                     </p>
-                                    <p className="text-base-content/30 text-xs mt-1">
-                                        Essayez une autre date ou modifiez vos filtres.
-                                    </p>
-                                    {(depart || destination || date) && (
+                                    {aDesF && (
                                         <button
-                                            onClick={() => {
-                                                setDepart(null);
-                                                setDestination(null);
-                                                setDate("");
-                                                setPlaces(1);
-                                                setTypeVehicule("");
-                                            }}
+                                            onClick={reinitialiser}
                                             className="btn btn-ghost btn-sm rounded-full mt-4 border border-base-300"
                                         >
-                                            Réinitialiser les filtres
+                                            Voir tous les trajets
                                         </button>
                                     )}
                                 </div>
                             )}
 
                             {/* Cartes trajets */}
-                            {!loading && trajetsFiltres.map((trajet) => (
-                                <div
-                                    key={trajet.id}
-                                    onMouseEnter={() => setTrajetSurvole(trajet)}
-                                    onMouseLeave={() => setTrajetSurvole(null)}
-                                    onClick={() => router.push(`/passager/trajets/${trajet.id}`)}
-                                    className={`bg-base-100 rounded-2xl border overflow-hidden cursor-pointer transition-all hover:shadow-md ${trajetSurvole?.id === trajet.id
-                                            ? "border-primary shadow-md"
-                                            : "border-base-200"
-                                        }`}
-                                >
-                                    <div className="p-5">
-                                        <div className="flex items-start justify-between gap-4 mb-3">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-semibold text-base-content text-base">
-                                                    {trajet.depart}
-                                                    <span className="text-base-content/25 mx-2 font-light">→</span>
-                                                    {trajet.destination}
-                                                </p>
-                                                <p className="text-xs text-base-content/40 mt-0.5">
-                                                    {formatDate(trajet.date_heure_depart)}
-                                                </p>
+                            {!loading && trajetsFiltres.map((trajet) => {
+                                const placesRestantes = trajet.places_restantes ?? trajet.places_disponibles;
+                                return (
+                                    <div
+                                        key={trajet.id}
+                                        onMouseEnter={() => setTrajetSurvole(trajet)}
+                                        onMouseLeave={() => setTrajetSurvole(null)}
+                                        onClick={() => router.push(`/passager/trajets/${trajet.id}`)}
+                                        className={`bg-base-100 rounded-2xl border overflow-hidden cursor-pointer transition-all hover:shadow-md ${trajetSurvole?.id === trajet.id
+                                                ? "border-primary shadow-md"
+                                                : "border-base-200"
+                                            }`}
+                                    >
+                                        <div className="p-5">
+                                            <div className="flex items-start justify-between gap-4 mb-3">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-semibold text-base-content">
+                                                        {trajet.depart}
+                                                        <span className="text-base-content/25 mx-2 font-light">→</span>
+                                                        {trajet.destination}
+                                                    </p>
+                                                    <p className="text-xs text-base-content/40 mt-0.5">
+                                                        {formatDate(trajet.date_heure_depart)}
+                                                    </p>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <p className="text-xl font-bold text-primary leading-none">
+                                                        {Number(trajet.prix_par_place).toLocaleString("fr-FR")}
+                                                    </p>
+                                                    <p className="text-xs text-base-content/40 mt-0.5">FCFA / place</p>
+                                                </div>
                                             </div>
-                                            <div className="text-right shrink-0">
-                                                <p className="text-xl font-bold text-primary leading-none">
-                                                    {Number(trajet.prix_par_place).toLocaleString("fr-FR")}
-                                                </p>
-                                                <p className="text-xs text-base-content/40 mt-0.5">FCFA / place</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-4 flex-wrap">
-                                            <div className="flex items-center gap-1">
-                                                <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
-                                                    <span className="text-xs font-bold text-primary">
-                                                        {trajet.conducteur_nom?.[0]}
+                                            <div className="flex items-center gap-4 flex-wrap">
+                                                {/* Conducteur */}
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                                        <span className="text-xs font-bold text-primary">
+                                                            {trajet.conducteur_nom?.[0]?.toUpperCase()}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-xs text-base-content/60">
+                                                        {trajet.conducteur_nom}
                                                     </span>
                                                 </div>
-                                                <span className="text-xs text-base-content/60">{trajet.conducteur_nom}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <div className="flex gap-0.5">
-                                                    {[1, 2, 3, 4, 5].map((s) => (
-                                                        <div key={s} className={`w-2 h-2 rounded-sm ${s <= Math.round(trajet.conducteur_note)
-                                                                ? "bg-warning"
-                                                                : "bg-base-300"
-                                                            }`} />
-                                                    ))}
+
+                                                {/* Note */}
+                                                <div className="flex items-center gap-1">
+                                                    <div className="flex gap-0.5">
+                                                        {[1, 2, 3, 4, 5].map((s) => (
+                                                            <div key={s} className={`w-2 h-2 rounded-sm ${s <= Math.round(trajet.conducteur_note)
+                                                                    ? "bg-warning" : "bg-base-300"
+                                                                }`} />
+                                                        ))}
+                                                    </div>
+                                                    <span className="text-xs text-base-content/40">
+                                                        {trajet.conducteur_note}/5
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs text-base-content/40">{trajet.conducteur_note}/5</span>
-                                            </div>
-                                            <span className="text-xs text-base-content/40">
-                                                {trajet.places_restantes ?? trajet.places_disponibles} place{(trajet.places_restantes ?? trajet.places_disponibles) > 1 ? "s" : ""} dispo
-                                            </span>
-                                            {trajet.distance_km && (
-                                                <span className="text-xs text-base-content/40">
-                                                    {trajet.distance_km} km
+
+                                                {/* Places */}
+                                                <span className={`text-xs font-medium ${placesRestantes <= 1 ? "text-error" : "text-base-content/50"
+                                                    }`}>
+                                                    {placesRestantes} place{placesRestantes > 1 ? "s" : ""} dispo
                                                 </span>
-                                            )}
+
+                                                {/* Distance */}
+                                                {trajet.distance_km && (
+                                                    <span className="text-xs text-base-content/40">
+                                                        {trajet.distance_km} km
+                                                    </span>
+                                                )}
+
+                                                {/* Type véhicule */}
+                                                {trajet.type_vehicule && (
+                                                    <span className="text-xs text-base-content/40 capitalize">
+                                                        {trajet.type_vehicule}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="px-5 py-2.5 bg-base-200/40 border-t border-base-200 flex items-center justify-between">
+                                            <span className="badge badge-success badge-outline badge-sm rounded-full">
+                                                ouvert
+                                            </span>
+                                            <span className="text-xs text-primary font-medium">
+                                                Voir le trajet →
+                                            </span>
                                         </div>
                                     </div>
-
-                                    <div className="px-5 py-2.5 bg-base-200/40 border-t border-base-200 flex items-center justify-between">
-                                        <span className="badge badge-success badge-outline badge-sm rounded-full">ouvert</span>
-                                        <span className="text-xs text-primary font-medium">Voir le trajet →</span>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         {/* Carte sticky */}
@@ -525,7 +557,7 @@ export default function RechercherTrajetPage() {
                                 </div>
                                 <div className="h-[calc(100vh-220px)] min-h-[400px]">
                                     <MapRecherche
-                                        trajets={trajetsFiltres}
+                                        trajets={trajetsFiltres ?? []}
                                         trajetSurvole={trajetSurvole}
                                         depart={depart}
                                         destination={destination}

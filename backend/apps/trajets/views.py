@@ -74,7 +74,6 @@ class TrajetViewSet(viewsets.ModelViewSet):
     def rechercher(self, request):
         queryset = Trajet.objects.filter(
             statut='ouvert',
-            date_heure_depart__gte=timezone.now()
         ).select_related('conducteur', 'conducteur__profil_conducteur')
 
         depart        = request.query_params.get('depart')
