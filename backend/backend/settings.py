@@ -133,6 +133,10 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# media files (pour les photos de profil)
+MEDIA_URL  = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 #rest framework
 
 REST_FRAMEWORK = {
