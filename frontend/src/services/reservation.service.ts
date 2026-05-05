@@ -9,6 +9,8 @@ export interface Reservation {
   destination: string;
   date_depart: string;
   conducteur: string;
+  passager_nom?: string;
+  passager_note?: number;
   prix_par_place: number;
   statut: "en_attente" | "confirmee" | "declinee";
   date_reservation: string;
@@ -21,6 +23,13 @@ export const reserver = (data: { trajet_id: number }) =>
 // Passager — mes réservations
 export const mesReservations = () =>
   api("/reservations/mes_reservations/", "GET");
+
+// Passager — annuler une réservation en attente
+export const annulerReservation = (id: number) =>
+  api(`/reservations/${id}/annuler/`, "POST");
+
+// Conducteur — réservations reçues
+export const reservationsRecues = () => api("/reservations/recues/", "GET");
 
 // Conducteur — confirmer une réservation
 export const confirmerReservation = (id: number) =>

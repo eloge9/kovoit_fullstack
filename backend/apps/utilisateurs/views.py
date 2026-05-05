@@ -1,11 +1,11 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 
-from ..modeles.models import Utilisateur
+from ..modeles.models import Utilisateur,Vehicule, Conducteur, PLACES_MAX_PAR_TYPE
 from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer
 
 
@@ -151,3 +151,78 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
                             status=status.HTTP_204_NO_CONTENT)
         except Utilisateur.DoesNotExist:
             return Response({"error": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        
+    @action(detail=False, methods=['get'], url_path='vehicules')
+    def vehicules(self, request):
+        try:
+            conducteur = request.user.profil_conducteur
+        except Exception:
+            return Response({"error": "Profil conducteur introuvable."}, status=403)
+ 
+        vehicules = Vehicule.objects.filter(conducteur=conducteur).order_by('created_at')
+        data = [{
+            "id":            v.id,
+            "type_vehicule": v.type_vehicule,
+            "marque":        v.marque,
+            "modele":        v.modele,
+            "couleur":       v.couleur,
+            "plaque":        v.plaque,
+            "places_max":    v.places_max,
+            "est_actif":     v.est_actif,
+        } for v in vehicules]
+        return Response(data)
+ 
+    # ── Ajouter un véhicule ───────────────────────────────────────────────
+    @action(detail=False, methods=['post'], url_path='vehicules/ajouter')
+    def ajouter_vehicule(self, request):
+        try:
+            conducteur = request.user.profil_conducteur
+        except Exception:
+            return Response({"error": "Profil conducteur introuvable."}, status=403)
+ 
+        required = ['type_vehicule', 'marque', 'modele', 'couleur', 'plaque']
+        for field in required:
+            if not request.data.get(field):
+                return Response({field: "Ce champ est requis."}, status=400)
+ 
+        type_v = request.data.get('type_vehicule')
+        if type_v not in PLACES_MAX_PAR_TYPE:
+            return Response({"type_vehicule": "Type invalide. Choisir parmi : moto, voiture, minibus, camion."}, status=400)
+ 
+        if Vehicule.objects.filter(plaque=request.data.get('plaque')).exists():
+            return Response({"plaque": "Cette plaque est déjà enregistrée."}, status=400)
+ 
+        vehicule = Vehicule.objects.create(
+            conducteur=conducteur,
+            type_vehicule=type_v,
+            marque=request.data.get('marque'),
+            modele=request.data.get('modele'),
+            couleur=request.data.get('couleur'),
+            plaque=request.data.get('plaque'),
+            places_max=request.data.get('places_max') or PLACES_MAX_PAR_TYPE[type_v],
+        )
+        return Response({
+            "id":            vehicule.id,
+            "type_vehicule": vehicule.type_vehicule,
+            "marque":        vehicule.marque,
+            "modele":        vehicule.modele,
+            "couleur":       vehicule.couleur,
+            "plaque":        vehicule.plaque,
+            "places_max":    vehicule.places_max,
+            "est_actif":     vehicule.est_actif,
+        }, status=201)
+ 
+    # ── Désactiver un véhicule ────────────────────────────────────────────
+    @action(detail=True, methods=['post'], url_path='desactiver')
+    def desactiver_vehicule(self, request, pk=None):
+        try:
+            conducteur = request.user.profil_conducteur
+            vehicule   = Vehicule.objects.get(pk=pk, conducteur=conducteur)
+        except Vehicule.DoesNotExist:
+            return Response({"error": "Véhicule introuvable."}, status=404)
+        except Exception:
+            return Response({"error": "Non autorisé."}, status=403)
+ 
+        vehicule.est_actif = False
+        vehicule.save()
+        return Response({"message": "Véhicule désactivé."})

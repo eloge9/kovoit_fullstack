@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from ..modeles.models import Trajet
+from ..modeles.models import Trajet, Vehicule
 
 
 class TrajetSerializer(serializers.ModelSerializer):
@@ -8,17 +8,19 @@ class TrajetSerializer(serializers.ModelSerializer):
     conducteur_note  = serializers.SerializerMethodField()
     places_restantes = serializers.SerializerMethodField()
     type_vehicule    = serializers.SerializerMethodField()
+    vehicule_info    = serializers.SerializerMethodField()
 
     class Meta:
-        model = Trajet
+        model  = Trajet
         fields = [
             'id', 'conducteur', 'conducteur_nom', 'conducteur_note',
+            'vehicule', 'vehicule_info', 'type_vehicule',
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
             'distance_km', 'cout_total', 'prix_par_place',
             'date_heure_depart', 'places_disponibles', 'places_restantes',
             'description', 'est_regulier', 'jours_semaine',
-            'statut', 'created_at', 'type_vehicule',
+            'statut', 'created_at',
         ]
         read_only_fields = ['conducteur', 'created_at', 'updated_at']
 
@@ -29,20 +31,33 @@ class TrajetSerializer(serializers.ModelSerializer):
         return obj.conducteur.note
 
     def get_places_restantes(self, obj):
-        reservations_confirmees = obj.reservations.filter(statut='confirmee').count()
-        return obj.places_disponibles - reservations_confirmees
+        confirmees = obj.reservations.filter(statut='confirmee').count()
+        return obj.places_disponibles - confirmees
 
     def get_type_vehicule(self, obj):
-        try:
-            return obj.conducteur.profil_conducteur.type_vehicule
-        except Exception:
-            return None
+        return obj.vehicule.type_vehicule if obj.vehicule else None
+
+    def get_vehicule_info(self, obj):
+        if obj.vehicule:
+            return {
+                "id":            obj.vehicule.id,
+                "type_vehicule": obj.vehicule.type_vehicule,
+                "marque":        obj.vehicule.marque,
+                "modele":        obj.vehicule.modele,
+                "couleur":       obj.vehicule.couleur,
+                "plaque":        obj.vehicule.plaque,
+                "places_max":    obj.vehicule.places_max,
+            }
+        return None
 
 
 class TrajetCreateSerializer(serializers.ModelSerializer):
+    vehicule_id = serializers.IntegerField(write_only=True)
+
     class Meta:
-        model = Trajet
+        model  = Trajet
         fields = [
+            'vehicule_id',
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
             'distance_km', 'cout_total', 'prix_par_place',
@@ -50,18 +65,41 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
             'description', 'est_regulier', 'jours_semaine',
         ]
 
+    def validate_vehicule_id(self, value):
+        try:
+            vehicule = Vehicule.objects.get(pk=value)
+        except Vehicule.DoesNotExist:
+            raise serializers.ValidationError("Véhicule introuvable.")
+        request = self.context.get('request')
+        if request and vehicule.conducteur.utilisateur != request.user:
+            raise serializers.ValidationError("Ce véhicule ne vous appartient pas.")
+        if not vehicule.est_actif:
+            raise serializers.ValidationError("Ce véhicule est désactivé.")
+        return value
+
     def validate_places_disponibles(self, value):
         if value < 1:
             raise serializers.ValidationError("Il faut au moins 1 place.")
-        if value > 8:
-            raise serializers.ValidationError("Maximum 8 places.")
         return value
 
     def validate(self, attrs):
+        vehicule_id = attrs.get('vehicule_id')
+        places      = attrs.get('places_disponibles')
+        if vehicule_id and places:
+            try:
+                vehicule = Vehicule.objects.get(pk=vehicule_id)
+                if places > vehicule.places_max:
+                    raise serializers.ValidationError({
+                        "places_disponibles": f"Maximum {vehicule.places_max} place(s) pour ce véhicule."
+                    })
+            except Vehicule.DoesNotExist:
+                pass
+
         if attrs.get('date_heure_depart') and attrs['date_heure_depart'] < timezone.now():
             raise serializers.ValidationError(
                 {"date_heure_depart": "La date de départ doit être dans le futur."}
             )
+
         if attrs.get('est_regulier') and not attrs.get('jours_semaine'):
             raise serializers.ValidationError(
                 {"jours_semaine": "Sélectionnez au moins un jour pour un trajet régulier."}
@@ -69,5 +107,8 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        vehicule_id = validated_data.pop('vehicule_id')
+        vehicule    = Vehicule.objects.get(pk=vehicule_id)
         validated_data['conducteur'] = self.context['request'].user
+        validated_data['vehicule']   = vehicule
         return super().create(validated_data)

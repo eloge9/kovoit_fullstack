@@ -72,15 +72,6 @@ class ReservationViewSet(viewsets.GenericViewSet):
         reservation.statut = 'confirmee'
         reservation.save()
 
-        trajet = reservation.trajet
-        nb_passagers = trajet.reservations.filter(statut='confirmee').count()
-        if nb_passagers > 0 and trajet.cout_total:
-            nouveau_prix = round(float(trajet.cout_total) / nb_passagers)
-            trajet.prix_par_place = nouveau_prix
-            trajet.save()
-        else:
-            nouveau_prix = float(trajet.prix_par_place)
-
         return Response({
             "message": "Réservation confirmée.",
             "nouveau_prix_par_place": nouveau_prix,
@@ -110,3 +101,26 @@ class ReservationViewSet(viewsets.GenericViewSet):
             trajet.save()
 
         return Response({"message": "Réservation déclinée."})
+    
+        # ── Passager — annuler sa réservation ────────────────────────────────
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, pk=None):
+        try:
+            reservation = Reservation.objects.select_related('trajet').get(pk=pk)
+        except Reservation.DoesNotExist:
+            return Response({"error": "Réservation introuvable."}, status=404)
+ 
+        # Seul le passager peut annuler sa propre réservation
+        if reservation.passager != request.user:
+            return Response({"error": "Non autorisé."}, status=403)
+ 
+        # On ne peut annuler que si en attente
+        if reservation.statut != 'en_attente':
+            return Response(
+                {"error": "Seules les réservations en attente peuvent être annulées."},
+                status=400
+            )
+ 
+        reservation.delete()
+ 
+        return Response({"message": "Réservation annulée avec succès."})

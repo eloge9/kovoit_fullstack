@@ -3,37 +3,53 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-
 import { inscription } from "@/src/services/auth.service";
 import { useAuth } from "@/src/hooks/useAuth";
+import { PLACES_MAX_PAR_TYPE } from "@/src/services/trajet.service";
 
 type Role = "passager" | "conducteur";
 
+const TYPES_VEHICULE = [
+    { value: "moto", label: "Moto", places: 1, tarif: "30 FCFA/km" },
+    { value: "voiture", label: "Voiture", places: 5, tarif: "65 FCFA/km" },
+    { value: "minibus", label: "Minibus", places: 15, tarif: "120 FCFA/km" },
+    { value: "camion", label: "Camion", places: 3, tarif: "200 FCFA/km" },
+];
+
 interface InscriptionForm {
+    // Compte
     username: string;
+    first_name: string;
+    last_name: string;
     email: string;
     password: string;
     password2: string;
     role: Role;
     numero_telephone: string;
     photo_profil: File | null;
+    // Conducteur
     numero_permis: string;
-    vehicule: string;
-    couleur_vehicule: string;
-    type_vehicule: string;
-    plaque: string;
     experience_annees: string;
+    // Véhicule
+    type_vehicule: string;
+    marque: string;
+    modele: string;
+    couleur: string;
+    plaque: string;
 }
 
 export default function InscriptionPage() {
     const router = useRouter();
     const { login } = useAuth();
+
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [step, setStep] = useState<1 | 2>(1);
 
     const [form, setForm] = useState<InscriptionForm>({
         username: "",
+        first_name: "",
+        last_name: "",
         email: "",
         password: "",
         password2: "",
@@ -41,11 +57,12 @@ export default function InscriptionPage() {
         numero_telephone: "",
         photo_profil: null,
         numero_permis: "",
-        vehicule: "",
-        couleur_vehicule: "",
-        type_vehicule: "",
-        plaque: "",
         experience_annees: "",
+        type_vehicule: "",
+        marque: "",
+        modele: "",
+        couleur: "",
+        plaque: "",
     });
 
     const set = (field: keyof InscriptionForm, value: any) =>
@@ -69,6 +86,8 @@ export default function InscriptionPage() {
         try {
             const payload = new FormData();
             payload.append("username", form.username);
+            payload.append("first_name", form.first_name);
+            payload.append("last_name", form.last_name);
             payload.append("email", form.email);
             payload.append("password", form.password);
             payload.append("password2", form.password2);
@@ -78,11 +97,12 @@ export default function InscriptionPage() {
 
             if (form.role === "conducteur") {
                 payload.append("numero_permis", form.numero_permis);
-                payload.append("vehicule", form.vehicule);
-                payload.append("couleur_vehicule", form.couleur_vehicule);
+                payload.append("experience_annees", form.experience_annees || "0");
                 payload.append("type_vehicule", form.type_vehicule);
+                payload.append("marque", form.marque);
+                payload.append("modele", form.modele);
+                payload.append("couleur", form.couleur);
                 payload.append("plaque", form.plaque);
-                payload.append("experience_annees", form.experience_annees);
             }
 
             const response = await inscription(payload);
@@ -103,6 +123,8 @@ export default function InscriptionPage() {
         }
     };
 
+    const typeSelectionne = TYPES_VEHICULE.find((t) => t.value === form.type_vehicule);
+
     return (
         <div data-theme="winter" className="min-h-screen bg-base-200 flex items-center justify-center px-4 py-12">
             <div className="w-full max-w-lg">
@@ -110,10 +132,10 @@ export default function InscriptionPage() {
                 {/* En-tête */}
                 <div className="text-center mb-8">
                     <div className="avatar placeholder mb-4">
-                        <Image src="/logo/logo1.png" alt='logo koivoit' width={100} height={100} />
+                        <Image src="/logo/logo1.png" alt="logo kovoit" width={100} height={100} />
                     </div>
                     <h1 className="text-3xl font-bold text-base-content">Créer un compte</h1>
-                    <p className="text-base-content/60 mt-1">Rejoignez notre communauté de covoiturage</p>
+                    <p className="text-base-content/60 mt-1">Rejoignez KoVoit au Togo</p>
                 </div>
 
                 {/* Indicateur d'étape */}
@@ -122,7 +144,6 @@ export default function InscriptionPage() {
                     <li className={`step ${step >= 2 ? "step-primary" : ""}`}>Profil</li>
                 </ul>
 
-                {/* Card */}
                 <div className="card bg-base-100 shadow-xl">
                     <div className="card-body gap-4">
 
@@ -136,11 +157,11 @@ export default function InscriptionPage() {
                             </div>
                         )}
 
-                        {/* ── ÉTAPE 1 ── */}
+                        {/* ── ÉTAPE 1 — Informations de base ── */}
                         {step === 1 && (
                             <form onSubmit={handleNextStep} className="flex flex-col gap-4">
 
-                                {/* Choix du rôle */}
+                                {/* Rôle */}
                                 <div className="form-control">
                                     <label className="label">
                                         <span className="label-text font-semibold">Je suis</span>
@@ -151,22 +172,52 @@ export default function InscriptionPage() {
                                                 key={r}
                                                 type="button"
                                                 onClick={() => set("role", r)}
-                                                className={`btn ${form.role === r ? "btn-primary" : "btn-outline"}`}
+                                                className={`btn rounded-xl ${form.role === r ? "btn-primary" : "btn-outline"}`}
                                             >
-                                                {r === "passager" ? " Passager" : " Conducteur"}
+                                                {r === "passager" ? "Passager" : "Conducteur"}
                                             </button>
                                         ))}
+                                    </div>
+                                </div>
+
+                                {/* Prénom + Nom */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="form-control">
+                                        <label className="label">
+                                            <span className="label-text font-semibold">Prénom</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="Jean"
+                                            className="input input-bordered w-full"
+                                            value={form.first_name}
+                                            onChange={(e) => set("first_name", e.target.value)}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-control">
+                                        <label className="label">
+                                            <span className="label-text font-semibold">Nom</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="Dupont"
+                                            className="input input-bordered w-full"
+                                            value={form.last_name}
+                                            onChange={(e) => set("last_name", e.target.value)}
+                                            required
+                                        />
                                     </div>
                                 </div>
 
                                 {/* Username */}
                                 <div className="form-control">
                                     <label className="label">
-                                        <span className="label-text font-semibold">Nom d'utilisateur</span>
+                                        <span className="label-text font-semibold">Nom d&apos;utilisateur</span>
                                     </label>
                                     <input
                                         type="text"
-                                        placeholder="ex: jean_dupont"
+                                        placeholder="jean_dupont"
                                         className="input input-bordered w-full"
                                         value={form.username}
                                         onChange={(e) => set("username", e.target.value)}
@@ -194,7 +245,7 @@ export default function InscriptionPage() {
                                     <label className="label">
                                         <span className="label-text font-semibold">
                                             Téléphone
-                                            <span className="label-text-alt ml-1">(optionnel)</span>
+                                            <span className="label-text-alt ml-1 text-base-content/40">(optionnel)</span>
                                         </span>
                                     </label>
                                     <input
@@ -230,8 +281,7 @@ export default function InscriptionPage() {
                                             type="password"
                                             placeholder="••••••••"
                                             className={`input input-bordered w-full ${form.password2 && form.password !== form.password2
-                                                ? "input-error"
-                                                : ""
+                                                ? "input-error" : ""
                                                 }`}
                                             value={form.password2}
                                             onChange={(e) => set("password2", e.target.value)}
@@ -245,7 +295,7 @@ export default function InscriptionPage() {
                                     <label className="label">
                                         <span className="label-text font-semibold">
                                             Photo de profil
-                                            <span className="label-text-alt ml-1">(optionnel)</span>
+                                            <span className="label-text-alt ml-1 text-base-content/40">(optionnel)</span>
                                         </span>
                                     </label>
                                     <input
@@ -256,153 +306,202 @@ export default function InscriptionPage() {
                                     />
                                 </div>
 
-                                <button type="submit" className="btn btn-primary w-full mt-2">
+                                <button type="submit" className="btn btn-primary w-full mt-2 rounded-full">
                                     Continuer →
                                 </button>
                             </form>
                         )}
 
-                        {/* ── ÉTAPE 2 ── */}
+                        {/* ── ÉTAPE 2 — Profil ── */}
                         {step === 2 && (
                             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
 
-                                {/* Passager */}
+                                {/* PASSAGER */}
                                 {form.role === "passager" && (
-                                    <div className="text-center py-4">
-                                        <div className="text-5xl mb-4">🧍</div>
-                                        <p className="font-semibold text-lg">Profil Passager</p>
-                                        <p className="text-base-content/60 text-sm mt-2">
-                                            Votre compte passager ne nécessite aucune information supplémentaire.
-                                            Vous pourrez rechercher et réserver des trajets immédiatement.
-                                        </p>
+                                    <div className="space-y-4">
+                                        <div className="bg-base-200 rounded-2xl p-5 text-center">
+                                            <p className="font-semibold text-base-content mb-1">Profil Passager</p>
+                                            <p className="text-base-content/50 text-sm">
+                                                Votre compte est prêt. Vous pourrez rechercher et réserver des trajets immédiatement.
+                                            </p>
+                                        </div>
 
-                                        <div className="divider" />
-
-                                        <div className="bg-base-200 rounded-2xl p-4 text-left space-y-2">
-                                            <p className="text-xs font-bold uppercase tracking-widest text-base-content/40 mb-3">Récapitulatif</p>
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-base-content/60">Nom</span>
-                                                <span className="font-medium">{form.username}</span>
+                                        {/* Récapitulatif */}
+                                        <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
+                                            <div className="px-5 py-3 border-b border-base-200">
+                                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                                    Récapitulatif
+                                                </p>
                                             </div>
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-base-content/60">Email</span>
-                                                <span className="font-medium">{form.email}</span>
-                                            </div>
-                                            {form.numero_telephone && (
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-base-content/60">Téléphone</span>
-                                                    <span className="font-medium">{form.numero_telephone}</span>
-                                                </div>
-                                            )}
-                                            <div className="flex justify-between text-sm">
-                                                <span className="text-base-content/60">Rôle</span>
-                                                <div className="badge badge-info badge-sm">Passager</div>
+                                            <div className="divide-y divide-base-200">
+                                                {[
+                                                    { label: "Prénom", value: form.first_name },
+                                                    { label: "Nom", value: form.last_name },
+                                                    { label: "Email", value: form.email },
+                                                    { label: "Rôle", value: "Passager" },
+                                                ].map((item) => (
+                                                    <div key={item.label} className="flex justify-between px-5 py-2.5">
+                                                        <span className="text-xs text-base-content/40 uppercase tracking-wide">{item.label}</span>
+                                                        <span className="text-sm font-medium text-base-content">{item.value}</span>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Conducteur */}
+                                {/* CONDUCTEUR */}
                                 {form.role === "conducteur" && (
-                                    <>
-                                        <div className="divider divider-start text-sm font-bold">
-                                            🚗 Informations véhicule
-                                        </div>
+                                    <div className="space-y-4">
 
-                                        <div className="form-control">
-                                            <label className="label">
-                                                <span className="label-text font-semibold">Numéro de permis</span>
-                                            </label>
-                                            <input
-                                                type="text"
-                                                placeholder="ex: TG-123456"
-                                                className="input input-bordered w-full"
-                                                value={form.numero_permis}
-                                                onChange={(e) => set("numero_permis", e.target.value)}
-                                                required
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div className="form-control">
-                                                <label className="label">
-                                                    <span className="label-text font-semibold">Marque / Modèle</span>
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Toyota Corolla"
-                                                    className="input input-bordered w-full"
-                                                    value={form.vehicule}
-                                                    onChange={(e) => set("vehicule", e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="form-control">
-                                                <label className="label">
-                                                    <span className="label-text font-semibold">Couleur</span>
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Blanc"
-                                                    className="input input-bordered w-full"
-                                                    value={form.couleur_vehicule}
-                                                    onChange={(e) => set("couleur_vehicule", e.target.value)}
-                                                    required
-                                                />
+                                        {/* Permis + expérience */}
+                                        <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
+                                            <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                                Informations conducteur
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Numéro de permis</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="TG-123456"
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.numero_permis}
+                                                        onChange={(e) => set("numero_permis", e.target.value)}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Expérience (ans)</span>
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        placeholder="0"
+                                                        min="0"
+                                                        max="50"
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.experience_annees}
+                                                        onChange={(e) => set("experience_annees", e.target.value)}
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="form-control">
-                                            <label className="label">
-                                                <span className="label-text font-semibold">Type de véhicule</span>
-                                            </label>
-                                            <select
-                                                className="select select-bordered w-full"
-                                                value={form.type_vehicule}
-                                                onChange={(e) => set("type_vehicule", e.target.value)}
-                                                required
-                                            >
-                                                <option value="">-- Sélectionner --</option>
-                                                <option value="berline">Berline</option>
-                                                <option value="suv">SUV</option>
-                                                <option value="minivan">Minivan</option>
-                                                <option value="pickup">Pick-up</option>
-                                                <option value="moto">Moto</option>
-                                                <option value="autre">Autre</option>
-                                            </select>
+                                        {/* Véhicule */}
+                                        <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
+                                            <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                                Votre véhicule principal
+                                            </p>
+
+                                            {/* Type de véhicule */}
+                                            <div className="form-control">
+                                                <label className="label py-1">
+                                                    <span className="label-text font-semibold text-sm">Type de véhicule</span>
+                                                </label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {TYPES_VEHICULE.map((t) => (
+                                                        <button
+                                                            key={t.value}
+                                                            type="button"
+                                                            onClick={() => set("type_vehicule", t.value)}
+                                                            className={`btn btn-sm rounded-xl flex flex-col h-auto py-2 gap-0 ${form.type_vehicule === t.value
+                                                                ? "btn-primary"
+                                                                : "btn-outline"
+                                                                }`}
+                                                        >
+                                                            <span className="font-semibold">{t.label}</span>
+                                                            <span className="text-xs opacity-70 font-normal">
+                                                                {t.places} place{t.places > 1 ? "s" : ""} · {t.tarif}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {typeSelectionne && (
+                                                    <p className="text-xs text-base-content/40 mt-2">
+                                                        Tarif carburant : {typeSelectionne.tarif} — maximum {typeSelectionne.places} place{typeSelectionne.places > 1 ? "s" : ""}
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {/* Marque + Modèle */}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Marque</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Toyota, Honda..."
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.marque}
+                                                        onChange={(e) => set("marque", e.target.value)}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Modèle</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Corolla, CB125..."
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.modele}
+                                                        onChange={(e) => set("modele", e.target.value)}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Couleur + Plaque */}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Couleur</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Blanc, Rouge..."
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.couleur}
+                                                        onChange={(e) => set("couleur", e.target.value)}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-control">
+                                                    <label className="label py-1">
+                                                        <span className="label-text font-semibold text-sm">Plaque</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="TG 1234 LM"
+                                                        className="input input-bordered input-sm w-full rounded-xl"
+                                                        value={form.plaque}
+                                                        onChange={(e) => set("plaque", e.target.value)}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div className="form-control">
-                                                <label className="label">
-                                                    <span className="label-text font-semibold">Plaque</span>
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="TG 1234 LM"
-                                                    className="input input-bordered w-full"
-                                                    value={form.plaque}
-                                                    onChange={(e) => set("plaque", e.target.value)}
-                                                    required
-                                                />
+                                        {/* Info tarif */}
+                                        {typeSelectionne && (
+                                            <div className="bg-primary/5 border border-primary/10 rounded-2xl px-5 py-3">
+                                                <p className="text-xs text-base-content/50 uppercase tracking-widest font-medium mb-2">
+                                                    Tarification automatique
+                                                </p>
+                                                <p className="text-sm text-base-content/70">
+                                                    Pour une <span className="font-semibold">{typeSelectionne.label}</span>, le prix par place sera calculé automatiquement :
+                                                </p>
+                                                <p className="text-xs text-base-content/40 mt-1">
+                                                    distance × {typeSelectionne.tarif} ÷ places + 10% commission KoVoit
+                                                </p>
                                             </div>
-                                            <div className="form-control">
-                                                <label className="label">
-                                                    <span className="label-text font-semibold">Expérience (ans)</span>
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    placeholder="0"
-                                                    min="0"
-                                                    max="50"
-                                                    className="input input-bordered w-full"
-                                                    value={form.experience_annees}
-                                                    onChange={(e) => set("experience_annees", e.target.value)}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                    </>
+                                        )}
+                                    </div>
                                 )}
 
                                 {/* Boutons */}
@@ -410,25 +509,24 @@ export default function InscriptionPage() {
                                     <button
                                         type="button"
                                         onClick={() => setStep(1)}
-                                        className="btn btn-outline flex-1"
+                                        className="btn btn-outline rounded-full flex-1"
                                     >
-                                        ← Retour
+                                        Retour
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={loading}
-                                        className="btn btn-primary flex-1"
+                                        disabled={loading || (form.role === "conducteur" && !form.type_vehicule)}
+                                        className="btn btn-primary rounded-full flex-1"
                                     >
                                         {loading
                                             ? <span className="loading loading-spinner loading-sm" />
-                                            : "Créer mon compte ✓"
+                                            : "Créer mon compte"
                                         }
                                     </button>
                                 </div>
                             </form>
                         )}
 
-                        {/* Lien connexion */}
                         <div className="divider text-sm">ou</div>
                         <p className="text-center text-sm text-base-content/60">
                             Déjà un compte ?{" "}
