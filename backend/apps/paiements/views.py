@@ -67,6 +67,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
         identifier = f"KOVOIT-{reservation_id}-{uuid.uuid4().hex[:8].upper()}"
 
         # Appel PayGate
+        
         try:
             response = requests.post(PAYGATE_URL_PAY, json={
                 "auth_token":   PAYGATE_API_KEY,
@@ -77,12 +78,16 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 "network":      network,
             }, timeout=30)
 
+            print("PayGate status code:", response.status_code)
+            print("PayGate response:", response.text)   # ← ajouter cette ligne
+
             data = response.json()
+            print("PayGate data:", data)                # ← ajouter cette ligne
 
         except requests.exceptions.Timeout:
-            return Response({"error": "Timeout — réessayez dans quelques instants."}, status=503)
+            return Response({"error": "Timeout."}, status=503)
         except Exception as e:
-            return Response({"error": f"Erreur de connexion PayGate: {str(e)}"}, status=503)
+            return Response({"error": f"Erreur: {str(e)}"}, status=503)
 
         # Traiter la réponse PayGate
         pg_status = data.get('status')

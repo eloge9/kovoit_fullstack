@@ -227,6 +227,15 @@ export default function MesReservationsPage() {
                                         >
                                             Voir
                                         </button>
+                                        {/* Payer  seullment si le tajet est confirmé */}
+                                        {resa.statut === "confirmee" && (
+                                            <button
+                                                onClick={() => router.push(`/passager/reservations/paiement/${resa.id}`)}
+                                                className="btn btn-primary btn-xs rounded-xl text-xs"
+                                            >
+                                                Payer
+                                            </button>
+                                        )}
 
                                         {/* Annuler — seulement si en attente */}
                                         {resa.statut === "en_attente" && (
