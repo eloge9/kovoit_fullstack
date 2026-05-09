@@ -116,50 +116,44 @@ export default function DetailTrajetPage() {
 
     return (
         <div className="min-h-screen bg-base-200">
-            {/* En-tête */}
-            <div className="bg-base-100 border-b border-base-300 sticky top-0 z-40">
-                <div className="max-w-6xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <Link
-                                href="/conducteur/trajets"
-                                className="btn btn-ghost btn-circle btn-sm"
-                            >
-                                <ArrowLeft className="w-4 h-4" />
-                            </Link>
-                            <div>
-                                <h1 className="text-lg font-bold text-base-content">
-                                    Détails du trajet en cours
-                                </h1>
-                                <p className="text-xs text-base-content/60">
-                                    Trajet #{trajet.id}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="badge badge-info badge-outline">
-                                En cours
-                            </span>
+            <div className="container mx-auto py-8 space-y-8">
+                {/* EN-TÊTE */}
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pb-6 border-b border-base-300">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/conducteur/trajets"
+                            className="btn btn-ghost btn-circle btn-sm"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                        </Link>
+                        <div>
+                            <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">
+                                Conducteur
+                            </p>
+                            <h1 className="text-2xl font-bold text-base-content tracking-tight">
+                                Détails du trajet
+                            </h1>
+                            <p className="text-base-content/40 mt-1 text-sm">
+                                Trajet #{trajet?.id}
+                            </p>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
                 {/* Carte et informations principales */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Carte */}
                     <div className="lg:col-span-2">
-                        <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
-                            <div className="p-4 border-b border-base-300">
+                        <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-base-200">
                                 <h2 className="font-semibold text-base-content flex items-center gap-2">
                                     <Navigation className="w-4 h-4" />
-                                    Itinéraire en temps réel
+                                    Itinéraire
                                 </h2>
                             </div>
                             <div className="h-96 bg-base-200 flex items-center justify-center">
                                 <p className="text-base-content/60">
-                                    Carte interactive du trajet
+                                    Carte du trajet
                                 </p>
                             </div>
                         </div>
@@ -168,11 +162,13 @@ export default function DetailTrajetPage() {
                     {/* Informations du trajet */}
                     <div className="space-y-4">
                         {/* Statut et actions */}
-                        <div className="bg-base-100 rounded-2xl border border-base-300 p-4">
+                        <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-medium text-base-content">Statut</span>
-                                    <span className="badge badge-info badge-outline">En cours</span>
+                                    <span className={`badge badge-sm rounded-full font-medium ${trajet.statut === "en_cours" ? "badge-info badge-outline" : "badge-ghost"}`}>
+                                        {trajet.statut}
+                                    </span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-medium text-base-content">Places</span>
@@ -180,24 +176,26 @@ export default function DetailTrajetPage() {
                                         {passagersConfirmes.length}/{trajet.places_disponibles}
                                     </span>
                                 </div>
-                                <button
-                                    onClick={handleTerminerTrajet}
-                                    className="btn btn-warning btn-sm w-full"
-                                >
-                                    Terminer le trajet
-                                </button>
+                                {trajet.statut === "en_cours" && (
+                                    <button
+                                        onClick={handleTerminerTrajet}
+                                        className="btn btn-warning btn-sm w-full"
+                                    >
+                                        Terminer le trajet
+                                    </button>
+                                )}
                             </div>
                         </div>
 
                         {/* Itinéraire */}
-                        <div className="bg-base-100 rounded-2xl border border-base-300 p-4">
+                        <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                             <h3 className="font-semibold text-base-content mb-3 flex items-center gap-2">
                                 <MapPin className="w-4 h-4" />
                                 Itinéraire
                             </h3>
                             <div className="space-y-3">
                                 <div>
-                                    <p className="text-xs text-base-content/60">Départ</p>
+                                    <p className="text-xs text-base-content/40 uppercase tracking-wide">Départ</p>
                                     <p className="text-sm font-medium text-base-content">
                                         {trajet.depart}
                                     </p>
@@ -207,14 +205,14 @@ export default function DetailTrajetPage() {
                                 </div>
                                 <div className="border-l-2 border-base-300 h-4 ml-2"></div>
                                 <div>
-                                    <p className="text-xs text-base-content/60">Destination</p>
+                                    <p className="text-xs text-base-content/40 uppercase tracking-wide">Destination</p>
                                     <p className="text-sm font-medium text-base-content">
                                         {trajet.destination}
                                     </p>
                                 </div>
                                 {trajet.distance_km && (
                                     <div className="pt-2 border-t border-base-300">
-                                        <p className="text-xs text-base-content/60">Distance</p>
+                                        <p className="text-xs text-base-content/40 uppercase tracking-wide">Distance</p>
                                         <p className="text-sm font-medium text-base-content">
                                             {trajet.distance_km} km
                                         </p>
@@ -224,19 +222,19 @@ export default function DetailTrajetPage() {
                         </div>
 
                         {/* Prix */}
-                        <div className="bg-base-100 rounded-2xl border border-base-300 p-4">
+                        <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                             <h3 className="font-semibold text-base-content mb-2">Prix</h3>
                             <p className="text-2xl font-bold text-primary">
                                 {Number(trajet.prix_par_place).toLocaleString("fr-FR")} FCFA
                             </p>
-                            <p className="text-xs text-base-content/60">par place</p>
+                            <p className="text-xs text-base-content/40">par place</p>
                         </div>
                     </div>
                 </div>
 
                 {/* Passagers */}
-                <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
-                    <div className="p-4 border-b border-base-300">
+                <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-base-200">
                         <h2 className="font-semibold text-base-content flex items-center gap-2">
                             <Users className="w-4 h-4" />
                             Passagers ({passagersConfirmes.length})
@@ -252,7 +250,7 @@ export default function DetailTrajetPage() {
                                 {passagersConfirmes.map((reservation: Reservation) => (
                                     <div
                                         key={reservation.id}
-                                        className="border border-base-300 rounded-xl p-3 space-y-2"
+                                        className="border border-base-200 rounded-xl p-3 space-y-2"
                                     >
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
@@ -284,7 +282,7 @@ export default function DetailTrajetPage() {
 
                 {/* Description */}
                 {trajet.description && (
-                    <div className="bg-base-100 rounded-2xl border border-base-300 p-4">
+                    <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                         <h3 className="font-semibold text-base-content mb-2">Description</h3>
                         <p className="text-sm text-base-content/80">
                             {trajet.description}
@@ -293,7 +291,7 @@ export default function DetailTrajetPage() {
                 )}
 
                 {/* Notes importantes */}
-                <div className="bg-warning/10 border border-warning/20 rounded-2xl p-4">
+                <div className="bg-warning/10 border border-warning/20 rounded-2xl p-6">
                     <h3 className="font-semibold text-warning mb-2 flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4" />
                         Points d'attention
