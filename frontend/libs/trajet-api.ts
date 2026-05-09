@@ -1,0 +1,81 @@
+import axios from 'axios';
+import { Trajet, TrajetActionResponse, PositionActuelleResponse, PositionMiseAJourData } from '@/types/trajet';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
+
+// Créer une instance axios avec le token d'authentification
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Intercepteur pour ajouter le token d'authentification
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+export const trajetApi = {
+  // Démarrer un trajet
+  commencerTrajet: async (trajetId: string): Promise<TrajetActionResponse> => {
+    const response = await apiClient.post(`/trajets/${trajetId}/commencer_trajet/`);
+    return response.data;
+  },
+
+  // Terminer un trajet
+  terminerTrajet: async (trajetId: string): Promise<TrajetActionResponse> => {
+    const response = await apiClient.post(`/trajets/${trajetId}/terminer_trajet/`);
+    return response.data;
+  },
+
+  // Mettre à jour la position GPS
+  mettreAJourPosition: async (trajetId: string, positionData: PositionMiseAJourData): Promise<any> => {
+    const response = await apiClient.post(`/trajets/${trajetId}/mettre_a_jour_position/`, positionData);
+    return response.data;
+  },
+
+  // Obtenir la position actuelle
+  getPositionActuelle: async (trajetId: string): Promise<PositionActuelleResponse> => {
+    const response = await apiClient.get(`/trajets/${trajetId}/position_actuelle/`);
+    return response.data;
+  },
+
+  // Obtenir les détails d'un trajet
+  getTrajet: async (trajetId: string): Promise<Trajet> => {
+    const response = await apiClient.get(`/trajets/${trajetId}/`);
+    return response.data;
+  },
+
+  // Obtenir les trajets du conducteur
+  getMesTrajets: async (): Promise<Trajet[]> => {
+    const response = await apiClient.get('/trajets/mes_trajets/');
+    return response.data;
+  },
+
+  // Obtenir tous les trajets ouverts
+  getTrajetsOuverts: async (): Promise<Trajet[]> => {
+    const response = await apiClient.get('/trajets/');
+    return response.data;
+  },
+
+  // Rechercher des trajets
+  rechercherTrajets: async (params: {
+    depart?: string;
+    destination?: string;
+    date?: string;
+    places?: number;
+    type_vehicule?: string;
+  }): Promise<Trajet[]> => {
+    const response = await apiClient.get('/trajets/rechercher/', { params });
+    return response.data;
+  },
+};
+
+export default trajetApi;

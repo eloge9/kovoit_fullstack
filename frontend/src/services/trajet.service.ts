@@ -38,7 +38,7 @@ export interface Trajet {
   description: string;
   est_regulier: boolean;
   jours_semaine: string[] | null;
-  statut: "ouvert" | "termine" | "annule";
+  statut: "ouvert" | "en_cours" | "termine" | "annule";
   created_at: string;
 }
 
@@ -118,6 +118,9 @@ export const modifierTrajet = (
   data: Partial<TrajetCreatePayload>,
 ) => api(`/trajets/${id}/`, "PUT", data);
 
+export const commencerTrajet = (id: number) =>
+  api(`/trajets/${id}/commencer/`, "POST");
+
 export const annulerTrajet = (id: number) =>
   api(`/trajets/${id}/annuler/`, "POST");
 
@@ -180,11 +183,11 @@ export const searchLieu = async (query: string): Promise<NominatimResult[]> => {
   if (query.length < 2) return [];
   const response = await fetch(
     `https://nominatim.openstreetmap.org/search?` +
-      `q=${encodeURIComponent(query)}&` +
-      `countrycodes=TG&` +
-      `format=json&` +
-      `addressdetails=1&` +
-      `limit=6`,
+    `q=${encodeURIComponent(query)}&` +
+    `countrycodes=TG&` +
+    `format=json&` +
+    `addressdetails=1&` +
+    `limit=6`,
     { headers: { "Accept-Language": "fr" } },
   );
   return response.json();

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { mesTrajets, annulerTrajet, type Trajet } from "@/src/services/trajet.service";
+import { mesTrajets, annulerTrajet, commencerTrajet, type Trajet } from "@/src/services/trajet.service";
 
 export default function MesTrajetsPage() {
     const [trajets, setTrajets] = useState<Trajet[]>([]);
@@ -10,6 +10,7 @@ export default function MesTrajetsPage() {
     const [error, setError] = useState<string | null>(null);
     const [filtre, setFiltre] = useState<"tous" | "ouvert" | "termine" | "annule">("tous");
     const [annulation, setAnnulation] = useState<number | null>(null);
+    const [demarrage, setDemarrage] = useState<number | null>(null);
 
     useEffect(() => { fetchTrajets(); }, []);
 
@@ -40,6 +41,21 @@ export default function MesTrajetsPage() {
         }
     };
 
+    const handleCommencer = async (id: number) => {
+        if (!confirm("Commencer le trajet ? Le suivi GPS sera activé et les passagers seront notifiés.")) return;
+        setDemarrage(id);
+        try {
+            await commencerTrajet(id);
+            setTrajets((prev) =>
+                prev.map((t) => t.id === id ? { ...t, statut: "en_cours" } : t)
+            );
+        } catch {
+            setError("Erreur lors du démarrage du trajet.");
+        } finally {
+            setDemarrage(null);
+        }
+    };
+
     const trajetsFiltres = trajets.filter((t) =>
         filtre === "tous" ? true : t.statut === filtre
     );
@@ -60,6 +76,7 @@ export default function MesTrajetsPage() {
     const statutStyle = (statut: string) => {
         switch (statut) {
             case "ouvert": return "badge-success badge-outline";
+            case "en_cours": return "badge-info badge-outline";
             case "termine": return "badge-ghost";
             case "annule": return "badge-error badge-outline";
             default: return "badge-ghost";
@@ -173,6 +190,16 @@ export default function MesTrajetsPage() {
                                     </Link>
                                     {trajet.statut === "ouvert" && (
                                         <>
+                                            <button
+                                                onClick={() => handleCommencer(trajet.id)}
+                                                disabled={demarrage === trajet.id}
+                                                className="btn btn-success btn-sm rounded-xl text-xs text-white"
+                                            >
+                                                {demarrage === trajet.id
+                                                    ? <span className="loading loading-spinner loading-xs" />
+                                                    : "Commencer"
+                                                }
+                                            </button>
                                             <Link href={`/conducteur/trajets/edit/${trajet.id}`}
                                                 className="btn btn-ghost btn-sm rounded-xl border border-base-200 text-xs">
                                                 Modifier
