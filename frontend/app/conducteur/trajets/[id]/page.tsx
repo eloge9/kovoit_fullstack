@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
-import { annulerTrajet, commencerTrajet } from "@/src/services/trajet.service";
+import { annulerTrajet, commencerTrajet, terminerTrajet } from "@/src/services/trajet.service";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -16,6 +16,7 @@ export default function DetailTrajetPage() {
     const [loading, setLoading] = useState(true);
     const [annulation, setAnnulation] = useState(false);
     const [demarrage, setDemarrage] = useState(false);
+    const [terminaison, setTerminaison] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
 
@@ -51,7 +52,7 @@ export default function DetailTrajetPage() {
     };
 
     const handleCommencer = async () => {
-        if (!confirm("Commencer le trajet ? Le suivi GPS sera activé et les passagers seront notifiés.")) return;
+        if (!confirm("Commencer le trajet ?")) return;
 
         setDemarrage(true);
         setError(null);
@@ -62,6 +63,21 @@ export default function DetailTrajetPage() {
             setError(err.response?.data?.error || "Erreur lors du démarrage du trajet.");
         } finally {
             setDemarrage(false);
+        }
+    };
+
+    const handleTerminer = async () => {
+        if (!confirm("Terminer le trajet ?")) return;
+
+        setTerminaison(true);
+        setError(null);
+        try {
+            await terminerTrajet(Number(id));
+            setTrajet(prev => prev ? { ...prev, statut: "termine" } : null);
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de la terminaison du trajet.");
+        } finally {
+            setTerminaison(false);
         }
     };
 
@@ -294,15 +310,27 @@ export default function DetailTrajetPage() {
                     )}
 
                     {trajet.statut === "en_cours" && (
-                        <div className="text-center py-4 space-y-3">
-                            <div className="flex items-center justify-center gap-2 text-info">
-                                <span className="loading loading-spinner loading-sm"></span>
-                                <span className="font-medium">Trajet en cours</span>
+                        <>
+                            <button
+                                onClick={handleTerminer}
+                                disabled={terminaison}
+                                className="btn btn-warning w-full rounded-full"
+                            >
+                                {terminaison
+                                    ? <span className="loading loading-spinner loading-sm" />
+                                    : "Terminer le trajet"
+                                }
+                            </button>
+                            <div className="text-center py-4 space-y-3">
+                                <div className="flex items-center justify-center gap-2 text-info">
+                                    <span className="loading loading-spinner loading-sm"></span>
+                                    <span className="font-medium">Trajet en cours</span>
+                                </div>
+                                <p className="text-sm text-base-content/60">
+                                    Les passagers ont été notifiés du début du trajet.
+                                </p>
                             </div>
-                            <p className="text-sm text-base-content/60">
-                                Le suivi GPS est activé et les passagers ont été notifiés.
-                            </p>
-                        </div>
+                        </>
                     )}
                 </div>
             </div>

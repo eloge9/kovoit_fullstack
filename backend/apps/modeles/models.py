@@ -122,9 +122,10 @@ class Trajet(models.Model):
     jours_semaine = models.JSONField(null=True, blank=True)
 
     statut = models.CharField(max_length=20, choices=(
-        ('ouvert',  'Ouvert'),
-        ('termine', 'Terminé'),
-        ('annule',  'Annulé'),
+        ('ouvert',   'Ouvert'),
+        ('en_cours', 'En cours'),
+        ('termine',  'Terminé'),
+        ('annule',   'Annulé'),
     ), default='ouvert')
 
     created_at = models.DateTimeField(auto_now_add=True)

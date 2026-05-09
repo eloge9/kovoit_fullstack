@@ -57,6 +57,34 @@ class TrajetViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def commencer(self, request, pk=None):
+        trajet = self.get_object()
+        if trajet.conducteur != request.user:
+            return Response(
+                {"error": "Vous n'êtes pas le conducteur de ce trajet."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if trajet.statut != 'ouvert':
+            return Response({"error": "Seuls les trajets ouverts peuvent être commencés."}, status=400)
+        trajet.statut = 'en_cours'
+        trajet.save()
+        return Response({"message": "Trajet commencé avec succès."})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def terminer(self, request, pk=None):
+        trajet = self.get_object()
+        if trajet.conducteur != request.user:
+            return Response(
+                {"error": "Vous n'êtes pas le conducteur de ce trajet."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if trajet.statut != 'en_cours':
+            return Response({"error": "Seuls les trajets en cours peuvent être terminés."}, status=400)
+        trajet.statut = 'termine'
+        trajet.save()
+        return Response({"message": "Trajet terminé avec succès."})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def annuler(self, request, pk=None):
         trajet = self.get_object()
         if trajet.conducteur != request.user:

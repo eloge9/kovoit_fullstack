@@ -121,6 +121,9 @@ export const modifierTrajet = (
 export const commencerTrajet = (id: number) =>
   api(`/trajets/${id}/commencer/`, "POST");
 
+export const terminerTrajet = (id: number) =>
+  api(`/trajets/${id}/terminer/`, "POST");
+
 export const annulerTrajet = (id: number) =>
   api(`/trajets/${id}/annuler/`, "POST");
 

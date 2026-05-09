@@ -2,15 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { mesTrajets, annulerTrajet, commencerTrajet, type Trajet } from "@/src/services/trajet.service";
+import { mesTrajets, annulerTrajet, commencerTrajet, terminerTrajet, type Trajet } from "@/src/services/trajet.service";
 
 export default function MesTrajetsPage() {
     const [trajets, setTrajets] = useState<Trajet[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [filtre, setFiltre] = useState<"tous" | "ouvert" | "termine" | "annule">("tous");
+    const [filtre, setFiltre] = useState<"tous" | "ouvert" | "en_cours" | "termine" | "annule">("tous");
     const [annulation, setAnnulation] = useState<number | null>(null);
     const [demarrage, setDemarrage] = useState<number | null>(null);
+    const [terminaison, setTerminaison] = useState<number | null>(null);
 
     useEffect(() => { fetchTrajets(); }, []);
 
@@ -42,7 +43,7 @@ export default function MesTrajetsPage() {
     };
 
     const handleCommencer = async (id: number) => {
-        if (!confirm("Commencer le trajet ? Le suivi GPS sera activé et les passagers seront notifiés.")) return;
+        if (!confirm("Commencer le trajet ?")) return;
         setDemarrage(id);
         try {
             await commencerTrajet(id);
@@ -56,6 +57,21 @@ export default function MesTrajetsPage() {
         }
     };
 
+    const handleTerminer = async (id: number) => {
+        if (!confirm("Terminer le trajet ?")) return;
+        setTerminaison(id);
+        try {
+            await terminerTrajet(id);
+            setTrajets((prev) =>
+                prev.map((t) => t.id === id ? { ...t, statut: "termine" } : t)
+            );
+        } catch {
+            setError("Erreur lors de la terminaison du trajet.");
+        } finally {
+            setTerminaison(null);
+        }
+    };
+
     const trajetsFiltres = trajets.filter((t) =>
         filtre === "tous" ? true : t.statut === filtre
     );
@@ -63,6 +79,7 @@ export default function MesTrajetsPage() {
     const counts = {
         tous: trajets.length,
         ouvert: trajets.filter((t) => t.statut === "ouvert").length,
+        en_cours: trajets.filter((t) => t.statut === "en_cours").length,
         termine: trajets.filter((t) => t.statut === "termine").length,
         annule: trajets.filter((t) => t.statut === "annule").length,
     };
@@ -113,7 +130,7 @@ export default function MesTrajetsPage() {
 
             {/* FILTRES */}
             <div className="flex gap-2 flex-wrap">
-                {(["tous", "ouvert", "termine", "annule"] as const).map((f) => (
+                {(["tous", "ouvert", "en_cours", "termine", "annule"] as const).map((f) => (
                     <button
                         key={f}
                         onClick={() => setFiltre(f)}
@@ -121,7 +138,8 @@ export default function MesTrajetsPage() {
                             }`}
                     >
                         {f === "tous" ? "Tous" : f === "ouvert" ? "Ouverts"
-                            : f === "termine" ? "Terminés" : "Annulés"}
+                            : f === "en_cours" ? "En cours"
+                                : f === "termine" ? "Terminés" : "Annulés"}
                         <span className={`ml-1 text-xs ${filtre === f ? "opacity-80" : "text-base-content/40"}`}>
                             {counts[f]}
                         </span>
@@ -212,6 +230,24 @@ export default function MesTrajetsPage() {
                                                 {annulation === trajet.id
                                                     ? <span className="loading loading-spinner loading-xs" />
                                                     : "Annuler"
+                                                }
+                                            </button>
+                                        </>
+                                    )}
+                                    {trajet.statut === "en_cours" && (
+                                        <>
+                                            <Link href={`/conducteur/trajets/${trajet.id}/detail`}
+                                                className="btn btn-info btn-sm rounded-xl text-xs text-white">
+                                                Détail
+                                            </Link>
+                                            <button
+                                                onClick={() => handleTerminer(trajet.id)}
+                                                disabled={terminaison === trajet.id}
+                                                className="btn btn-warning btn-sm rounded-xl text-xs text-white"
+                                            >
+                                                {terminaison === trajet.id
+                                                    ? <span className="loading loading-spinner loading-xs" />
+                                                    : "Terminer"
                                                 }
                                             </button>
                                         </>
