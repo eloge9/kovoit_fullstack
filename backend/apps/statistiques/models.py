@@ -1,3 +1,1 @@
-from django.db import models
-
-# Create your models here.
+# Les modèles de statistiques sont maintenant dans l'app modeles

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CalendarDays, TrendingUp, Car, DollarSign, Filter, BarChart3 } from "lucide-react";
 import ChartRevenus from "./components/ChartRevenus";
+import { api } from "../../../src/services/api";
 
 interface Trajet {
   id: string;
@@ -15,10 +16,41 @@ interface Trajet {
 }
 
 interface Statistiques {
-  totalGagne: number;
-  nombreTrajets: number;
-  commissionPlateforme: number;
-  montantNet: number;
+  periode: string;
+  total_revenus: number;
+  total_trajets: number;
+  total_km: number;
+  revenu_moyen_trajet: number;
+  revenu_moyen_mensuel: number;
+  meilleur_mois: {
+    mois: number;
+    mois_nom: string;
+    revenus: number;
+    trajets: number;
+  } | null;
+  evolution_mensuelle: Array<{
+    mois: number;
+    mois_nom: string;
+    revenus: number;
+    trajets: number;
+  }>;
+  dernier_trajet: {
+    id: string;
+    depart: string;
+    destination: string;
+    date: string;
+    revenu: number;
+  } | null;
+  note_moyenne: number;
+}
+
+interface ResumeEconomie {
+  type_utilisateur: string;
+  chiffre_principal: number;
+  libelle_chiffre: string;
+  evolution_mois_precedent: number;
+  nombre_operations: number;
+  moyenne_operation: number;
 }
 
 interface ChartData {
@@ -32,10 +64,24 @@ export default function EconomieConducteur() {
   const [dateDebut, setDateDebut] = useState("");
   const [dateFin, setDateFin] = useState("");
   const [statistiques, setStatistiques] = useState<Statistiques>({
-    totalGagne: 0,
-    nombreTrajets: 0,
-    commissionPlateforme: 0,
-    montantNet: 0
+    periode: "",
+    total_revenus: 0,
+    total_trajets: 0,
+    total_km: 0,
+    revenu_moyen_trajet: 0,
+    revenu_moyen_mensuel: 0,
+    meilleur_mois: null,
+    evolution_mensuelle: [],
+    dernier_trajet: null,
+    note_moyenne: 0
+  });
+  const [resume, setResume] = useState<ResumeEconomie>({
+    type_utilisateur: "conducteur",
+    chiffre_principal: 0,
+    libelle_chiffre: "Revenus ce mois",
+    evolution_mois_precedent: 0,
+    nombre_operations: 0,
+    moyenne_operation: 0
   });
   const [trajets, setTrajets] = useState<Trajet[]>([]);
   const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -43,102 +89,87 @@ export default function EconomieConducteur() {
 
   useEffect(() => {
     fetchEconomies();
-  }, [periode]);
+  }, [periode, dateDebut, dateFin]); // Ajouter les dépendances pour les filtres
 
   const fetchEconomies = async () => {
     setLoading(true);
     try {
-      const payload = {
-        periode: periode,
-        date_debut: periode === "personnalise" ? dateDebut : null,
-        date_fin: periode === "personnalise" ? dateFin : null
-      };
+      // Récupérer le résumé économique rapide
+      const resumeData = await api('/statistiques/resume/');
+      setResume(resumeData);
 
-      // Simulation de données pour le moment
-      // Remplacer par l'appel API réel quand le backend sera prêt
-      setTimeout(() => {
-        const mockStatistiques: Statistiques = {
-          totalGagne: 1250.50,
-          nombreTrajets: 15,
-          commissionPlateforme: 125.05,
-          montantNet: 1125.45
-        };
+      // Récupérer les statistiques détaillées du conducteur
+      const params = new URLSearchParams();
 
-        const mockTrajets: Trajet[] = [
-          {
-            id: "1",
-            date: "11/05/2026",
-            trajet: "Paris → Lyon",
-            passager: "Jean Dupont",
-            montant: 85.00,
-            commission: 8.50,
-            net: 76.50
-          },
-          {
-            id: "2",
-            date: "11/05/2026",
-            trajet: "Lyon → Marseille",
-            passager: "Marie Martin",
-            montant: 65.00,
-            commission: 6.50,
-            net: 58.50
-          },
-          {
-            id: "3",
-            date: "12/05/2026",
-            trajet: "Marseille → Nice",
-            passager: "Pierre Durand",
-            montant: 45.00,
-            commission: 4.50,
-            net: 40.50
-          },
-          {
-            id: "4",
-            date: "13/05/2026",
-            trajet: "Nice → Toulon",
-            passager: "Sophie Bernard",
-            montant: 35.00,
-            commission: 3.50,
-            net: 31.50
-          },
-          {
-            id: "5",
-            date: "09/05/2026",
-            trajet: "Toulon → Paris",
-            passager: "Lucas Petit",
-            montant: 95.00,
-            commission: 9.50,
-            net: 85.50
-          }
-        ];
+      // Convertir la période frontend vers backend
+      let backendPeriode = 'mois';
+      let annee = new Date().getFullYear();
 
-        const mockChartData: ChartData[] = [
-          { date: "Lun 05", revenus: 120, trajets: 2 },
-          { date: "Mar 06", revenus: 85, trajets: 1 },
-          { date: "Mer 07", revenus: 200, trajets: 3 },
-          { date: "Jeu 08", revenus: 150, trajets: 2 },
-          { date: "Ven 09", revenus: 180, trajets: 2 },
-          { date: "Sam 10", revenus: 220, trajets: 3 },
-          { date: "Dim 11", revenus: 295, trajets: 2 }
-        ];
+      if (periode === "jour") {
+        backendPeriode = 'mois';
+      } else if (periode === "semaine") {
+        backendPeriode = 'trimestre';
+      } else if (periode === "mois") {
+        backendPeriode = 'mois';
+      } else if (periode === "tous") {
+        backendPeriode = 'annee';
+      } else if (periode === "personnalise" && dateDebut && dateFin) {
+        // Pour la période personnalisée, on utilise le mois comme base mais on filtrera côté frontend
+        backendPeriode = 'mois';
+      }
 
-        setStatistiques(mockStatistiques);
-        setTrajets(mockTrajets);
-        setChartData(mockChartData);
-        setLoading(false);
-      }, 500);
+      params.set('periode', backendPeriode);
+      params.set('annee', annee.toString());
 
-      // const response = await fetch('/api/conducteur/economie', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(payload)
-      // });
-      // const data = await response.json();
-      // setStatistiques(data.statistiques);
-      // setTrajets(data.trajets);
-      // setChartData(data.chartData);
+      console.log('Appel API avec params:', params.toString());
+      const statsData = await api(`/statistiques/conducteur/?${params.toString()}`);
+      console.log('Données reçues:', statsData);
+      setStatistiques(statsData);
+
+      // Transformer les données pour le graphique
+      if (statsData.evolution_mensuelle && statsData.evolution_mensuelle.length > 0) {
+        const chartDataTransformed = statsData.evolution_mensuelle.map((item: any) => ({
+          date: item.mois_nom.substring(0, 3), // Prendre les 3 premières lettres
+          revenus: item.revenus,
+          trajets: item.trajets
+        }));
+        setChartData(chartDataTransformed);
+      } else {
+        setChartData([]);
+      }
+
+      // Créer les trajets récents depuis le dernier trajet
+      const trajetsRecents = [];
+      if (statsData.dernier_trajet) {
+        trajetsRecents.push({
+          id: statsData.dernier_trajet.id,
+          date: statsData.dernier_trajet.date,
+          trajet: `${statsData.dernier_trajet.depart} → ${statsData.dernier_trajet.destination}`,
+          passager: "Non spécifié",
+          montant: statsData.dernier_trajet.revenu || 0,
+          commission: (statsData.dernier_trajet.revenu || 0) * 0.1, // 10% de commission
+          net: (statsData.dernier_trajet.revenu || 0) * 0.9
+        });
+      }
+      setTrajets(trajetsRecents);
+
     } catch (error) {
       console.error('Erreur lors de la récupération des données:', error);
+      // Réinitialiser les données en cas d'erreur
+      setStatistiques({
+        periode: "",
+        total_revenus: 0,
+        total_trajets: 0,
+        total_km: 0,
+        revenu_moyen_trajet: 0,
+        revenu_moyen_mensuel: 0,
+        meilleur_mois: null,
+        evolution_mensuelle: [],
+        dernier_trajet: null,
+        note_moyenne: 0
+      });
+      setChartData([]);
+      setTrajets([]);
     } finally {
       setLoading(false);
     }
@@ -162,7 +193,8 @@ export default function EconomieConducteur() {
   const formatMontant = (montant: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
-      currency: 'EUR'
+      currency: 'XOF',
+      minimumFractionDigits: 0
     }).format(montant);
   };
 
@@ -177,9 +209,9 @@ export default function EconomieConducteur() {
           <h1 className="text-2xl font-bold text-base-content tracking-tight">
             Mes Économies
           </h1>
-          <p className="text-base-content/40 mt-1 text-sm">
-            {trajets.length} trajet{trajets.length > 1 ? "s" : ""} au total
-          </p>
+          <div className="text-base-content/40 mt-1 text-sm">
+            {resume.nombre_operations} trajet{resume.nombre_operations > 1 ? "s" : ""} au total
+          </div>
         </div>
       </div>
 
@@ -249,14 +281,15 @@ export default function EconomieConducteur() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-base-100 rounded-xl p-6 border border-base-200">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Total gagné</span>
+            <span className="text-base-content/60 text-sm">{resume.libelle_chiffre}</span>
             <DollarSign className="w-4 h-4 text-green-500" />
           </div>
           <div className="text-2xl font-bold text-base-content">
-            {formatMontant(statistiques.totalGagne)}
+            {formatMontant(resume.chiffre_principal)}
           </div>
-          <div className="text-xs text-green-500 mt-1">
-            +12% vs période précédente
+          <div className={`text-xs mt-1 ${resume.evolution_mois_precedent >= 0 ? "text-green-500" : "text-red-500"
+            }`}>
+            {resume.evolution_mois_precedent >= 0 ? "+" : ""}{resume.evolution_mois_precedent.toFixed(1)}% vs période précédente
           </div>
         </div>
 
@@ -266,36 +299,36 @@ export default function EconomieConducteur() {
             <Car className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-2xl font-bold text-base-content">
-            {statistiques.nombreTrajets}
+            {resume.nombre_operations}
           </div>
           <div className="text-xs text-blue-500 mt-1">
-            Moyenne: {formatMontant(statistiques.totalGagne / statistiques.nombreTrajets)}
+            Moyenne: {formatMontant(resume.moyenne_operation)}
           </div>
         </div>
 
         <div className="bg-base-100 rounded-xl p-6 border border-base-200">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Commission plateforme</span>
+            <span className="text-base-content/60 text-sm">Distance parcourue</span>
             <TrendingUp className="w-4 h-4 text-orange-500" />
           </div>
           <div className="text-2xl font-bold text-base-content">
-            {formatMontant(statistiques.commissionPlateforme)}
+            {statistiques.total_km.toFixed(0)} km
           </div>
           <div className="text-xs text-base-content/60 mt-1">
-            {((statistiques.commissionPlateforme / statistiques.totalGagne) * 100).toFixed(1)}% du total
+            Total cette période
           </div>
         </div>
 
         <div className="bg-base-100 rounded-xl p-6 border border-base-200">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Montant net reçu</span>
+            <span className="text-base-content/60 text-sm">Note moyenne</span>
             <DollarSign className="w-4 h-4 text-green-600" />
           </div>
           <div className="text-2xl font-bold text-green-600">
-            {formatMontant(statistiques.montantNet)}
+            {statistiques.note_moyenne.toFixed(1)}/5
           </div>
           <div className="text-xs text-green-500 mt-1">
-            Revenu net après commission
+            Évaluation des passagers
           </div>
         </div>
       </div>

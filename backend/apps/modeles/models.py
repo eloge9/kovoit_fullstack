@@ -234,3 +234,82 @@ class Statistique(models.Model):
     total_reservations = models.IntegerField(default=0)
     revenu_total       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     note_moyenne       = models.FloatField(default=0)
+
+
+class StatistiqueEconomie(models.Model):
+    """Statistiques économiques pour un utilisateur sur une période donnée"""
+    utilisateur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='statistiques_economie')
+    periode_debut = models.DateField()
+    periode_fin = models.DateField()
+    
+    # Pour conducteurs
+    total_revenus = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_trajets = models.IntegerField(default=0)
+    total_km = models.FloatField(default=0)
+    moyenne_par_trajet = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Pour passagers  
+    total_economies = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_reservations = models.IntegerField(default=0)
+    moyenne_par_reservation = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Comparaison avec transport individuel
+    economie_carburant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    co2_evite = models.FloatField(default=0)  # en kg
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['utilisateur', 'periode_debut', 'periode_fin']
+        ordering = ['-periode_debut']
+    
+    def __str__(self):
+        return f"Stats {self.utilisateur.username} {self.periode_debut} - {self.periode_fin}"
+
+
+class RevenuMensuel(models.Model):
+    """Suivi des revenus mensuels pour les conducteurs"""
+    conducteur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='revenus_mensuels')
+    annee = models.IntegerField()
+    mois = models.IntegerField()
+    
+    revenu_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    nombre_trajets = models.IntegerField(default=0)
+    km_parcourus = models.FloatField(default=0)
+    revenu_moyen_trajet = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['conducteur', 'annee', 'mois']
+        ordering = ['-annee', '-mois']
+    
+    def __str__(self):
+        return f"{self.conducteur.username} - {self.annee}/{self.mois}: {self.revenu_total}F"
+
+
+class EconomieMensuelle(models.Model):
+    """Suivi des économies mensuelles pour les passagers"""
+    passager = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='economies_mensuelles')
+    annee = models.IntegerField()
+    mois = models.IntegerField()
+    
+    economie_totale = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    nombre_reservations = models.IntegerField(default=0)
+    economie_moyenne_reservation = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Comparaison avec prix taxi/transport individuel estimé
+    cout_transport_individuel = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cout_covoiturage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['passager', 'annee', 'mois']
+        ordering = ['-annee', '-mois']
+    
+    def __str__(self):
+        return f"{self.passager.username} - {self.annee}/{self.mois}: {self.economie_totale}F économisés"
