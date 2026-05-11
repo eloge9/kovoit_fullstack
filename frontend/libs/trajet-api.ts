@@ -1,5 +1,22 @@
 import axios from 'axios';
-import { Trajet, TrajetActionResponse, PositionActuelleResponse, PositionMiseAJourData } from '@/types/trajet';
+import { Trajet } from '@/src/services/trajet.service';
+
+// Types définis localement pour l'API
+interface TrajetActionResponse {
+  message: string;
+  trajet: Trajet;
+}
+
+interface PositionActuelleResponse {
+  latitude: number;
+  longitude: number;
+  derniere_mise_a_jour: string;
+}
+
+interface PositionMiseAJourData {
+  latitude: number;
+  longitude: number;
+}
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
 
@@ -75,6 +92,16 @@ export const trajetApi = {
   }): Promise<Trajet[]> => {
     const response = await apiClient.get('/trajets/rechercher/', { params });
     return response.data;
+  },
+
+  // Obtenir les réservations d'un trajet spécifique
+  getReservationsTrajet: async (trajetId: string): Promise<any[]> => {
+    const response = await apiClient.get('/reservations/recues/');
+    console.log('Réservations reçues:', response.data);
+    // Filtrer pour ne retourner que les réservations du trajet spécifié
+    const filtered = response.data.filter((res: any) => res.trajet_id === parseInt(trajetId));
+    console.log('Réservations filtrées:', filtered);
+    return filtered;
   },
 };
 

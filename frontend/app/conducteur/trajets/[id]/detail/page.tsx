@@ -18,11 +18,20 @@ import {
 import trajetApi from "@/libs/trajet-api";
 
 // Types définis localement pour éviter les erreurs d'import
+// Interface pour les réservations (basée sur le serializer backend)
 interface Reservation {
     id: number;
-    passager_nom?: string;
+    trajet_id: number;
+    depart: string;
+    destination: string;
+    date_depart: string;
+    prix_par_place: number;
+    conducteur: string;
+    passager_nom: string;
     passager_telephone?: string;
-    statut: "confirmé" | "en_attente" | "annulé";
+    passager_note?: string;
+    statut: "confirmee" | "en_attente" | "annulee";
+    date_reservation: string;
 }
 
 interface Trajet {
@@ -44,11 +53,13 @@ export default function DetailTrajetPage() {
     const trajetId = params.id as string;
 
     const [trajet, setTrajet] = useState<Trajet | null>(null);
+    const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         loadTrajet();
+        loadReservations();
     }, []);
 
     const loadTrajet = async () => {
@@ -62,6 +73,17 @@ export default function DetailTrajetPage() {
             }
         } catch (err) {
             setError("Impossible de charger les détails du trajet");
+        }
+    };
+
+    const loadReservations = async () => {
+        try {
+            console.log('Chargement des réservations pour le trajet:', trajetId);
+            const reservationsData = await trajetApi.getReservationsTrajet(trajetId);
+            console.log('Réservations reçues:', reservationsData);
+            setReservations(reservationsData);
+        } catch (err) {
+            console.error("Erreur lors du chargement des réservations:", err);
         } finally {
             setLoading(false);
         }
@@ -111,8 +133,9 @@ export default function DetailTrajetPage() {
         );
     }
 
-    const reservations = trajet.reservations || [];
-    const passagersConfirmes = reservations.filter((r: Reservation) => r.statut === "confirmé");
+    const passagersConfirmes = reservations.filter((r: Reservation) => r.statut === "confirmee");
+    console.log('Passagers confirmés:', passagersConfirmes);
+    console.log('Statuts des réservations:', reservations.map(r => r.statut));
 
     return (
         <div className="min-h-screen bg-base-200">
@@ -152,9 +175,15 @@ export default function DetailTrajetPage() {
                                 </h2>
                             </div>
                             <div className="h-96 bg-base-200 flex items-center justify-center">
-                                <p className="text-base-content/60">
-                                    Carte du trajet
-                                </p>
+                                <div className="text-center">
+                                    <Navigation className="w-12 h-12 text-base-content/40 mx-auto mb-2" />
+                                    <p className="text-base-content/60">
+                                        Carte interactive du trajet
+                                    </p>
+                                    <p className="text-xs text-base-content/40 mt-2">
+                                        {trajet?.depart} → {trajet?.destination}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>

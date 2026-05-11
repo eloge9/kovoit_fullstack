@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import "leaflet/dist/leaflet.css";  // ✅ import statique en haut, pas dans useEffect
+import dynamic from "next/dynamic";
+import dynamicImport from 'next/dynamic';
+
+const L = dynamicImport(() => import('leaflet'), {
+    ssr: false,
+});
 
 interface Point {
     nom: string;
