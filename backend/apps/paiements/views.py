@@ -1,5 +1,6 @@
 from django.shortcuts import render
-
+from django.db import transaction
+from django.utils import timezone
 import uuid
 import requests
 from rest_framework import viewsets, status
@@ -14,7 +15,6 @@ PAYGATE_URL_PAY    = "https://paygateglobal.com/api/v1/pay"
 PAYGATE_URL_STATUS = "https://paygateglobal.com/api/v2/status"
 
 COMMISSION_KOVOIT = 0.10  # 10%
-
 
 class PaiementViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
@@ -197,7 +197,64 @@ class PaiementViewSet(viewsets.GenericViewSet):
             "datetime":          data.get('datetime'),
         })
 
-    # ── Confirmer paiement en espèces ─────────────────────────────────────
+    # ── Initier un paiement en espèces ────────────────────────────────────────
+    @action(detail=False, methods=['post'])
+    def initier_especes(self, request):
+        """
+        Le passager initie un paiement en espèces.
+        Body: { reservation_id }
+        """
+        reservation_id = request.data.get('reservation_id')
+        if not reservation_id:
+            return Response({"error": "reservation_id requis."}, status=400)
+
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'passager'
+            ).get(pk=reservation_id, passager=request.user)
+        except Reservation.DoesNotExist:
+            return Response({"error": "Réservation introuvable."}, status=404)
+
+        if reservation.statut != 'confirmee':
+            return Response(
+                {"error": "La réservation doit être confirmée avant le paiement."},
+                status=400
+            )
+
+        # Utiliser transaction.atomic() pour éviter les doublons
+        with transaction.atomic():
+            # Vérifier qu'aucun paiement n'existe déjà
+            if hasattr(reservation, 'paiement'):
+                paiement = reservation.paiement
+                if paiement.statut in [Paiement.Statut.CONFIRME, Paiement.Statut.EN_ATTENTE_CONFIRMATION]:
+                    return Response({"error": "Un paiement existe déjà pour cette réservation."}, status=400)
+                # Si le paiement est annulé ou échoué, on peut en créer un nouveau
+                paiement.delete()
+
+            trajet = reservation.trajet
+            montant = trajet.prix_par_place
+            commission = round(float(montant) * COMMISSION_KOVOIT)
+
+            # Créer le paiement en espèces
+            paiement = Paiement.objects.create(
+                reservation=reservation,
+                passager=request.user,
+                conducteur=trajet.conducteur,
+                montant=montant,
+                moyen_paiement='ESPECE',
+                statut=Paiement.Statut.EN_ATTENTE_CONFIRMATION
+            )
+
+        return Response({
+            "message": "Paiement en espèces initié. En attente de confirmation du conducteur.",
+            "paiement_id": paiement.id,
+            "montant": float(montant),
+            "commission_kovoit": commission,
+            "montant_conducteur": float(montant) - commission,
+            "statut": paiement.statut,
+        }, status=201)
+
+    # ── Confirmer paiement en espèces (conducteur) ───────────────────────────────
     @action(detail=False, methods=['post'])
     def confirmer_especes(self, request):
         """
@@ -214,32 +271,80 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 trajet__conducteur=request.user
             )
         except Reservation.DoesNotExist:
-            return Response({"error": "Réservation introuvable."}, status=404)
+            return Response({"error": "Réservation introuvable ou vous n'êtes pas le conducteur."}, status=404)
 
-        if reservation.statut != 'confirmee':
-            return Response({"error": "La réservation doit être confirmée."}, status=400)
+        # Vérifier qu'un paiement en attente existe
+        try:
+            paiement = reservation.paiement
+        except Paiement.DoesNotExist:
+            return Response({"error": "Aucun paiement en attente pour cette réservation."}, status=404)
 
-        montant    = int(reservation.trajet.prix_par_place)
+        if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
+            return Response({"error": "Ce paiement n'est pas en attente de confirmation."}, status=400)
+
+        if paiement.moyen_paiement != 'ESPECE':
+            return Response({"error": "Ce n'est pas un paiement en espèces."}, status=400)
+
+        # Utiliser transaction.atomic() pour la sécurité
+        with transaction.atomic():
+            # Empêcher toute modification si le statut a changé entre temps
+            paiement.refresh_from_db()
+            if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
+                return Response({"error": "Le paiement a déjà été traité."}, status=400)
+
+            # Confirmer le paiement
+            paiement.statut = Paiement.Statut.CONFIRME
+            paiement.date_confirmation = timezone.now()
+            paiement.save()
+
+        montant = float(paiement.montant)
         commission = round(montant * COMMISSION_KOVOIT)
 
-        paiement, _ = Paiement.objects.get_or_create(
-            reservation=reservation,
-            defaults={
-                'montant':        montant,
-                'moyen_paiement': 'especes',
-                'statut':         'payee',
-            }
-        )
-        paiement.statut         = 'payee'
-        paiement.moyen_paiement = 'especes'
-        paiement.save()
-
         return Response({
-            "message":            "Paiement en espèces confirmé.",
-            "montant":            montant,
-            "commission_kovoit":  commission,
+            "message": "Paiement en espèces confirmé avec succès.",
+            "paiement_id": paiement.id,
+            "montant": montant,
+            "commission_kovoit": commission,
             "montant_conducteur": montant - commission,
+            "date_confirmation": paiement.date_confirmation,
         })
+
+    # ── Obtenir le statut de paiement d'une réservation ────────────────────────
+    @action(detail=False, methods=['get'])
+    def statut_reservation(self, request):
+        """
+        Retourne le statut de paiement pour une réservation donnée.
+        Query: ?reservation_id=X
+        """
+        reservation_id = request.query_params.get('reservation_id')
+        if not reservation_id:
+            return Response({"error": "reservation_id requis."}, status=400)
+
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'passager', 'trajet__conducteur'
+            ).get(pk=reservation_id)
+        except Reservation.DoesNotExist:
+            return Response({"error": "Réservation introuvable."}, status=404)
+
+        # Vérifier les permissions : passager ou conducteur du trajet
+        if not (request.user == reservation.passager or request.user == reservation.trajet.conducteur):
+            return Response({"error": "Accès non autorisé."}, status=403)
+
+        try:
+            paiement = reservation.paiement
+            data = {
+                "paiement_id": paiement.id,
+                "statut": paiement.statut,
+                "moyen_paiement": paiement.moyen_paiement,
+                "montant": float(paiement.montant),
+                "date_creation": paiement.date_creation,
+                "date_confirmation": paiement.date_confirmation,
+            }
+        except Paiement.DoesNotExist:
+            data = {"statut": "AUCUN", "message": "Aucun paiement initié"}
+
+        return Response(data)
 
     # ── Mes paiements (passager) ──────────────────────────────────────────
     @action(detail=False, methods=['get'])

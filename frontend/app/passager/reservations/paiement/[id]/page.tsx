@@ -6,7 +6,10 @@ import { api } from "@/src/services/api";
 import {
     initierPaiement,
     verifierPaiement,
+    initierPaiementEspeces,
+    getStatutPaiementReservation,
     type PaiementStatut,
+    type PaiementReservationResponse,
 } from "@/src/services/paiement.service";
 
 export default function PaiementPage() {
@@ -23,18 +26,39 @@ export default function PaiementPage() {
     const [phone, setPhone] = useState("");
     const [methode, setMethode] = useState<"mobile" | "especes">("mobile");
 
-    // État après initiation
+    // État du paiement espèces
+    const [paiementEspeces, setPaiementEspeces] = useState<PaiementReservationResponse | null>(null);
+    const [loadingEspeces, setLoadingEspeces] = useState(false);
+
+    // État après initiation mobile money
     const [identifier, setIdentifier] = useState<string | null>(null);
     const [txReference, setTxReference] = useState<string | null>(null);
     const [statut, setStatut] = useState<PaiementStatut | null>(null);
     const [verifying, setVerifying] = useState(false);
-    const intervalRef = useRef<NodeJS.Timeout>();
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         const fetch = async () => {
             try {
                 const data = await api(`/reservations/${id}/detail/`, "GET");
                 setReservation(data);
+
+                // Vérifier le statut de paiement
+                try {
+                    const paiementStatut = await getStatutPaiementReservation(Number(id));
+                    console.log("Statut paiement récupéré:", paiementStatut);
+                    setPaiementEspeces(paiementStatut);
+                } catch (err: any) {
+                    console.error("Erreur lors de la récupération du statut de paiement:", err);
+                    // Si erreur 401/403, on ne réinitialise pas le statut
+                    if (err.response?.status === 401 || err.response?.status === 403) {
+                        console.warn("Erreur d'authentification - statut non mis à jour");
+                        // On ne met pas à null pour éviter de permettre un double paiement
+                        return;
+                    }
+                    // Pour les autres erreurs (404), on considère qu'il n'y a pas de paiement
+                    setPaiementEspeces(null);
+                }
             } catch {
                 // Fallback — charger depuis mes_reservations
                 const all = await api("/reservations/mes_reservations/", "GET");
@@ -47,19 +71,25 @@ export default function PaiementPage() {
         if (id) fetch();
     }, [id]);
 
-    // Polling toutes les 5 secondes après initiation
+    // Polling toutes les 5 secondes après initiation mobile money
     useEffect(() => {
         if (!identifier) return;
         intervalRef.current = setInterval(async () => {
             await handleVerifier(false);
         }, 5000);
-        return () => clearInterval(intervalRef.current);
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
     }, [identifier]);
 
-    // Arrêter le polling si paiement terminé
+    // Arrêter le polling si paiement mobile money terminé
     useEffect(() => {
         if (statut?.statut === "payee" || statut?.statut === "echouee") {
-            clearInterval(intervalRef.current);
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
         }
     }, [statut]);
 
@@ -90,12 +120,75 @@ export default function PaiementPage() {
             const data = await verifierPaiement(identifier);
             setStatut(data);
             if (data.statut === "payee") {
-                clearInterval(intervalRef.current);
+                if (intervalRef.current) {
+                    clearInterval(intervalRef.current);
+                }
             }
         } catch {
             // Silencieux pour le polling automatique
         } finally {
             if (manuel) setVerifying(false);
+        }
+    };
+
+    const handleInitierEspeces = async () => {
+        setLoadingEspeces(true);
+        setError(null);
+
+        // Double protection : vérifier localement si un paiement existe déjà
+        if (paiementEspeces && paiementEspeces.statut !== 'ANNULE') {
+            setError("Un paiement existe déjà pour cette réservation.");
+            setLoadingEspeces(false);
+            return;
+        }
+
+        try {
+            const data = await initierPaiementEspeces({
+                reservation_id: Number(id),
+            });
+            setPaiementEspeces({
+                paiement_id: data.paiement_id,
+                statut: data.statut,
+                moyen_paiement: 'ESPECE',
+                montant: data.montant,
+                date_creation: new Date().toISOString(),
+            });
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de l'initiation du paiement en espèces.");
+        } finally {
+            setLoadingEspeces(false);
+        }
+    };
+
+    // Rendu du statut de paiement espèces
+    const renderStatutEspeces = () => {
+        if (!paiementEspeces) return null;
+
+        switch (paiementEspeces.statut) {
+            case 'EN_ATTENTE_CONFIRMATION':
+                return (
+                    <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-warning animate-pulse" />
+                            <p className="text-sm font-medium text-base-content">
+                                🔵 En attente de confirmation du conducteur
+                            </p>
+                        </div>
+                    </div>
+                );
+            case 'CONFIRME':
+                return (
+                    <div className="bg-success/10 border border-success/20 rounded-xl px-4 py-3">
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-success" />
+                            <p className="text-sm font-medium text-base-content">
+                                🟢 Paiement confirmé
+                            </p>
+                        </div>
+                    </div>
+                );
+            default:
+                return null;
         }
     };
 
@@ -297,31 +390,44 @@ export default function PaiementPage() {
                             <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
                                 Paiement en espèces
                             </p>
-                            <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
-                                <p className="text-sm text-base-content/70">
-                                    Le paiement en espèces se fait directement au conducteur lors du trajet.
-                                    Le conducteur devra confirmer la réception du paiement.
-                                </p>
-                            </div>
-                            <div className="divide-y divide-base-200">
-                                <div className="flex justify-between py-2">
-                                    <span className="text-xs text-base-content/40 uppercase tracking-wide">À remettre au conducteur</span>
-                                    <span className="text-sm font-bold text-base-content">{montant.toLocaleString("fr-FR")} FCFA</span>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => router.push("/passager/reservations")}
-                                className="btn btn-outline w-full rounded-full border-base-300"
-                            >
-                                Compris — payer en espèces
-                            </button>
+
+                            {/* Afficher le statut si paiement existe */}
+                            {paiementEspeces && renderStatutEspeces()}
+
+                            {/* Afficher le bouton seulement si aucun paiement n'existe */}
+                            {!paiementEspeces && (
+                                <>
+                                    <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
+                                        <p className="text-sm text-base-content/70">
+                                            Le paiement en espèces se fait directement au conducteur lors du trajet.
+                                            Le conducteur devra confirmer la réception du paiement.
+                                        </p>
+                                    </div>
+                                    <div className="divide-y divide-base-200">
+                                        <div className="flex justify-between py-2">
+                                            <span className="text-xs text-base-content/40 uppercase tracking-wide">À remettre au conducteur</span>
+                                            <span className="text-sm font-bold text-base-content">{montant.toLocaleString("fr-FR")} FCFA</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleInitierEspeces}
+                                        disabled={loadingEspeces}
+                                        className="btn btn-primary w-full rounded-full"
+                                    >
+                                        {loadingEspeces
+                                            ? <span className="loading loading-spinner loading-sm" />
+                                            : "Payer en espèces"
+                                        }
+                                    </button>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
             )}
 
-            {/* ── Après initiation — attente confirmation ── */}
-            {identifier && statut?.statut !== "payee" && (
+            {/* ── Après initiation mobile money — attente confirmation ── */}
+            {identifier && (statut?.statut === "en_attente" || statut?.statut === "echouee") && (
                 <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-5 text-center">
                     <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mx-auto">
                         <span className="loading loading-spinner loading-lg text-warning" />

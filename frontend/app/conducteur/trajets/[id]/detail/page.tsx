@@ -16,6 +16,7 @@ import {
     CheckCircle
 } from "lucide-react";
 import trajetApi from "@/libs/trajet-api";
+import { confirmerEspeces, getStatutPaiementReservation, type PaiementReservationResponse } from "@/src/services/paiement.service";
 
 // Types définis localement pour éviter les erreurs d'import
 // Interface pour les réservations (basée sur le serializer backend)
@@ -48,14 +49,14 @@ interface Trajet {
 }
 
 export default function DetailTrajetPage() {
-    const params = useParams();
+    const { id } = useParams();
     const router = useRouter();
-    const trajetId = params.id as string;
-
     const [trajet, setTrajet] = useState<Trajet | null>(null);
-    const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [confirming, setConfirming] = useState<number | null>(null);
+    const [paiementsStatus, setPaiementsStatus] = useState<{ [key: number]: PaiementReservationResponse }>({});
+    const [reservations, setReservations] = useState<Reservation[]>([]);
 
     useEffect(() => {
         loadTrajet();
@@ -64,7 +65,7 @@ export default function DetailTrajetPage() {
 
     const loadTrajet = async () => {
         try {
-            const trajetData = await trajetApi.getTrajet(trajetId);
+            const trajetData = await trajetApi.getTrajet(String(id));
             setTrajet(trajetData);
 
             // Vérifier si le trajet est bien en cours
@@ -78,14 +79,47 @@ export default function DetailTrajetPage() {
 
     const loadReservations = async () => {
         try {
-            console.log('Chargement des réservations pour le trajet:', trajetId);
-            const reservationsData = await trajetApi.getReservationsTrajet(trajetId);
+            console.log('Chargement des réservations pour le trajet:', Number(id));
+            const reservationsData = await trajetApi.getReservationsTrajet(String(id));
             console.log('Réservations reçues:', reservationsData);
             setReservations(reservationsData);
+
+            // Charger les statuts de paiement pour chaque réservation
+            for (const reservation of reservationsData) {
+                try {
+                    const paiementStatus = await getStatutPaiementReservation(reservation.id);
+                    setPaiementsStatus(prev => ({
+                        ...prev,
+                        [reservation.id]: paiementStatus
+                    }));
+                } catch {
+                    // Pas de paiement existant
+                }
+            }
         } catch (err) {
             console.error("Erreur lors du chargement des réservations:", err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleConfirmerPaiement = async (reservationId: number) => {
+        setConfirming(reservationId);
+        try {
+            await confirmerEspeces(reservationId);
+            // Mettre à jour le statut localement
+            setPaiementsStatus(prev => ({
+                ...prev,
+                [reservationId]: {
+                    ...prev[reservationId],
+                    statut: 'CONFIRME',
+                    date_confirmation: new Date().toISOString()
+                }
+            }));
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de la confirmation du paiement");
+        } finally {
+            setConfirming(null);
         }
     };
 
@@ -104,7 +138,7 @@ export default function DetailTrajetPage() {
         if (!confirm("Êtes-vous sûr de vouloir terminer ce trajet ?")) return;
 
         try {
-            await trajetApi.terminerTrajet(trajetId);
+            await trajetApi.terminerTrajet(String(id));
             router.push("/conducteur/trajets");
         } catch (err) {
             setError("Erreur lors de la terminaison du trajet");
@@ -294,6 +328,42 @@ export default function DetailTrajetPage() {
                                                 </p>
                                             </div>
                                         </div>
+
+                                        {/* Statut de paiement */}
+                                        {paiementsStatus[reservation.id] && (
+                                            <div className="mt-2 p-2 rounded-lg border border-base-200 bg-base-50">
+                                                <p className="text-xs text-base-content/40 mb-1">Paiement</p>
+                                                {paiementsStatus[reservation.id].statut === 'EN_ATTENTE_CONFIRMATION' ? (
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center gap-1 text-xs text-warning">
+                                                            <div className="w-2 h-2 rounded-full bg-warning animate-pulse" />
+                                                            <span>En attente de confirmation</span>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleConfirmerPaiement(reservation.id)}
+                                                            disabled={confirming === reservation.id}
+                                                            className="btn btn-primary btn-xs w-full"
+                                                        >
+                                                            {confirming === reservation.id ? (
+                                                                <span className="loading loading-spinner loading-xs" />
+                                                            ) : (
+                                                                "👉 Confirmer réception"
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                ) : paiementsStatus[reservation.id].statut === 'CONFIRME' ? (
+                                                    <div className="flex items-center gap-1 text-xs text-success">
+                                                        <CheckCircle className="w-3 h-3" />
+                                                        <span>Paiement confirmé</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-base-content/60">
+                                                        {paiementsStatus[reservation.id].statut}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
                                         <div className="flex gap-2">
                                             <button className="btn btn-ghost btn-xs flex-1">
                                                 <Phone className="w-3 h-3" />

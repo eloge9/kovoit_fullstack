@@ -156,15 +156,31 @@ class Reservation(models.Model):
 
 # ----------------- Paiement -----------------
 class Paiement(models.Model):
-    reservation    = models.OneToOneField(Reservation, on_delete=models.CASCADE, related_name='paiement')
-    montant        = models.DecimalField(max_digits=10, decimal_places=2)
-    moyen_paiement = models.CharField(max_length=50)
-    statut         = models.CharField(max_length=20, choices=(
-        ('en_attente', 'En attente'),
-        ('payee',      'Payée'),
-        ('echouee',    'Échouée'),
-    ), default='en_attente')
-    date_payement  = models.DateTimeField(null=True, blank=True)
+    class Statut(models.TextChoices):
+        EN_ATTENTE_CONFIRMATION = "EN_ATTENTE_CONFIRMATION"
+        CONFIRME = "CONFIRME"
+        ANNULE = "ANNULE"
+        # Anciens statuts pour compatibilité mobile money
+        EN_ATTENTE = "EN_ATTENTE"  # Pour mobile money
+        PAYEE = "PAYEE"           # Pour mobile money
+        ECHOUEE = "ECHOUEE"       # Pour mobile money
+    
+    reservation = models.OneToOneField(Reservation, on_delete=models.CASCADE, related_name='paiement')
+    passager = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements", null=True, blank=True)
+    conducteur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements_conducteur", null=True, blank=True)
+    
+    montant = models.DecimalField(max_digits=10, decimal_places=2)
+    moyen_paiement = models.CharField(max_length=20, default="ESPECE")
+    
+    statut = models.CharField(
+        max_length=30,
+        choices=Statut.choices,
+        default=Statut.EN_ATTENTE_CONFIRMATION
+    )
+    
+    date_creation = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    date_confirmation = models.DateTimeField(null=True, blank=True)
+    date_payement = models.DateTimeField(null=True, blank=True)  # Pour compatibilité mobile money
 
     def __str__(self):
         return f"{self.reservation} → {self.statut}"

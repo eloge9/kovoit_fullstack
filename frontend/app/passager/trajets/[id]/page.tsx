@@ -198,7 +198,7 @@ export default function DetailTrajetPage() {
                             <div className="flex gap-0.5">
                                 {[1, 2, 3, 4, 5].map((s) => (
                                     <div key={s} className={`w-2.5 h-2.5 rounded-sm ${s <= Math.round(trajet.conducteur_note)
-                                            ? "bg-warning" : "bg-base-300"
+                                        ? "bg-warning" : "bg-base-300"
                                         }`} />
                                 ))}
                             </div>
@@ -226,8 +226,8 @@ export default function DetailTrajetPage() {
                     </div>
                     <div className="text-right">
                         <span className={`badge rounded-full font-medium ${placesRestantes > 0
-                                ? "badge-success badge-outline"
-                                : "badge-error badge-outline"
+                            ? "badge-success badge-outline"
+                            : "badge-error badge-outline"
                             }`}>
                             {placesRestantes > 0 ? "Disponible" : "Complet"}
                         </span>
