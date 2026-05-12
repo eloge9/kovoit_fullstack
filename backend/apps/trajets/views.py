@@ -21,9 +21,15 @@ class TrajetViewSet(viewsets.ModelViewSet):
         return TrajetSerializer
 
     def get_queryset(self):
-        # Pour les actions list et retrieve, retourner tous les trajets du conducteur connecté
-        if self.action in ['list', 'retrieve']:
-            return Trajet.objects.filter(conducteur=self.request.user).select_related('conducteur')
+        # Pour l'action list, retourner les trajets du conducteur connecté (pour /conducteur/trajets)
+        if self.action == 'list':
+            if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+                return Trajet.objects.filter(conducteur=self.request.user).select_related('conducteur')
+            else:
+                return Trajet.objects.none()
+        # Pour l'action retrieve, autoriser l'accès public aux trajets ouverts
+        elif self.action == 'retrieve':
+            return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
         # Pour les autres actions (create, update, etc), filtrer uniquement les trajets ouverts
         return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
 
