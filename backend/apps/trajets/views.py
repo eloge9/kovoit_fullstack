@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
+from django.db.models import Q
 from ..modeles.models import Trajet
 from .serializers import TrajetSerializer, TrajetCreateSerializer
 
@@ -28,8 +29,16 @@ class TrajetViewSet(viewsets.ModelViewSet):
             else:
                 return Trajet.objects.none()
         # Pour l'action retrieve, autoriser l'accès public aux trajets ouverts
+        # et aux conducteurs pour voir leurs propres trajets (quel que soit le statut)
         elif self.action == 'retrieve':
-            return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
+            if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+                # Le conducteur peut voir tous ses trajets
+                return Trajet.objects.filter(
+                    Q(conducteur=self.request.user) | Q(statut='ouvert')
+                ).select_related('conducteur')
+            else:
+                # Les utilisateurs non connectés ne voient que les trajets ouverts
+                return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
         # Pour les autres actions (create, update, etc), filtrer uniquement les trajets ouverts
         return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
 

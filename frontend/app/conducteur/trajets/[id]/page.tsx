@@ -26,8 +26,17 @@ export default function DetailTrajetPage() {
             try {
                 const data = await getTrajet(Number(id));
                 setTrajet(data);
-            } catch {
-                setError("Trajet introuvable.");
+            } catch (err: any) {
+                console.error("Error loading trip:", err);
+                if (err.response?.status === 404) {
+                    setError("Trajet introuvable.");
+                } else if (err.response?.status === 401) {
+                    setError("Veuillez vous connecter pour accéder aux détails du trajet.");
+                } else if (err.response?.status === 403) {
+                    setError("Vous n'avez pas la permission de voir ce trajet.");
+                } else {
+                    setError("Impossible de charger les détails du trajet.");
+                }
             } finally {
                 setLoading(false);
             }
@@ -136,11 +145,29 @@ export default function DetailTrajetPage() {
     // ── Erreur ──────────────────────────────────────────────────────────
     if (!trajet) {
         return (
-            <div className="max-w-lg mx-auto py-16 text-center">
-                <p className="text-base-content/40">Trajet introuvable.</p>
-                <button onClick={() => router.back()} className="btn btn-ghost btn-sm rounded-full mt-4">
-                    Retour
-                </button>
+            <div className="max-w-lg mx-auto py-16 text-center space-y-4">
+                {error && (
+                    <div className="bg-error/10 border border-error/20 rounded-xl px-4 py-3">
+                        <p className="text-sm text-error">{error}</p>
+                    </div>
+                )}
+                <div className="space-y-3">
+                    {error?.includes("connectez") ? (
+                        <button
+                            onClick={() => router.push("/auth/login")}
+                            className="btn btn-primary rounded-full px-6"
+                        >
+                            Se connecter
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => router.back()}
+                            className="btn btn-ghost btn-sm rounded-full"
+                        >
+                            Retour
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
