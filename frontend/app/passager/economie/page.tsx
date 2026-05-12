@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingDown, Car, DollarSign, Filter, BarChart3, PiggyBank, Target } from "lucide-react";
+import { TrendingDown, Car, DollarSign, Filter, BarChart3, PiggyBank, Target, AlertCircle } from "lucide-react";
 import ChartEconomies from "./components/ChartEconomies";
 import { api } from "../../../src/services/api";
+import { useAuth } from "../../../src/hooks/useAuth";
+import Link from "next/link";
 
 interface TrajetEconomie {
   reservation_id: string;
@@ -54,9 +56,11 @@ interface ChartData {
 }
 
 export default function EconomiePassager() {
+  const { user, token, loading: authLoading } = useAuth();
   const [periode, setPeriode] = useState("tous");
   const [dateDebut, setDateDebut] = useState("");
   const [dateFin, setDateFin] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [statistiques, setStatistiques] = useState<StatistiquesEconomie>({
     periode: "",
     total_economie: 0,
@@ -83,11 +87,19 @@ export default function EconomiePassager() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchEconomies();
-  }, [periode, dateDebut, dateFin]);
+    if (token) {
+      fetchEconomies();
+    }
+  }, [periode, dateDebut, dateFin, token]);
 
   const fetchEconomies = async () => {
+    if (!token) {
+      setError("Veuillez vous connecter pour voir vos économies.");
+      return;
+    }
+
     setLoading(true);
+    setError(null);
     try {
       // Récupérer les économies du passager
       const params = new URLSearchParams();
@@ -150,8 +162,17 @@ export default function EconomiePassager() {
       console.log('Données comparaison reçues:', comparaisonData);
       setComparaisonTypes(comparaisonData);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur lors de la récupération des données économiques:', error);
+      if (error.response?.status === 401) {
+        setError("Session expirée. Veuillez vous reconnecter.");
+      } else if (error.response?.status === 403) {
+        setError("Accès refusé. Veuillez vous connecter.");
+      } else if (error.response?.status >= 500) {
+        setError("Serveur indisponible. Veuillez réessayer plus tard.");
+      } else {
+        setError("Impossible de charger vos données économiques.");
+      }
       // Réinitialiser les données en cas d'erreur
       setStatistiques({
         periode: "",
@@ -196,6 +217,51 @@ export default function EconomiePassager() {
       default: return '🚗';
     }
   };
+
+  // Afficher le chargement de l'authentification
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="loading loading-spinner loading-lg"></div>
+      </div>
+    );
+  }
+
+  // Afficher l'erreur d'authentification
+  if (!token) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Connexion requise</h2>
+            <p className="text-base-content/60 mb-4">Veuillez vous connecter pour voir vos économies</p>
+            <Link href="/auth/connexion" className="btn btn-primary">
+              Se connecter
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Afficher l'erreur de chargement des données
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center space-y-4">
+          <AlertCircle className="w-16 h-16 text-error mx-auto" />
+          <div>
+            <h2 className="text-xl font-semibold mb-2">Erreur de chargement</h2>
+            <p className="text-base-content/60 mb-4">{error}</p>
+            <button onClick={fetchEconomies} className="btn btn-primary">
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
