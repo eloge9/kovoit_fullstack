@@ -175,3 +175,140 @@ class StatistiqueSerializer(serializers.ModelSerializer):
     class Meta:
         model = Statistique
         fields = '__all__'
+
+
+# =====================================================
+# ÉCONOMIE PASSAGER
+# =====================================================
+
+from .utils import calculer_economie_passager
+
+
+class EconomieTrajetSerializer(serializers.Serializer):
+    """
+    Serializer pour les calculs économiques d'un trajet
+    """
+    distance_km = serializers.FloatField()
+    type_vehicule = serializers.ChoiceField(choices=[
+        ('moto', 'Moto'),
+        ('voiture', 'Voiture'),
+        ('minibus', 'Minibus'),
+        ('camion', 'Camion')
+    ])
+    prix_kovoit_place = serializers.DecimalField(max_digits=10, decimal_places=2)
+    
+    # Champs calculés en lecture seule
+    prix_reference = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    economie = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    pourcentage_economie = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
+    reference_type = serializers.CharField(read_only=True)
+
+
+class ReservationEconomieSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les réservations avec calculs économiques
+    """
+    trajet_info = serializers.SerializerMethodField()
+    economie_totale = serializers.SerializerMethodField()
+    pourcentage_economie = serializers.SerializerMethodField()
+    prix_reference_total = serializers.SerializerMethodField()
+    reference_type = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Reservation
+        fields = [
+            'id', 'trajet', 'trajet_info', 'passager', 'places_reservees',
+            'statut', 'date_reservation', 'economie_totale',
+            'pourcentage_economie', 'prix_reference_total', 'reference_type'
+        ]
+        read_only_fields = ['passager', 'date_reservation']
+    
+    def get_trajet_info(self, obj):
+        trajet = obj.trajet
+        return {
+            'id': trajet.id,
+            'depart': trajet.depart,
+            'destination': trajet.destination,
+            'distance_km': trajet.distance_km,
+            'prix_par_place': trajet.prix_par_place,
+            'date_heure_depart': trajet.date_heure_depart,
+            'conducteur_nom': f"{trajet.conducteur.first_name} {trajet.conducteur.last_name}".strip() or trajet.conducteur.username,
+        }
+    
+    def get_economie_totale(self, obj):
+        if obj.statut != 'confirmee' or not obj.trajet.distance_km:
+            return 0
+        
+        type_vehicule = obj.trajet.vehicule.type_vehicule if obj.trajet.vehicule else 'voiture'
+        calc = calculer_economie_passager(
+            obj.trajet.distance_km,
+            type_vehicule,
+            float(obj.trajet.prix_par_place)
+        )
+        return round(calc['economie'] * obj.places_reservees, 2)
+    
+    def get_pourcentage_economie(self, obj):
+        if obj.statut != 'confirmee' or not obj.trajet.distance_km:
+            return 0
+        
+        type_vehicule = obj.trajet.vehicule.type_vehicule if obj.trajet.vehicule else 'voiture'
+        calc = calculer_economie_passager(
+            obj.trajet.distance_km,
+            type_vehicule,
+            float(obj.trajet.prix_par_place)
+        )
+        return round(calc['pourcentage_economie'], 2)
+    
+    def get_prix_reference_total(self, obj):
+        if obj.statut != 'confirmee' or not obj.trajet.distance_km:
+            return 0
+        
+        type_vehicule = obj.trajet.vehicule.type_vehicule if obj.trajet.vehicule else 'voiture'
+        calc = calculer_economie_passager(
+            obj.trajet.distance_km,
+            type_vehicule,
+            float(obj.trajet.prix_par_place)
+        )
+        return round(calc['prix_reference'] * obj.places_reservees, 2)
+    
+    def get_reference_type(self, obj):
+        if not obj.trajet.distance_km:
+            return 'N/A'
+        
+        type_vehicule = obj.trajet.vehicule.type_vehicule if obj.trajet.vehicule else 'voiture'
+        return 'Gozem' if type_vehicule == 'moto' else 'Taxi'
+
+
+class StatistiquesEconomieSerializer(serializers.Serializer):
+    """
+    Serializer pour les statistiques économiques du passager
+    """
+    periode = serializers.CharField()
+    total_economie = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_depense_kovoit = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_depense_reference = serializers.DecimalField(max_digits=12, decimal_places=2)
+    nombre_reservations = serializers.IntegerField()
+    economie_moyenne_reservation = serializers.DecimalField(max_digits=10, decimal_places=2)
+    details_reservations = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+class ComparaisonTypeVehiculeSerializer(serializers.Serializer):
+    """
+    Serializer pour la comparaison d'économies par type de véhicule
+    """
+    periode = serializers.CharField()
+    stats_par_type = serializers.DictField()
+    total_general = serializers.DictField()
+
+
+class EconomieAnnuelleSerializer(serializers.Serializer):
+    """
+    Serializer pour les économies annuelles
+    """
+    periode = serializers.CharField()
+    total_economie = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_depense_kovoit = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_depense_reference = serializers.DecimalField(max_digits=12, decimal_places=2)
+    nombre_reservations = serializers.IntegerField()
+    economie_moyenne_reservation = serializers.DecimalField(max_digits=10, decimal_places=2)
+    details_reservations = serializers.ListField(child=serializers.DictField(), required=False)
