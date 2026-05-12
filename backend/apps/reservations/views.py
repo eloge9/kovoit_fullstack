@@ -2,12 +2,32 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound
 from ..modeles.models import Reservation, Trajet
 from .serializers import ReservationSerializer, ReservationCreateSerializer
 
 
 class ReservationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        """Récupérer une réservation spécifique"""
+        pk = self.kwargs.get('pk')
+        try:
+            return Reservation.objects.select_related('trajet', 'trajet__conducteur', 'passager').get(pk=pk)
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable.")
+
+    def retrieve(self, request, pk=None):
+        """Récupérer les détails d'une réservation"""
+        reservation = self.get_object()
+        
+        # Vérifier que l'utilisateur est bien le passager ou le conducteur
+        if reservation.passager != request.user and reservation.trajet.conducteur != request.user:
+            return Response({"error": "Accès non autorisé."}, status=403)
+        
+        serializer = ReservationSerializer(reservation)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
     def reserver(self, request):
@@ -71,6 +91,16 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
         reservation.statut = 'confirmee'
         reservation.save()
+
+        # Recalculer le prix si nécessaire
+        trajet = reservation.trajet
+        nb_passagers = trajet.reservations.filter(statut='confirmee').count()
+        if nb_passagers > 0 and trajet.cout_total:
+            nouveau_prix = round(float(trajet.cout_total) / nb_passagers)
+            trajet.prix_par_place = nouveau_prix
+            trajet.save()
+        else:
+            nouveau_prix = trajet.prix_par_place
 
         return Response({
             "message": "Réservation confirmée.",

@@ -17,6 +17,7 @@ class ReservationSerializer(serializers.ModelSerializer):
 
     # Infos conducteur
     conducteur = serializers.SerializerMethodField()
+    conducteur_note = serializers.SerializerMethodField()
 
     # Infos passager (pour le conducteur)
     passager_nom  = serializers.SerializerMethodField()
@@ -29,7 +30,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'id', 'trajet_id',
             'depart', 'destination', 'date_depart',
             'prix_par_place',
-            'conducteur',
+            'conducteur', 'conducteur_note',
             'passager_nom', 'passager_telephone', 'passager_note',
             'statut', 'date_reservation',
         ]
@@ -37,6 +38,9 @@ class ReservationSerializer(serializers.ModelSerializer):
     def get_conducteur(self, obj):
         c = obj.trajet.conducteur
         return f"{c.first_name} {c.last_name}".strip() or c.username
+
+    def get_conducteur_note(self, obj):
+        return obj.trajet.conducteur.note
 
     def get_passager_nom(self, obj):
         p = obj.passager

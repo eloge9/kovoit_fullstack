@@ -13,7 +13,7 @@ interface Reservation {
     date_depart: string;
     conducteur: string;
     prix_par_place: number;
-    statut: "en_attente" | "confirmee" | "declinee";
+    statut: "en_attente" | "confirmee" | "declinee" | "terminee";
     date_reservation: string;
 }
 
@@ -23,7 +23,7 @@ export default function MesReservationsPage() {
     const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [filtre, setFiltre] = useState<"tous" | "en_attente" | "confirmee" | "declinee">("tous");
+    const [filtre, setFiltre] = useState<"tous" | "en_attente" | "confirmee" | "declinee" | "terminee">("tous");
     const [annulation, setAnnulation] = useState<number | null>(null);
 
     useEffect(() => { fetchReservations(); }, []);
@@ -64,6 +64,7 @@ export default function MesReservationsPage() {
         en_attente: reservations.filter((r) => r.statut === "en_attente").length,
         confirmee: reservations.filter((r) => r.statut === "confirmee").length,
         declinee: reservations.filter((r) => r.statut === "declinee").length,
+        terminee: reservations.filter((r) => r.statut === "terminee").length,
     };
 
     const formatDate = (iso: string) =>
@@ -77,6 +78,7 @@ export default function MesReservationsPage() {
             case "en_attente": return "badge-warning badge-outline";
             case "confirmee": return "badge-success badge-outline";
             case "declinee": return "badge-error badge-outline";
+            case "terminee": return "badge-info badge-outline";
             default: return "badge-ghost";
         }
     };
@@ -86,6 +88,7 @@ export default function MesReservationsPage() {
             case "en_attente": return "En attente";
             case "confirmee": return "Confirmée";
             case "declinee": return "Déclinée";
+            case "terminee": return "Terminée";
             default: return statut;
         }
     };
@@ -120,6 +123,7 @@ export default function MesReservationsPage() {
                     { value: "en_attente", label: "En attente" },
                     { value: "confirmee", label: "Confirmées" },
                     { value: "declinee", label: "Déclinées" },
+                    { value: "terminee", label: "Terminées" },
                 ] as const).map((f) => (
                     <button
                         key={f.value}
@@ -153,7 +157,9 @@ export default function MesReservationsPage() {
                             ? "Vous n'avez pas encore de réservation."
                             : `Aucune réservation ${filtre === "en_attente" ? "en attente"
                                 : filtre === "confirmee" ? "confirmée"
-                                    : "déclinée"
+                                    : filtre === "declinee" ? "déclinée"
+                                        : filtre === "terminee" ? "terminée"
+                                            : ""
                             }.`
                         }
                     </p>
@@ -220,9 +226,9 @@ export default function MesReservationsPage() {
 
                                     {/* Actions */}
                                     <div className="flex items-center gap-2">
-                                        {/* Voir le trajet */}
+                                        {/* Voir la réservation */}
                                         <button
-                                            onClick={() => router.push(`/passager/trajets/${resa.trajet_id}`)}
+                                            onClick={() => router.push(`/passager/reservations/${resa.id}`)}
                                             className="btn btn-ghost btn-xs rounded-xl border border-base-200 text-xs"
                                         >
                                             Voir
@@ -267,6 +273,15 @@ export default function MesReservationsPage() {
                                     <div className="mt-3 bg-success/5 border border-success/10 rounded-xl px-4 py-2.5">
                                         <p className="text-xs text-success/70">
                                             Votre place est confirmée. Retrouvez le conducteur au point de départ.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Message si terminée */}
+                                {resa.statut === "terminee" && (
+                                    <div className="mt-3 bg-info/5 border border-info/10 rounded-xl px-4 py-2.5">
+                                        <p className="text-xs text-info/70">
+                                            Trajet terminé ! Merci d'avoir utilisé Kovoit.
                                         </p>
                                     </div>
                                 )}

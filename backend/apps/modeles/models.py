@@ -147,6 +147,7 @@ class Reservation(models.Model):
         ('en_attente', 'En attente'),
         ('confirmee',  'Confirmée'),
         ('declinee',   'Déclinée'),
+        ('terminee',   'Terminée'),
     ), default='en_attente')
     date_reservation = models.DateTimeField(auto_now_add=True)
 

@@ -90,9 +90,19 @@ class TrajetViewSet(viewsets.ModelViewSet):
             )
         if trajet.statut != 'en_cours':
             return Response({"error": "Seuls les trajets en cours peuvent être terminés."}, status=400)
+        
+        # Mettre le trajet à terminé
         trajet.statut = 'termine'
         trajet.save()
-        return Response({"message": "Trajet terminé avec succès."})
+        
+        # Mettre toutes les réservations confirmées à "terminee"
+        reservations_confirmees = trajet.reservations.filter(statut='confirmee')
+        reservations_confirmees.update(statut='terminee')
+        
+        return Response({
+            "message": "Trajet terminé avec succès.",
+            "reservations_terminees": reservations_confirmees.count()
+        })
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def annuler(self, request, pk=None):
