@@ -196,7 +196,7 @@ export default function DetailReservationPage() {
                 {reservation.statut === "confirmee" && (
                     <div className="mt-4 bg-success/5 border border-success/10 rounded-xl px-4 py-3">
                         <p className="text-sm text-success/70">
-                            ✅ Votre place est confirmée ! Présentez-vous au point de départ à l'heure prévue.
+                            Votre place est confirmée ! Présentez-vous au point de départ à l'heure prévue.
                         </p>
                     </div>
                 )}
@@ -204,7 +204,7 @@ export default function DetailReservationPage() {
                 {reservation.statut === "declinee" && (
                     <div className="mt-4 bg-error/5 border border-error/10 rounded-xl px-4 py-3">
                         <p className="text-sm text-error/70">
-                            ❌ Le conducteur a décliné votre demande. Vous pouvez rechercher un autre trajet.
+                            Le conducteur a décliné votre demande. Vous pouvez rechercher un autre trajet.
                         </p>
                     </div>
                 )}

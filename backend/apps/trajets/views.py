@@ -39,6 +39,12 @@ class TrajetViewSet(viewsets.ModelViewSet):
             else:
                 # Les utilisateurs non connectés ne voient que les trajets ouverts
                 return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
+        # Pour les actions commencer et terminer, autoriser l'accès aux trajets du conducteur
+        elif self.action in ['commencer', 'terminer', 'annuler']:
+            if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+                return Trajet.objects.filter(conducteur=self.request.user).select_related('conducteur')
+            else:
+                return Trajet.objects.none()
         # Pour les autres actions (create, update, etc), filtrer uniquement les trajets ouverts
         return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
 
@@ -91,27 +97,46 @@ class TrajetViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def terminer(self, request, pk=None):
-        trajet = self.get_object()
-        if trajet.conducteur != request.user:
-            return Response(
-                {"error": "Vous n'êtes pas le conducteur de ce trajet."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        if trajet.statut != 'en_cours':
-            return Response({"error": "Seuls les trajets en cours peuvent être terminés."}, status=400)
-        
-        # Mettre le trajet à terminé
-        trajet.statut = 'termine'
-        trajet.save()
-        
-        # Mettre toutes les réservations confirmées à "terminee"
-        reservations_confirmees = trajet.reservations.filter(statut='confirmee')
-        reservations_confirmees.update(statut='terminee')
-        
-        return Response({
-            "message": "Trajet terminé avec succès.",
-            "reservations_terminees": reservations_confirmees.count()
-        })
+        try:
+            trajet = self.get_object()
+            
+            # Vérifications
+            if trajet.conducteur != request.user:
+                return Response(
+                    {"error": "Vous n'êtes pas le conducteur de ce trajet."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if trajet.statut != 'en_cours':
+                return Response({
+                    "error": f"Impossible de terminer le trajet: statut actuel='{trajet.statut}'. Seuls les trajets en cours peuvent être terminés."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Mettre le trajet à terminé
+            ancien_statut = trajet.statut
+            trajet.statut = 'termine'
+            trajet.save()
+            
+            # Mettre toutes les réservations confirmées à "terminee"
+            reservations_confirmees = trajet.reservations.filter(statut='confirmee')
+            count_reservations = reservations_confirmees.count()
+            reservations_confirmees.update(statut='terminee')
+            
+            return Response({
+                "message": "Trajet terminé avec succès.",
+                "reservations_terminees": count_reservations,
+                "ancien_statut": ancien_statut
+            })
+            
+        except Exception as e:
+            # Log l'erreur pour le debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur lors de la terminaison du trajet {pk}: {str(e)}")
+            
+            return Response({
+                "error": f"Erreur serveur lors de la terminaison du trajet: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def annuler(self, request, pk=None):

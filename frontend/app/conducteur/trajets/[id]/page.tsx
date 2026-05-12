@@ -81,10 +81,22 @@ export default function DetailTrajetPage() {
         setTerminaison(true);
         setError(null);
         try {
-            await terminerTrajet(Number(id));
+            const result = await terminerTrajet(Number(id));
+            console.log("Trajet terminé avec succès:", result);
             setTrajet(prev => prev ? { ...prev, statut: "termine" } : null);
+            setSuccess(true);
         } catch (err: any) {
-            setError(err.response?.data?.error || "Erreur lors de la terminaison du trajet.");
+            console.error("Erreur détaillée lors de la terminaison:", err);
+            const errorMessage = err.response?.data?.error || err.message || "Erreur lors de la terminaison du trajet.";
+            const statusCode = err.response?.status;
+
+            if (statusCode === 403) {
+                setError("Vous n'êtes pas autorisé à terminer ce trajet.");
+            } else if (statusCode === 400) {
+                setError(errorMessage);
+            } else {
+                setError(`${errorMessage} (Code: ${statusCode || 'inconnu'})`);
+            }
         } finally {
             setTerminaison(false);
         }
@@ -100,8 +112,9 @@ export default function DetailTrajetPage() {
         ? trajet.places_disponibles - (trajet.places_restantes ?? trajet.places_disponibles)
         : 0;
 
-    // ── Succès annulation ──────────────────────────────────────────────
+    // ── Succès annulation/terminaison ──────────────────────────────────────
     if (success) {
+        const isTerminated = trajet?.statut === "termine";
         return (
             <div className="max-w-lg mx-auto py-16 text-center space-y-4">
                 <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto">
@@ -109,9 +122,14 @@ export default function DetailTrajetPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                 </div>
-                <h2 className="text-xl font-bold text-base-content">Trajet annulé</h2>
+                <h2 className="text-xl font-bold text-base-content">
+                    {isTerminated ? "Trajet terminé" : "Trajet annulé"}
+                </h2>
                 <p className="text-base-content/50 text-sm">
-                    Le trajet a été annulé avec succès. Les passagers seront notifiés.
+                    {isTerminated
+                        ? "Le trajet a été terminé avec succès. Les passagers seront notifiés."
+                        : "Le trajet a été annulé avec succès. Les passagers seront notifiés."
+                    }
                 </p>
                 <div className="flex gap-3 justify-center pt-4">
                     <button

@@ -347,7 +347,7 @@ export default function DetailTrajetPage() {
                                                             {confirming === reservation.id ? (
                                                                 <span className="loading loading-spinner loading-xs" />
                                                             ) : (
-                                                                "👉 Confirmer réception"
+                                                                " Confirmer réception"
                                                             )}
                                                         </button>
                                                     </div>

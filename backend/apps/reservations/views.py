@@ -154,3 +154,22 @@ class ReservationViewSet(viewsets.GenericViewSet):
         reservation.delete()
  
         return Response({"message": "Réservation annulée avec succès."})
+    
+    @action(detail=False, methods=['get'])
+    def historique(self, request):
+        """
+        Récupérer l'historique complet des réservations du passager
+        Inclut toutes les réservations (confirmées, terminées, annulées, etc.)
+        """
+        reservations = Reservation.objects.filter(
+            passager=request.user
+        ).select_related(
+            'trajet', 
+            'trajet__conducteur', 
+            'passager'
+        ).prefetch_related(
+            'trajet__reservations'
+        ).order_by('-date_reservation')
+        
+        serializer = ReservationSerializer(reservations, many=True)
+        return Response(serializer.data)

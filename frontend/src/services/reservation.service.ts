@@ -12,7 +12,7 @@ export interface Reservation {
   passager_nom?: string;
   passager_note?: number;
   prix_par_place: number;
-  statut: "en_attente" | "confirmee" | "declinee";
+  statut: "en_attente" | "confirmee" | "declinee" | "terminee" | "annulee";
   date_reservation: string;
 }
 
@@ -38,3 +38,7 @@ export const confirmerReservation = (id: number) =>
 // Conducteur — décliner une réservation
 export const declinerReservation = (id: number) =>
   api(`/reservations/${id}/decliner/`, "POST");
+
+// Passager — historique des réservations
+export const historiqueReservations = () =>
+  api("/reservations/historique/", "GET");
