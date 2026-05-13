@@ -55,6 +55,8 @@ class EconomieViewSet(viewsets.GenericViewSet):
         user = request.user
         mois = request.query_params.get('mois')
         annee = request.query_params.get('annee')
+        date_debut = request.query_params.get('date_debut')
+        date_fin = request.query_params.get('date_fin')
 
         # Filtrer les réservations confirmées et terminées du passager
         reservations = Reservation.objects.filter(
@@ -63,7 +65,20 @@ class EconomieViewSet(viewsets.GenericViewSet):
         ).select_related('trajet', 'trajet__vehicule')
 
         # Filtrer par période si spécifié
-        if mois and annee:
+        if date_debut and date_fin:
+            try:
+                from datetime import datetime
+                date_debut = datetime.strptime(date_debut, '%Y-%m-%d').date()
+                date_fin = datetime.strptime(date_fin, '%Y-%m-%d').date()
+                reservations = reservations.filter(
+                    date_reservation__date__gte=date_debut,
+                    date_reservation__date__lte=date_fin
+                )
+            except ValueError:
+                return Response({
+                    "error": "date_debut et date_fin doivent être au format YYYY-MM-DD"
+                }, status=400)
+        elif mois and annee:
             try:
                 mois = int(mois)
                 annee = int(annee)
@@ -80,7 +95,9 @@ class EconomieViewSet(viewsets.GenericViewSet):
         stats = calculer_economie_mensuelle_passager(reservations)
         
         # Ajouter les informations de période
-        if mois and annee:
+        if date_debut and date_fin:
+            stats['periode'] = f"{date_debut} au {date_fin}"
+        elif mois and annee:
             stats['periode'] = f"{annee}-{mois:02d}"
         else:
             stats['periode'] = "Toutes périodes"

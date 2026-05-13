@@ -86,6 +86,11 @@ def calculer_economie_mensuelle_passager(reservations):
             total_depense_kovoit += prix_kovoit
             total_depense_reference += prix_reference_reservation
             
+            # Calculer le pourcentage d'économie
+            pourcentage_economie = 0
+            if prix_reference_reservation > 0:
+                pourcentage_economie = (economie_reservation / prix_reference_reservation) * 100
+            
             details_reservations.append({
                 'reservation_id': reservation.id,
                 'trajet': f"{trajet.depart} → {trajet.destination}",
@@ -95,7 +100,9 @@ def calculer_economie_mensuelle_passager(reservations):
                 'places_reservees': reservation.places_reservees,
                 'prix_kovoit_total': prix_kovoit,
                 'prix_reference_total': prix_reference_reservation,
-                'economie': economie_reservation
+                'economie': economie_reservation,
+                'pourcentage_economie': round(pourcentage_economie, 1),
+                'reference_type': 'Gozem' if type_vehicule == 'moto' else 'Taxi'
             })
     
     return {

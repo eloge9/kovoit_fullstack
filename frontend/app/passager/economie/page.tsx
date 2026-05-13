@@ -16,7 +16,7 @@ interface TrajetEconomie {
   places_reservees: number;
   prix_kovoit_total: number;
   prix_reference_total: number;
-  economie_totale: number;
+  economie: number;
   pourcentage_economie: number;
   reference_type: string;
 }
@@ -104,7 +104,22 @@ export default function EconomiePassager() {
       // Récupérer les économies du passager
       const params = new URLSearchParams();
 
-      if (periode === "mois") {
+      if (periode === "aujourdhui") {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+
+        params.set('date_debut', todayStr);
+        params.set('date_fin', todayStr);
+      } else if (periode === "semaine") {
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0 = Dimanche, 1 = Lundi, ...
+        const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Ajuster pour commencer lundi
+        const monday = new Date(now.setDate(diff));
+        const sunday = new Date(now.setDate(diff + 6));
+
+        params.set('date_debut', monday.toISOString().split('T')[0]);
+        params.set('date_fin', sunday.toISOString().split('T')[0]);
+      } else if (periode === "mois") {
         const now = new Date();
         params.set('mois', (now.getMonth() + 1).toString());
         params.set('annee', now.getFullYear().toString());
@@ -120,10 +135,19 @@ export default function EconomiePassager() {
       setStatistiques(statsData);
 
       // Mettre à jour le résumé
+      const libelleMap = {
+        tous: "Économies totales",
+        aujourdhui: "Économies aujourd'hui",
+        semaine: "Économies cette semaine",
+        mois: "Économies ce mois",
+        annee: "Économies cette année",
+        personnalise: "Économies période"
+      };
+
       setResume({
         type_utilisateur: "passager",
         chiffre_principal: statsData.total_economie || 0,
-        libelle_chiffre: "Économies totales",
+        libelle_chiffre: libelleMap[periode as keyof typeof libelleMap] || "Économies",
         evolution_mois_precedent: 0, // TODO: calculer l'évolution
         nombre_operations: statsData.nombre_reservations || 0,
         moyenne_operation: statsData.economie_moyenne_reservation || 0
@@ -140,7 +164,7 @@ export default function EconomiePassager() {
             acc[monthKey] = { month: monthKey, economies: 0, reservations: 0 };
           }
 
-          acc[monthKey].economies += trajet.economie_totale;
+          acc[monthKey].economies += trajet.economie;
           acc[monthKey].reservations += 1;
 
           return acc;
@@ -289,14 +313,14 @@ export default function EconomiePassager() {
         >
           Tous
         </button>
-        {(["mois", "annee"] as const).map((p) => (
+        {(["aujourdhui", "semaine", "mois", "annee"] as const).map((p) => (
           <button
             key={p}
             onClick={() => setPeriode(p)}
             className={`btn btn-sm rounded-full capitalize transition-all ${periode === p ? "btn-primary" : "btn-ghost border border-base-300"
               }`}
           >
-            {p === "mois" ? "Ce mois" : "Cette année"}
+            {p === "aujourdhui" ? "Aujourd'hui" : p === "semaine" ? "Cette semaine" : p === "mois" ? "Ce mois" : "Cette année"}
           </button>
         ))}
         <button
@@ -506,7 +530,7 @@ export default function EconomiePassager() {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-base-content/40">Économie</p>
-                    <p className="text-sm font-bold text-green-600">{formatMontant(trajet.economie_totale)}</p>
+                    <p className="text-sm font-bold text-green-600">{formatMontant(trajet.economie)}</p>
                     <p className="text-xs text-green-500">
                       {trajet.pourcentage_economie ? `(${trajet.pourcentage_economie.toFixed(1)}%)` : ''}
                     </p>
