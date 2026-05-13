@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/src/hooks/useAuth";
 import { deconnexion } from "@/src/services/auth.service";
+import { getMediaUrl } from "@/src/utils/imageUtils";
 
 const navItems = [
     { href: "/passager/dashboard", label: "Tableau de bord" },
@@ -63,8 +64,8 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                     key={item.href}
                                     href={item.href}
                                     className={`px-3 py-1.5 rounded-lg text-sm transition-all ${isActive(item.href)
-                                            ? "bg-primary text-primary-content font-medium"
-                                            : "text-base-content/60 hover:text-base-content hover:bg-base-200"
+                                        ? "bg-primary text-primary-content font-medium"
+                                        : "text-base-content/60 hover:text-base-content hover:bg-base-200"
                                         }`}
                                 >
                                     {item.label}
@@ -86,8 +87,8 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                             <Link
                                                 href={item.href}
                                                 className={`block px-3 py-2 rounded-lg text-sm transition-colors ${isActive(item.href)
-                                                        ? "bg-primary/10 text-primary font-medium"
-                                                        : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                                                    ? "bg-primary/10 text-primary font-medium"
+                                                    : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
                                                     }`}
                                             >
                                                 {item.label}
@@ -114,7 +115,7 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                 <div tabIndex={0} role="button" className="flex items-center gap-2 cursor-pointer px-2 py-1 rounded-xl hover:bg-base-200 transition-colors">
                                     <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                                         {user?.photo_profil ? (
-                                            <img src={user.photo_profil} alt="profil" className="w-7 h-7 rounded-full object-cover" />
+                                            <img src={getMediaUrl(user.photo_profil)} alt="profil" className="w-7 h-7 rounded-full object-cover" />
                                         ) : (
                                             <span className="text-xs font-bold text-primary">
                                                 {user?.username?.[0]?.toUpperCase() || "P"}
@@ -186,8 +187,8 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                     href={item.href}
                                     onClick={() => setMenuOpen(false)}
                                     className={`px-3 py-2.5 rounded-xl text-sm transition-colors ${isActive(item.href)
-                                            ? "bg-primary text-primary-content font-medium"
-                                            : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                                        ? "bg-primary text-primary-content font-medium"
+                                        : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
                                         }`}
                                 >
                                     {item.label}

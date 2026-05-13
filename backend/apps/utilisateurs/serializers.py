@@ -127,3 +127,9 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'photo_profil', 'note',
             'profil_conducteur', 'profil_passager',
         ]
+        extra_kwargs = {
+            'photo_profil': {'required': False, 'allow_null': True},
+            'username': {'required': False},
+            'email': {'required': False},
+            'role': {'required': False},
+        }

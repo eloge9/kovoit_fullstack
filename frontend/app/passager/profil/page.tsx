@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/src/hooks/useAuth";
 import { api } from "@/src/services/api";
+import { getMediaUrl } from "@/src/utils/imageUtils";
 
 interface ProfilForm {
     first_name: string;
@@ -95,7 +96,7 @@ export default function ProfilPassagerPage() {
             <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
                     {user?.photo_profil ? (
-                        <img src={user.photo_profil} alt="profil" className="w-16 h-16 object-cover" />
+                        <img src={getMediaUrl(user.photo_profil)} alt="profil" className="w-16 h-16 object-cover" />
                     ) : (
                         <span className="text-2xl font-bold text-primary">
                             {user?.first_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase()}

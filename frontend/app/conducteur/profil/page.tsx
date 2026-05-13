@@ -9,6 +9,7 @@ import {
     desactiverVehicule,
     type Vehicule,
 } from "@/src/services/trajet.service";
+import { getMediaUrl } from "@/src/utils/imageUtils";
 
 const TYPES_VEHICULE = [
     { value: "moto", label: "Moto", places: 1, tarif: "30 FCFA/km" },
@@ -65,6 +66,9 @@ export default function ProfilConducteurPage() {
     // Charger les données utilisateur
     useEffect(() => {
         if (user) {
+            console.log(" Données utilisateur:", user);
+            console.log(" first_name:", user.first_name);
+            console.log(" last_name:", user.last_name);
             setProfil({
                 first_name: user.first_name || "",
                 last_name: user.last_name || "",
@@ -180,7 +184,7 @@ export default function ProfilConducteurPage() {
             <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
                     {user?.photo_profil ? (
-                        <img src={user.photo_profil} alt="profil" className="w-16 h-16 object-cover" />
+                        <img src={getMediaUrl(user.photo_profil)} alt="profil" className="w-16 h-16 object-cover" />
                     ) : (
                         <span className="text-2xl font-bold text-primary">
                             {user?.first_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase()}
