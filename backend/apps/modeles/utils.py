@@ -66,7 +66,7 @@ def calculer_economie_mensuelle_passager(reservations):
     details_reservations = []
     
     for reservation in reservations:
-        if reservation.statut == 'confirmee' and reservation.trajet.distance_km:
+        if reservation.statut in ['confirmee', 'terminee'] and reservation.trajet.distance_km:
             trajet = reservation.trajet
             prix_kovoit = float(trajet.prix_par_place) * reservation.places_reservees
             

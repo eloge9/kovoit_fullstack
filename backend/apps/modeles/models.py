@@ -131,6 +131,22 @@ class Trajet(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        # Vérifier si le statut change
+        old_statut = None
+        if self.pk:
+            old_instance = Trajet.objects.get(pk=self.pk)
+            old_statut = old_instance.statut
+        
+        super().save(*args, **kwargs)
+        
+        # Mettre à jour les réservations si le trajet est terminé
+        if self.statut == 'termine' and old_statut != 'termine':
+            self.reservations.filter(statut='confirmee').update(statut='terminee')
+        elif self.statut == 'annule' and old_statut != 'annule':
+            # Si le trajet est annulé, annuler aussi les réservations en attente/confirmées
+            self.reservations.filter(statut__in=['en_attente', 'confirmee']).update(statut='declinee')
+
     class Meta:
         ordering = ['-date_heure_depart']
 

@@ -56,10 +56,10 @@ class EconomieViewSet(viewsets.GenericViewSet):
         mois = request.query_params.get('mois')
         annee = request.query_params.get('annee')
 
-        # Filtrer les réservations confirmées du passager
+        # Filtrer les réservations confirmées et terminées du passager
         reservations = Reservation.objects.filter(
             passager=user,
-            statut='confirmee'
+            statut__in=['confirmee', 'terminee']
         ).select_related('trajet', 'trajet__vehicule')
 
         # Filtrer par période si spécifié
@@ -126,10 +126,10 @@ class EconomieViewSet(viewsets.GenericViewSet):
         """
         user = request.user
         
-        # Obtenir toutes les réservations confirmées
+        # Obtenir toutes les réservations confirmées et terminées
         reservations = Reservation.objects.filter(
             passager=user,
-            statut='confirmee'
+            statut__in=['confirmee', 'terminee']
         ).select_related('trajet', 'trajet__vehicule')
 
         # Grouper par type de véhicule
