@@ -147,7 +147,7 @@ export default function PassagerDashboard() {
                         <p className="text-xs font-semibold text-base-content/50 uppercase tracking-widest">
                             Réservations récentes
                         </p>
-                        <Link href="/passager/reservation/historique" className="text-xs text-primary hover:underline">
+                        <Link href="/passager/historique" className="text-xs text-primary hover:underline">
                             Voir tout
                         </Link>
                     </div>
@@ -256,7 +256,7 @@ export default function PassagerDashboard() {
                         </div>
                         <div className="divide-y divide-base-200">
                             {[
-                                { href: "/passager/reservation/historique", label: "Historique des réservations" },
+                                { href: "/passager/reservations", label: "Historique des réservations" },
                                 { href: "/passager/historique", label: "Historique des trajets" },
                                 { href: "/passager/evaluations", label: "Mes évaluations" },
                                 { href: "/passager/profil", label: "Profil & Paramètres" },

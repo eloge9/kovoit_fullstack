@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { mesReservations, Reservation } from "../services/reservation.service";
 import { rechercherTrajets, Trajet } from "../services/trajet.service";
+import { api } from "../services/api";
 
 export interface PassagerDashboardStats {
   trajetsEffectues: number;
@@ -33,6 +34,29 @@ export const usePassagerDashboardData = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchRealEconomies = async () => {
+    try {
+      const currentMonth = new Date().getMonth() + 1;
+      const currentYear = new Date().getFullYear();
+
+      const response = await api(`/economie/mes_economies/?mois=${currentMonth}&annee=${currentYear}`);
+      const data = response.data || response;
+
+      return {
+        economiesMensuelles: data.total_economie || 0,
+        economiesTotales: data.total_economie || 0,
+        trajetsCeMois: data.nombre_reservations || 0,
+      };
+    } catch (err) {
+      console.error('Erreur lors de la récupération des économies:', err);
+      return {
+        economiesMensuelles: 0,
+        economiesTotales: 0,
+        trajetsCeMois: 0,
+      };
+    }
+  };
+
   const fetchPassagerData = async () => {
     try {
       setLoading(true);
@@ -49,9 +73,9 @@ export const usePassagerDashboardData = () => {
       const currentMonth = new Date().getMonth();
       const currentYear = new Date().getFullYear();
 
-      // Trajets effectués (réservations confirmées)
+      // Trajets effectués (réservations confirmées ou terminées)
       const trajetsEffectues = reservationsData.filter(
-        (res: Reservation) => res.statut === "confirmee"
+        (res: Reservation) => res.statut === "confirmee" || res.statut === "terminee"
       ).length;
 
       // Réservations actives (en attente ou confirmées)
@@ -59,53 +83,26 @@ export const usePassagerDashboardData = () => {
         (res: Reservation) => res.statut === "en_attente" || res.statut === "confirmee"
       ).length;
 
-      // Économies mensuelles (estimation basée sur les trajets du mois)
-      const trajetsCeMois = reservationsData.filter((res: Reservation) => {
-        const resDate = new Date(res.date_reservation);
-        return resDate.getMonth() === currentMonth && resDate.getFullYear() === currentYear &&
-          res.statut === "confirmee";
-      });
+      // Récupérer les vraies économies depuis l'API
+      const realEconomies = await fetchRealEconomies();
 
-      // Économies mensuelles basées sur les réservations confirmées du mois
-      const economiesMensuelles = trajetsCeMois.reduce((total: number, res: Reservation) => {
-        // Économie estimée : 25% du prix (covoiturage vs transport individuel)
-        return total + (res.prix_par_place * 0.25);
-      }, 0);
+      // Points basés sur les trajets réellement confirmés ou terminés
+      const pointsAccumules = trajetsEffectues * 10; // 10 points par trajet confirmé/terminé
 
-      // Points basés sur les trajets réellement confirmés
-      const pointsAccumules = trajetsEffectues * 10; // 10 points par trajet confirmé
-
-      // Économies totales basées sur toutes les réservations confirmées
-      const economiesTotales = reservationsData.reduce((total: number, res: Reservation) => {
-        if (res.statut === "confirmee") {
-          // Économie : 25% du prix du trajet
-          return total + (res.prix_par_place * 0.25);
-        }
-        return total;
-      }, 0);
-
-      const trajetsCeMoisCount = trajetsCeMois.length;
-
-      // CO2 économisé basé sur une estimation réaliste
-      const co2Economise = reservationsData.reduce((total: number, res: Reservation) => {
-        if (res.statut === "confirmee") {
-          // Estimation CO2 : 8kg par trajet partagé (vs 16kg en voiture individuelle)
-          return total + 8; // 8kg CO2 économisé par trajet
-        }
-        return total;
-      }, 0);
+      // CO2 économisé basé sur une estimation réaliste (8kg par trajet partagé)
+      const co2Economise = trajetsEffectues * 8;
 
       setStats({
         trajetsEffectues,
         reservationsActives,
-        economiesMensuelles,
+        economiesMensuelles: realEconomies.economiesMensuelles,
         noteMoyenne: 0, // Sera mis à jour depuis useAuth
       });
 
       setPointsEconomies({
         pointsAccumules,
-        economiesTotales,
-        trajetsCeMois: trajetsCeMoisCount,
+        economiesTotales: realEconomies.economiesTotales,
+        trajetsCeMois: realEconomies.trajetsCeMois,
         co2Economise,
       });
 
