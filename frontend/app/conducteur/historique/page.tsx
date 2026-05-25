@@ -219,8 +219,8 @@ export default function HistoriqueConducteurPage() {
                                     key={option.value}
                                     onClick={() => setFilter(option.value)}
                                     className={`btn btn-xs rounded-lg transition-all ${filter === option.value
-                                            ? "btn-primary"
-                                            : "btn-ghost border-base-300"
+                                        ? "btn-primary"
+                                        : "btn-ghost border-base-300"
                                         }`}
                                 >
                                     {option.label}
@@ -247,8 +247,8 @@ export default function HistoriqueConducteurPage() {
                                     key={option.value}
                                     onClick={() => setPeriodFilter(option.value)}
                                     className={`btn btn-xs rounded-lg transition-all ${periodFilter === option.value
-                                            ? "btn-primary"
-                                            : "btn-ghost border-base-300"
+                                        ? "btn-primary"
+                                        : "btn-ghost border-base-300"
                                         }`}
                                 >
                                     {option.label}

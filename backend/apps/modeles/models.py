@@ -330,3 +330,85 @@ class EconomieMensuelle(models.Model):
     
     def __str__(self):
         return f"{self.passager.username} - {self.annee}/{self.mois}: {self.economie_totale}F économisés"
+
+
+# ------------------- Plainte/Signalement -----------------
+class Plainte(models.Model):
+    STATUT_CHOICES = (
+        ('en_attente', 'En attente'),
+        ('en_cours', 'En cours'),
+        ('resolue', 'Résolue'),
+        ('rejetee', 'Rejetée'),
+        ('suspendue', 'Suspendue'),
+    )
+    
+    TYPE_CHOICES = (
+        ('conducteur', 'Conducteur'),
+        ('passager', 'Passager'),
+        ('comportement', 'Comportement'),
+        ('vehicule', 'Véhicule'),
+        ('autre', 'Autre'),
+    )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Qui signale (peut être null pour signalements automatiques)
+    signalataire = models.ForeignKey(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        related_name='plaintes_deposees',
+        null=True,
+        blank=True
+    )
+    
+    # Qui est signalé
+    utilisateur_signale = models.ForeignKey(
+        Utilisateur, 
+        on_delete=models.CASCADE, 
+        related_name='plaintes_recues'
+    )
+    
+    # Contexte
+    trajet = models.ForeignKey(
+        Trajet, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='plaintes'
+    )
+    
+    evaluation = models.ForeignKey(
+        Evaluation, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='plaintes'
+    )
+    
+    # Détails
+    titre = models.CharField(max_length=255)
+    description = models.TextField()
+    type_plainte = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default='en_attente')
+    
+    # Admin
+    note_admin = models.TextField(blank=True, help_text="Notes de l'administrateur")
+    admin_assigne = models.ForeignKey(
+        Utilisateur,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='plaintes_assignees',
+        limit_choices_to={'role': 'admin'}
+    )
+    
+    # Dates
+    date_creation = models.DateTimeField(auto_now_add=True)
+    date_modification = models.DateTimeField(auto_now=True)
+    date_resolution = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-date_creation']
+    
+    def __str__(self):
+        return f"Plainte {self.titre} - {self.statut}"

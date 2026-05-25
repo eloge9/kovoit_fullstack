@@ -45,8 +45,8 @@ function Etoiles({ note, onChange, readonly = false }: {
                     onMouseEnter={() => !readonly && setHover(s)}
                     onMouseLeave={() => !readonly && setHover(0)}
                     className={`w-8 h-8 rounded-lg transition-all ${s <= (hover || note)
-                            ? "bg-warning text-warning-content"
-                            : "bg-base-200 text-base-content/20"
+                        ? "bg-warning text-warning-content"
+                        : "bg-base-200 text-base-content/20"
                         } ${readonly ? "cursor-default" : "hover:scale-110"}`}
                 >
                     <span className="text-sm font-bold">{s}</span>

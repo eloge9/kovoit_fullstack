@@ -11,7 +11,9 @@ from .models import (
     Message,
     Appel,
     Notification,
-    Statistique
+    Statistique,
+    Plainte,
+    Vehicule
 )
 
 Utilisateur = get_user_model()
@@ -70,6 +72,16 @@ class PassagerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Passager
+        fields = '__all__'
+
+
+# =====================================================
+# VEHICULE
+# =====================================================
+
+class VehiculeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vehicule
         fields = '__all__'
 
 
@@ -312,3 +324,154 @@ class EconomieAnnuelleSerializer(serializers.Serializer):
     nombre_reservations = serializers.IntegerField()
     economie_moyenne_reservation = serializers.DecimalField(max_digits=10, decimal_places=2)
     details_reservations = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+# =====================================================
+# ADMINISTRATION - PLAINTE
+# =====================================================
+
+class PlainteSerializer(serializers.ModelSerializer):
+    signalataire_details = UtilisateurSerializer(source='signalataire', read_only=True)
+    utilisateur_signale_details = UtilisateurSerializer(source='utilisateur_signale', read_only=True)
+    admin_assigne_details = UtilisateurSerializer(source='admin_assigne', read_only=True)
+
+    class Meta:
+        model = Plainte
+        fields = '__all__'
+
+
+# =====================================================
+# ADMINISTRATION - STATISTIQUES GLOBALES
+# =====================================================
+
+class StatistiquesGlobalesSerializer(serializers.Serializer):
+    """
+    Statistiques générales pour l'admin
+    """
+    nombre_utilisateurs_total = serializers.IntegerField()
+    nombre_conducteurs = serializers.IntegerField()
+    nombre_passagers = serializers.IntegerField()
+    nombre_admins = serializers.IntegerField()
+    
+    nombre_trajets_total = serializers.IntegerField()
+    nombre_trajets_ouverts = serializers.IntegerField()
+    nombre_trajets_termines = serializers.IntegerField()
+    nombre_trajets_annules = serializers.IntegerField()
+    
+    nombre_reservations_total = serializers.IntegerField()
+    nombre_reservations_confirmees = serializers.IntegerField()
+    nombre_reservations_terminees = serializers.IntegerField()
+    
+    nombre_paiements_total = serializers.IntegerField()
+    nombre_paiements_confirmes = serializers.IntegerField()
+    
+    revenu_total_kovoit = serializers.DecimalField(max_digits=15, decimal_places=2)
+    revenu_total_conducteurs = serializers.DecimalField(max_digits=15, decimal_places=2)
+    
+    nombre_evaluations = serializers.IntegerField()
+    note_moyenne_conducteurs = serializers.FloatField()
+    note_moyenne_passagers = serializers.FloatField()
+    
+    nombre_plaintes = serializers.IntegerField()
+    nombre_plaintes_en_attente = serializers.IntegerField()
+    nombre_plaintes_resolues = serializers.IntegerField()
+
+
+# =====================================================
+# ADMINISTRATION - UTILISATEUR DETAIL
+# =====================================================
+
+class UtilisateurDetailAdminSerializer(serializers.ModelSerializer):
+    profil_conducteur = ConducteurSerializer(source='profil_conducteur', read_only=True)
+    profil_passager = PassagerSerializer(source='profil_passager', read_only=True)
+    vehicules = serializers.SerializerMethodField()
+    nombre_trajets = serializers.SerializerMethodField()
+    nombre_reservations = serializers.SerializerMethodField()
+    nombre_evaluations_recues = serializers.SerializerMethodField()
+    nombre_plaintes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Utilisateur
+        fields = [
+            'id', 'username', 'email', 'role', 'numero_telephone',
+            'photo_profil', 'note', 'is_active', 'date_joined',
+            'profil_conducteur', 'profil_passager', 'vehicules',
+            'nombre_trajets', 'nombre_reservations',
+            'nombre_evaluations_recues', 'nombre_plaintes'
+        ]
+        read_only_fields = [
+            'id', 'date_joined', 'nombre_trajets',
+            'nombre_reservations', 'nombre_evaluations_recues', 'nombre_plaintes'
+        ]
+
+    def get_vehicules(self, obj):
+        from ..modeles.models import Vehicule
+        if hasattr(obj, 'profil_conducteur'):
+            vehicules = obj.profil_conducteur.vehicules.all()
+            return VehiculeSerializer(vehicules, many=True).data
+        return []
+
+    def get_nombre_trajets(self, obj):
+        return obj.trajets.count() if hasattr(obj, 'trajets') else 0
+
+    def get_nombre_reservations(self, obj):
+        return obj.reservations.count() if hasattr(obj, 'reservations') else 0
+
+    def get_nombre_evaluations_recues(self, obj):
+        return obj.evaluations_recues.count() if hasattr(obj, 'evaluations_recues') else 0
+
+    def get_nombre_plaintes(self, obj):
+        return obj.plaintes_recues.count() if hasattr(obj, 'plaintes_recues') else 0
+
+
+# =====================================================
+# ADMINISTRATION - TRAJET DETAIL
+# =====================================================
+
+class TrajetDetailAdminSerializer(serializers.ModelSerializer):
+    conducteur_details = UtilisateurSerializer(source='conducteur', read_only=True)
+    reservations_count = serializers.SerializerMethodField()
+    revenus_total = serializers.SerializerMethodField()
+    commission_kovoit = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Trajet
+        fields = [
+            'id', 'conducteur', 'conducteur_details', 'vehicule',
+            'depart', 'destination', 'distance_km', 'cout_total',
+            'prix_par_place', 'date_heure_depart', 'places_disponibles',
+            'statut', 'est_regulier', 'created_at', 'updated_at',
+            'reservations_count', 'revenus_total', 'commission_kovoit'
+        ]
+
+    def get_reservations_count(self, obj):
+        return obj.reservations.count()
+
+    def get_revenus_total(self, obj):
+        total = 0
+        for res in obj.reservations.filter(statut__in=['confirmee', 'terminee']):
+            if hasattr(res, 'paiement') and res.paiement.statut in ['CONFIRME', 'PAYEE']:
+                total += float(res.paiement.montant)
+        return total
+
+    def get_commission_kovoit(self, obj):
+        return self.get_revenus_total(obj) * 0.10
+
+
+# =====================================================
+# ADMINISTRATION - PAIEMENT DETAIL
+# =====================================================
+
+class PaiementDetailAdminSerializer(serializers.ModelSerializer):
+    passager_details = UtilisateurSerializer(source='passager', read_only=True)
+    conducteur_details = UtilisateurSerializer(source='conducteur', read_only=True)
+    trajet_details = TrajetSerializer(source='reservation.trajet', read_only=True)
+
+    class Meta:
+        model = Paiement
+        fields = [
+            'id', 'reservation', 'passager', 'passager_details',
+            'conducteur', 'conducteur_details', 'montant',
+            'moyen_paiement', 'statut', 'date_creation',
+            'date_confirmation', 'date_payement', 'trajet_details'
+        ]
