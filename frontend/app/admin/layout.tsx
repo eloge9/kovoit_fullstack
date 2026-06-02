@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
+import { Shield } from "lucide-react";
 import { useAuth } from "@/src/hooks/useAuth";
 import { deconnexion } from "@/src/services/auth.service";
 
-const navItems = [
+const DJANGO_ADMIN_URL = process.env.NEXT_PUBLIC_DJANGO_ADMIN_URL || "http://127.0.0.1:8000/admin/";
+
+type NavItem = {
+    href: string;
+    label: string;
+    icon?: ReactNode;
+};
+
+const navItems: NavItem[] = [
     { href: "/admin/dashboard", label: "Tableau de bord" },
     { href: "/admin/utilisateurs", label: "Utilisateurs" },
     { href: "/admin/trajets", label: "Trajets" },
@@ -19,7 +28,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const pathname = usePathname();
     const router = useRouter();
     const { user, logout } = useAuth();
-    const [menuOpen, setMenuOpen] = useState(false);
 
     const handleLogout = async () => {
         try {
@@ -38,7 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="min-h-screen flex items-center justify-center bg-base-200">
                 <div className="text-center">
                     <h1 className="text-2xl font-bold mb-4">Accès refusé</h1>
-                    <p className="text-base-content/60 mb-6">Vous n'avez pas les permissions pour accéder à cette zone.</p>
+                    <p className="text-base-content/60 mb-6">Vous n&apos;avez pas les permissions pour accéder à cette zone.</p>
                     <Link href="/passager/dashboard" className="btn btn-primary rounded-xl">
                         Retourner au dashboard
                     </Link>
@@ -92,14 +100,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                 <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
                                     {navItems.map((item) => (
                                         <li key={item.href}>
-                                            <Link href={item.href} onClick={() => setMenuOpen(false)}>
+                                            <Link href={item.href}>
                                                 {item.icon} {item.label}
                                             </Link>
                                         </li>
                                     ))}
+                                    <li>
+                                        <a href={DJANGO_ADMIN_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                                            <Shield className="w-4 h-4" />
+                                            Django Admin
+                                        </a>
+                                    </li>
                                 </ul>
                             </div>
                         </div>
+
+
 
                         {/* User menu */}
                         <div className="dropdown dropdown-end">
@@ -110,6 +126,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                 <li>
                                     <a className="text-xs text-base-content/60">
                                         {user?.username}
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        href={DJANGO_ADMIN_URL}
+                                        rel="noopener noreferrer"
+                                    >
+                                        <Shield className="w-4 h-4" />
+                                        Django Admin
                                     </a>
                                 </li>
                                 <li>
