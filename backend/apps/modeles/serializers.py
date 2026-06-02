@@ -382,8 +382,8 @@ class StatistiquesGlobalesSerializer(serializers.Serializer):
 # =====================================================
 
 class UtilisateurDetailAdminSerializer(serializers.ModelSerializer):
-    profil_conducteur = ConducteurSerializer(source='profil_conducteur', read_only=True)
-    profil_passager = PassagerSerializer(source='profil_passager', read_only=True)
+    profil_conducteur = ConducteurSerializer(read_only=True)
+    profil_passager = PassagerSerializer(read_only=True)
     vehicules = serializers.SerializerMethodField()
     nombre_trajets = serializers.SerializerMethodField()
     nombre_reservations = serializers.SerializerMethodField()

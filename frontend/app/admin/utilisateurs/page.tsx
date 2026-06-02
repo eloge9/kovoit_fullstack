@@ -20,7 +20,7 @@ interface Utilisateur {
 }
 
 export default function AdminUtilisateurs() {
-    const { user, token } = useAuth();
+    const { token } = useAuth();
     const [users, setUsers] = useState<Utilisateur[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -46,8 +46,8 @@ export default function AdminUtilisateurs() {
                 if (!response.ok) throw new Error("Erreur lors du chargement");
                 const data = await response.json();
                 setUsers(Array.isArray(data) ? data : []);
-            } catch (err: any) {
-                setError(err.message);
+            } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : String(err));
             } finally {
                 setLoading(false);
             }
@@ -70,8 +70,8 @@ export default function AdminUtilisateurs() {
                 }
             );
             setUsers(users.map(u => u.id === userId ? { ...u, is_active: false } : u));
-        } catch (err: any) {
-            alert("Erreur: " + err.message);
+        } catch (err: unknown) {
+            alert("Erreur: " + (err instanceof Error ? err.message : String(err)));
         }
     };
 
@@ -88,8 +88,8 @@ export default function AdminUtilisateurs() {
                 }
             );
             setUsers(users.map(u => u.id === userId ? { ...u, is_active: true } : u));
-        } catch (err: any) {
-            alert("Erreur: " + err.message);
+        } catch (err: unknown) {
+            alert("Erreur: " + (err instanceof Error ? err.message : String(err)));
         }
     };
 
@@ -107,8 +107,8 @@ export default function AdminUtilisateurs() {
             );
             alert("Conducteur validé et activé !");
             setUsers(users.map(u => u.id === userId ? { ...u, is_active: true } : u));
-        } catch (err: any) {
-            alert("Erreur: " + err.message);
+        } catch (err: unknown) {
+            alert("Erreur: " + (err instanceof Error ? err.message : String(err)));
         }
     };
 
@@ -128,6 +128,11 @@ export default function AdminUtilisateurs() {
             </div>
 
             {/* FILTRES */}
+            {error ? (
+                <div className="alert alert-error">
+                    <span>{error}</span>
+                </div>
+            ) : null}
             <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-4">
                 <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
                     Filtres
