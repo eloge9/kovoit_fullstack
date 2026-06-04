@@ -23,6 +23,12 @@ class PassagerSerializer(serializers.ModelSerializer):
         exclude = ['utilisateur']
 
 
+class AdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Admin
+        fields = ['permissions_specifiques']
+
+
 # ---------- Inscription ----------
 class InscriptionSerializer(serializers.ModelSerializer):
     password  = serializers.CharField(write_only=True, validators=[validate_password])
@@ -114,18 +120,33 @@ class ConnexionSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password     = serializers.CharField(write_only=True, validators=[validate_password])
+    new_password2    = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password2']:
+            raise serializers.ValidationError({
+                'new_password': 'Les mots de passe ne correspondent pas.'
+            })
+        return attrs
+
+
 # ---------- Utilisateur (lecture) ----------
 class UtilisateurSerializer(serializers.ModelSerializer):
     profil_conducteur = ConducteurSerializer(read_only=True)
     profil_passager   = PassagerSerializer(read_only=True)
+    profil_admin      = AdminSerializer(read_only=True)
 
     class Meta:
         model  = Utilisateur
         fields = [
             'id', 'username', 'first_name', 'last_name',
             'email', 'role', 'numero_telephone',
-            'photo_profil', 'note',
-            'profil_conducteur', 'profil_passager',
+            'photo_profil', 'note', 'is_active',
+            'date_joined', 'last_login',
+            'profil_conducteur', 'profil_passager', 'profil_admin',
         ]
         extra_kwargs = {
             'photo_profil': {'required': False, 'allow_null': True},

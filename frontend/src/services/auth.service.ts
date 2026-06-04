@@ -16,3 +16,9 @@ export const deconnexion = (refresh: string) =>
 
 export const getMe = (token: string) =>
   api("/utilisateurs/ko/profil/", "GET", undefined, token);
+
+export const changePassword = (data: {
+  current_password: string;
+  new_password: string;
+  new_password2: string;
+}) => api("/utilisateurs/ko/profil/change-password/", "POST", data);

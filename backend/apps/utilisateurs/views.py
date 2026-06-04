@@ -6,7 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 
 from ..modeles.models import Utilisateur,Vehicule, Conducteur, PLACES_MAX_PAR_TYPE
-from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer
+from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer, ChangePasswordSerializer
 
 
 def get_tokens(utilisateur):
@@ -124,6 +124,24 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='profil/change-password')
+    def change_password(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        current_password = serializer.validated_data['current_password']
+        new_password = serializer.validated_data['new_password']
+
+        if not request.user.check_password(current_password):
+            return Response({
+                'current_password': 'Mot de passe actuel incorrect.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        request.user.set_password(new_password)
+        request.user.save()
+        return Response({"message": "Mot de passe mis à jour avec succès."}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['delete'], url_path='profil/delete')
     def delete_profil(self, request):

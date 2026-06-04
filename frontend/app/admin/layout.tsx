@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
     { href: "/admin/trajets", label: "Trajets" },
     { href: "/admin/paiements", label: "Paiements" },
     { href: "/admin/plaintes", label: "Plaintes" },
+    { href: "/admin/profile", label: "Profil" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -127,6 +128,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                     <a className="text-xs text-base-content/60">
                                         {user?.username}
                                     </a>
+                                </li>
+                                <li>
+                                    <Link href="/admin/profile" className="flex items-center gap-2">
+
+                                        Profil
+                                    </Link>
                                 </li>
                                 <li>
                                     <a
