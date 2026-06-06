@@ -89,13 +89,14 @@ class InscriptionSerializer(serializers.ModelSerializer):
 
         utilisateur = Utilisateur.objects.create_user(**validated_data)
 
-        if utilisateur.role == 'conducteur':
+        Role = Utilisateur.Role
+
+        if utilisateur.role == Role.CONDUCTEUR:
             conducteur = Conducteur.objects.create(
                 utilisateur=utilisateur,
                 numero_permis=numero_permis,
                 experience_annees=experience_annees,
             )
-            # Créer le premier véhicule automatiquement
             places_max = PLACES_MAX_PAR_TYPE.get(type_vehicule, 4)
             Vehicule.objects.create(
                 conducteur=conducteur,
@@ -107,10 +108,10 @@ class InscriptionSerializer(serializers.ModelSerializer):
                 places_max=places_max,
             )
 
-        elif utilisateur.role == 'passager':
+        elif utilisateur.role == Role.PASSAGER:
             Passager.objects.create(utilisateur=utilisateur)
 
-        elif utilisateur.role == 'admin':
+        elif utilisateur.role == Role.ADMIN:
             Admin.objects.create(utilisateur=utilisateur)
 
         return utilisateur

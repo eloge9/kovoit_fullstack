@@ -102,8 +102,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'fr-fr'
+TIME_ZONE = 'Africa/Abidjan'
 USE_I18N = True
 USE_TZ = True
 
@@ -120,11 +120,18 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
-    # CORRECTION AUDIT : Pagination globale pour éviter la saturation mémoire
-    'DEFAULT_PAGINATION_CLASSES': (
-        'rest_framework.pagination.PageNumberPagination',
-    ),
-    'PAGE_SIZE': 20, # 20 objets par page par défaut
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    # Throttling : protection anti-brute-force sans dépendance externe
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/minute',   # Visiteurs non connectés (ex: recherche de trajets)
+        'user': '200/minute',  # Utilisateurs connectés
+        'auth': '5/minute',    # Endpoints login/inscription (scope dédié)
+    },
 }
 
 # ── JWT Configuration ─────────────────────────────────────────────────────

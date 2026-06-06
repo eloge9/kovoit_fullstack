@@ -49,7 +49,14 @@ export function useTrajetWebSocket({
     const connect = useCallback(() => {
         if (!trajetId || !mountedRef.current) return;
 
-        const url = `${WS_BASE}/ws/trajet/${trajetId}/`;
+        const token = typeof window !== "undefined"
+            ? localStorage.getItem("token")
+            : null;
+
+        // Sans token valide on n'ouvre pas la connexion (le serveur refuserait 4003)
+        if (!token) return;
+
+        const url = `${WS_BASE}/ws/trajet/${trajetId}/?token=${encodeURIComponent(token)}`;
         const ws  = new WebSocket(url);
         wsRef.current = ws;
 

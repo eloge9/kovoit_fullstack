@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
 from django.db import transaction
+from django.db.models import Q
 from ..modeles.models import Reservation, Trajet
 from .serializers import ReservationSerializer, ReservationCreateSerializer
 
@@ -12,14 +13,17 @@ class ReservationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        """Récupérer une réservation spécifique de manière sécurisée"""
         pk = self.kwargs.get('pk')
         try:
-            reservation = Reservation.objects.select_related('trajet', 'trajet__conducteur', 'passager').get(pk=pk)
-            # Vérification de propriété pour l'action 'retrieve'
-            if reservation.passager != self.request.user and reservation.trajet.conducteur != self.request.user:
-                raise PermissionDenied("Accès non autorisé à cette réservation.")
-            return reservation
+            # Filtre propriétaire dans la même requête DB :
+            # même réponse 404 que la réservation n'existe pas ou n'appartienne pas à l'user.
+            # Évite le timing-leak qui révèle l'existence d'une ressource (IDOR).
+            return Reservation.objects.select_related(
+                'trajet', 'trajet__conducteur', 'passager'
+            ).get(
+                Q(passager=self.request.user) | Q(trajet__conducteur=self.request.user),
+                pk=pk,
+            )
         except Reservation.DoesNotExist:
             raise NotFound("Réservation introuvable.")
 
@@ -69,42 +73,56 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def mes_reservations(self, request):
-        # CORRECTION SATURATION : Limite soft en attendant la pagination DRF globale
         reservations = Reservation.objects.filter(
             passager=request.user
-        ).select_related('trajet', 'trajet__conducteur', 'passager').order_by('-date_reservation')[:100]
+        ).select_related(
+            'trajet', 'trajet__conducteur', 'passager', 'paiement'
+        ).order_by('-date_reservation')[:100]
         return Response(ReservationSerializer(reservations, many=True).data)
 
     @action(detail=False, methods=['get'])
     def recues(self, request):
         reservations = Reservation.objects.filter(
             trajet__conducteur=request.user
-        ).select_related('trajet', 'passager').order_by('-date_reservation')[:100]
+        ).select_related(
+            'trajet', 'passager', 'paiement'
+        ).order_by('-date_reservation')[:100]
         return Response(ReservationSerializer(reservations, many=True).data)
 
     @action(detail=True, methods=['post'])
     def confirmer(self, request, pk=None):
-        # CORRECTION IDOR : Filtrage direct par conducteur. 
-        # Si pk n'appartient pas au conducteur, DoesNotExist est levé immédiatement.
-        try:
-            reservation = Reservation.objects.select_related('trajet').get(pk=pk, trajet__conducteur=request.user)
-        except Reservation.DoesNotExist:
-            raise PermissionDenied("Réservation introuvable ou accès non autorisé.")
+        with transaction.atomic():
+            try:
+                reservation = Reservation.objects.select_related('trajet').get(
+                    pk=pk, trajet__conducteur=request.user
+                )
+            except Reservation.DoesNotExist:
+                raise PermissionDenied("Réservation introuvable ou accès non autorisé.")
 
-        if reservation.statut == 'confirmee':
-            return Response({"error": "Déjà confirmée."}, status=400)
+            if reservation.statut == 'confirmee':
+                return Response({"error": "Déjà confirmée."}, status=400)
 
-        reservation.statut = 'confirmee'
-        reservation.save()
+            # Verrouiller le trajet pour sérialiser les confirmations concurrentes.
+            # Sans ce verrou, deux clics simultanés du conducteur peuvent confirmer
+            # plus de passagers que le nombre de places disponibles.
+            trajet = Trajet.objects.select_for_update().get(pk=reservation.trajet_id)
 
-        trajet = reservation.trajet
-        nb_passagers = trajet.reservations.filter(statut='confirmee').count()
+            nb_confirmees = trajet.reservations.filter(statut='confirmee').count()
+            if nb_confirmees >= trajet.places_disponibles:
+                return Response(
+                    {"error": f"Capacité atteinte : {trajet.places_disponibles} place(s) maximum."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            reservation.statut = 'confirmee'
+            reservation.save()
+
         prix_par_place = float(trajet.prix_par_place) if trajet.prix_par_place is not None else 0.0
 
         return Response({
             "message": "Réservation confirmée.",
             "prix_par_place": prix_par_place,
-            "nb_passagers_confirmes": nb_passagers,
+            "nb_passagers_confirmes": nb_confirmees + 1,
         })
 
     @action(detail=True, methods=['post'])
@@ -144,7 +162,9 @@ class ReservationViewSet(viewsets.GenericViewSet):
     def historique(self, request):
         reservations = Reservation.objects.filter(
             passager=request.user
-        ).select_related('trajet', 'trajet__conducteur', 'passager').order_by('-date_reservation')[:100]
-        
+        ).select_related(
+            'trajet', 'trajet__conducteur', 'passager', 'paiement'
+        ).order_by('-date_reservation')[:100]
+
         serializer = ReservationSerializer(reservations, many=True)
         return Response(serializer.data)

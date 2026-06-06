@@ -2,16 +2,23 @@ from rest_framework import viewsets, status, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 
 from ..modeles.models import Utilisateur, Vehicule, Conducteur, Passager, PLACES_MAX_PAR_TYPE
 from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer, ChangePasswordSerializer
+from .tokens import KovoitRefreshToken
+
+
+class AuthRateThrottle(AnonRateThrottle):
+    """5 tentatives/minute sur les endpoints login et inscription."""
+    scope = 'auth'
 
 
 def get_tokens(utilisateur):
-    """Génère access + refresh token pour un utilisateur."""
-    refresh = RefreshToken.for_user(utilisateur)
+    """Génère access + refresh token incluant les claims role et peut_conduire."""
+    refresh = KovoitRefreshToken.for_user(utilisateur)
     return {
         'refresh': str(refresh),
         'access': str(refresh.access_token),
@@ -27,6 +34,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     POST /api/utilisateurs/auth/refresh/
     """
     permission_classes = [AllowAny]
+    throttle_classes   = [AuthRateThrottle]
 
     def get_serializer_class(self):
         if self.action == 'inscription':
@@ -267,7 +275,7 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
         """
         user = request.user
 
-        if user.role != 'passager':
+        if user.role != Utilisateur.Role.PASSAGER:
             return Response(
                 {"error": "Seuls les passagers peuvent demander un changement de rôle."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -354,14 +362,15 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if user.role == 'passager':
-            # Vérifier qu'il a un profil conducteur
+        Role = Utilisateur.Role
+
+        if user.role == Role.PASSAGER:
             if not hasattr(user, 'profil_conducteur'):
                 return Response(
                     {"error": "Profil conducteur introuvable. Soumettez d'abord un dossier."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            user.role = 'conducteur'
+            user.role = Role.CONDUCTEUR
             user.save(update_fields=['role'])
             return Response({
                 "message": "Mode conducteur activé.",
@@ -369,11 +378,10 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
                 "utilisateur": UtilisateurSerializer(user).data,
             })
 
-        elif user.role == 'conducteur':
-            # Vérifier qu'il a un profil passager
+        elif user.role == Role.CONDUCTEUR:
             if not hasattr(user, 'profil_passager'):
                 Passager.objects.create(utilisateur=user)
-            user.role = 'passager'
+            user.role = Role.PASSAGER
             user.save(update_fields=['role'])
             return Response({
                 "message": "Mode passager activé.",

@@ -1,5 +1,9 @@
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
+from decimal import Decimal, InvalidOperation
+import hashlib
+import hmac
 import uuid
 import logging
 import requests
@@ -65,7 +69,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 paiement = None
 
             trajet  = reservation.trajet
-            montant = int(trajet.prix_par_place)
+            montant = int(reservation.places_reservees * trajet.prix_par_place)
 
             # Calcul commission KoVoit
             commission = round(montant * COMMISSION_KOVOIT)
@@ -188,21 +192,26 @@ class PaiementViewSet(viewsets.GenericViewSet):
                     # Format: KOVOIT-{reservation_id}-{hash}
                     parts          = identifier.split('-')
                     reservation_id = parts[1]
-                    
-                    # Utiliser select_for_update pour éviter les race conditions
-                    reservation = Reservation.objects.select_for_update().get(pk=reservation_id)
+
+                    # Vérification d'appartenance : seul le passager ayant initié peut déclencher la MAJ
+                    reservation = Reservation.objects.select_for_update().get(
+                        pk=reservation_id,
+                        passager=request.user,
+                    )
                     try:
                         paiement = Paiement.objects.select_for_update().get(reservation=reservation)
                         paiement.statut = Paiement.Statut.PAYEE
                         paiement.date_payement = timezone.now()
                         paiement.save()
-                        logger.info(f"Paiement confirmé pour réservation {reservation_id}")
+                        logger.info("Paiement confirmé pour réservation %s", reservation_id)
                     except Paiement.DoesNotExist:
-                        logger.warning(f"Paiement introuvable pour réservation {reservation_id}")
+                        logger.warning("Paiement introuvable pour réservation %s", reservation_id)
             except Reservation.DoesNotExist:
-                logger.warning(f"Réservation {reservation_id} introuvable")
+                logger.warning("Réservation %s introuvable ou non autorisée", reservation_id)
+            except (IndexError, ValueError):
+                logger.warning("Identifier PayGate malformé : %s", identifier)
             except Exception as e:
-                logger.error(f"Erreur lors de la mise à jour du paiement: {str(e)}")
+                logger.error("Erreur lors de la mise à jour du paiement: %s", str(e))
 
         return Response({
             "statut":            statut_label,
@@ -238,23 +247,20 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 status=400
             )
 
-        # Utiliser transaction.atomic() pour éviter les doublons
         with transaction.atomic():
-            # Vérifier qu'aucun paiement n'existe déjà
             try:
-                paiement_existant = reservation.paiement
+                paiement_existant = Paiement.objects.select_for_update().get(reservation=reservation)
                 if paiement_existant.statut in [Paiement.Statut.CONFIRME, Paiement.Statut.EN_ATTENTE_CONFIRMATION]:
                     return Response({"error": "Un paiement existe déjà pour cette réservation."}, status=400)
-                # Si le paiement est annulé ou échoué, on peut en créer un nouveau
                 paiement_existant.delete()
             except Paiement.DoesNotExist:
                 pass
 
             trajet = reservation.trajet
-            montant = trajet.prix_par_place
+            # Montant total = places réservées × prix par place
+            montant = reservation.places_reservees * trajet.prix_par_place
             commission = round(float(montant) * COMMISSION_KOVOIT)
 
-            # Créer le paiement en espèces
             paiement = Paiement.objects.create(
                 reservation=reservation,
                 passager=request.user,
@@ -285,76 +291,52 @@ class PaiementViewSet(viewsets.GenericViewSet):
             return Response({"error": "reservation_id requis."}, status=400)
 
         try:
-            # Utiliser transaction atomique + select_for_update pour éviter les race conditions
             with transaction.atomic():
-                reservation = Reservation.objects.select_for_update().select_related(
-                    'trajet', 'trajet__conducteur', 'passager'
-                ).get(
-                    pk=reservation_id,
-                    trajet__conducteur=request.user
-                )
-        except Reservation.DoesNotExist:
-            return Response(
-                {"error": "Réservation introuvable ou vous n'êtes pas le conducteur."}, 
-                status=404
-            )
+                try:
+                    reservation = Reservation.objects.select_for_update().select_related(
+                        'trajet', 'trajet__conducteur', 'passager'
+                    ).get(pk=reservation_id, trajet__conducteur=request.user)
+                except Reservation.DoesNotExist:
+                    return Response(
+                        {"error": "Réservation introuvable ou vous n'êtes pas le conducteur."},
+                        status=404
+                    )
 
-        # Vérifier qu'un paiement en attente existe
-        try:
-            paiement = Paiement.objects.select_for_update().get(reservation=reservation)
-        except Paiement.DoesNotExist:
-            return Response({"error": "Aucun paiement pour cette réservation."}, status=404)
+                try:
+                    paiement = Paiement.objects.select_for_update().get(reservation=reservation)
+                except Paiement.DoesNotExist:
+                    return Response({"error": "Aucun paiement pour cette réservation."}, status=404)
 
-        if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
-            return Response({
-                "error": f"Ce paiement n'est pas en attente (statut: {paiement.statut})."
-            }, status=400)
-
-        if paiement.moyen_paiement != 'ESPECE':
-            return Response({
-                "error": f"Ce n'est pas un paiement en espèces (moyen: {paiement.moyen_paiement})."
-            }, status=400)
-
-        # ──── Transaction atomique : confirmer paiement ────
-        try:
-            with transaction.atomic():
-                # Double-vérifier le statut après le lock
-                paiement.refresh_from_db()
                 if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
                     return Response({
-                        "error": "Le paiement a déjà été traité par quelqu'un d'autre."
+                        "error": f"Ce paiement n'est pas en attente (statut: {paiement.statut})."
                     }, status=400)
 
-                # Confirmer le paiement
+                if paiement.moyen_paiement != 'ESPECE':
+                    return Response({
+                        "error": f"Ce n'est pas un paiement en espèces (moyen: {paiement.moyen_paiement})."
+                    }, status=400)
+
                 paiement.statut = Paiement.Statut.CONFIRME
                 paiement.date_confirmation = timezone.now()
                 paiement.save()
-                
-                logger.info(f"Paiement {paiement.id} confirmé en espèces par {request.user.username}")
 
-                # Mettre à jour la réservation si nécessaire
-                if reservation.statut == 'en_attente':
-                    reservation.statut = 'confirmee'
-                    reservation.save()
+                logger.info("Paiement %s confirmé en espèces par %s", paiement.id, request.user.username)
 
         except Exception as e:
-            logger.error(f"Erreur lors de la confirmation du paiement: {str(e)}")
-            return Response({
-                "error": f"Erreur lors de la confirmation: {str(e)}"
-            }, status=500)
+            logger.error("Erreur lors de la confirmation du paiement: %s", str(e))
+            return Response({"error": f"Erreur lors de la confirmation: {str(e)}"}, status=500)
 
-        # Calculer les statistiques
         montant = float(paiement.montant)
         commission = round(montant * COMMISSION_KOVOIT)
-        montant_conducteur = montant - commission
 
         return Response({
-            "message": "Paiement en espèces confirmé avec succès ✓",
+            "message": "Paiement en espèces confirmé avec succès.",
             "paiement_id": paiement.id,
             "reservation_id": reservation.id,
             "montant": montant,
             "commission_kovoit": commission,
-            "montant_conducteur": montant_conducteur,
+            "montant_conducteur": montant - commission,
             "date_confirmation": paiement.date_confirmation.isoformat(),
             "statut": paiement.statut,
         }, status=200)
@@ -370,16 +352,16 @@ class PaiementViewSet(viewsets.GenericViewSet):
         if not reservation_id:
             return Response({"error": "reservation_id requis."}, status=400)
 
+        # Filtre propriétaire dans la même requête : évite le timing-leak IDOR
         try:
             reservation = Reservation.objects.select_related(
                 'trajet', 'passager', 'trajet__conducteur'
-            ).get(pk=reservation_id)
+            ).get(
+                Q(passager=request.user) | Q(trajet__conducteur=request.user),
+                pk=reservation_id,
+            )
         except Reservation.DoesNotExist:
             return Response({"error": "Réservation introuvable."}, status=404)
-
-        # Vérifier les permissions : passager ou conducteur du trajet
-        if not (request.user == reservation.passager or request.user == reservation.trajet.conducteur):
-            return Response({"error": "Accès non autorisé."}, status=403)
 
         try:
             paiement = reservation.paiement
@@ -454,7 +436,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
 
         with transaction.atomic():
             try:
-                paiement_existant = reservation.paiement
+                paiement_existant = Paiement.objects.select_for_update().get(reservation=reservation)
                 if paiement_existant.statut == Paiement.Statut.CONFIRME:
                     return Response({"error": "Ce paiement est déjà confirmé."}, status=400)
                 paiement_existant.delete()
@@ -462,7 +444,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 pass
 
             trajet  = reservation.trajet
-            montant = trajet.prix_par_place
+            montant = reservation.places_reservees * trajet.prix_par_place
 
             paiement = Paiement.objects.create(
                 reservation=reservation,
@@ -496,33 +478,35 @@ class PaiementViewSet(viewsets.GenericViewSet):
             return Response({"error": "reservation_id requis."}, status=400)
 
         try:
-            reservation = Reservation.objects.select_related('trajet').get(
-                pk=reservation_id, trajet__conducteur=request.user
-            )
-        except Reservation.DoesNotExist:
-            return Response(
-                {"error": "Réservation introuvable ou vous n'êtes pas le conducteur."},
-                status=404
-            )
+            with transaction.atomic():
+                try:
+                    reservation_locked = Reservation.objects.select_for_update().select_related(
+                        'trajet'
+                    ).get(pk=reservation_id, trajet__conducteur=request.user)
+                except Reservation.DoesNotExist:
+                    return Response(
+                        {"error": "Réservation introuvable ou vous n'êtes pas le conducteur."},
+                        status=404
+                    )
 
-        try:
-            paiement = reservation.paiement
-        except Paiement.DoesNotExist:
-            return Response({"error": "Aucun paiement en attente pour cette réservation."}, status=404)
+                try:
+                    paiement = Paiement.objects.select_for_update().get(reservation=reservation_locked)
+                except Paiement.DoesNotExist:
+                    return Response({"error": "Aucun paiement en attente pour cette réservation."}, status=404)
 
-        if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
-            return Response({"error": "Ce paiement n'est pas en attente de confirmation."}, status=400)
+                if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
+                    return Response({"error": "Ce paiement n'est pas en attente de confirmation."}, status=400)
 
-        if paiement.moyen_paiement not in ['FLOOZ', 'TMONEY']:
-            return Response({"error": "Utilisez confirmer_especes pour un paiement en espèces."}, status=400)
+                if paiement.moyen_paiement not in ['FLOOZ', 'TMONEY']:
+                    return Response({"error": "Utilisez confirmer_especes pour un paiement en espèces."}, status=400)
 
-        with transaction.atomic():
-            paiement.refresh_from_db()
-            if paiement.statut != Paiement.Statut.EN_ATTENTE_CONFIRMATION:
-                return Response({"error": "Le paiement a déjà été traité."}, status=400)
-            paiement.statut = Paiement.Statut.CONFIRME
-            paiement.date_confirmation = timezone.now()
-            paiement.save()
+                paiement.statut = Paiement.Statut.CONFIRME
+                paiement.date_confirmation = timezone.now()
+                paiement.save()
+
+        except Exception as e:
+            logger.error("Erreur lors de la confirmation mobile: %s", str(e))
+            return Response({"error": f"Erreur lors de la confirmation: {str(e)}"}, status=500)
 
         montant    = float(paiement.montant)
         commission = round(montant * COMMISSION_KOVOIT)
@@ -540,33 +524,115 @@ class PaiementViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'], permission_classes=[])
     def webhook(self, request):
         """
-        PayGate envoie une confirmation POST après paiement réussi.
-        """
-        identifier       = request.data.get('identifier')
-        tx_reference     = request.data.get('tx_reference')
-        payment_method   = request.data.get('payment_method')
-        montant          = request.data.get('amount')
+        Endpoint appelé par PayGate après paiement réussi.
 
+        Sécurité :
+          - Vérifie auth_token par comparaison temporellement constante (anti timing-attack).
+          - Vérifie la signature HMAC-SHA256 si l'en-tête X-PayGate-Signature est présent.
+          - Retourne 500 si une erreur inattendue survient (force PayGate à re-tenter).
+          - Idempotent : un paiement déjà confirmé répond 200 sans re-traitement.
+        """
+        # ── 1. Résoudre le secret webhook ────────────────────────────────
+        webhook_secret = (
+            getattr(settings, 'PAYGATE_WEBHOOK_SECRET', None)
+            or PAYGATE_API_KEY
+        )
+        if not webhook_secret:
+            logger.critical("PAYGATE_WEBHOOK_SECRET non configuré — webhook refusé")
+            return Response(status=500)
+
+        # ── 2. Vérification auth_token (mécanisme natif PayGate) ─────────
+        auth_token = request.data.get('auth_token', '')
+        if not hmac.compare_digest(str(auth_token), str(webhook_secret)):
+            logger.warning(
+                "Webhook PayGate rejeté : auth_token invalide (IP=%s)",
+                request.META.get('REMOTE_ADDR'),
+            )
+            return Response(status=403)
+
+        # ── 3. Vérification HMAC-SHA256 optionnelle ──────────────────────
+        # PayGate peut envoyer X-PayGate-Signature = HMAC-SHA256(secret, raw_body)
+        hmac_header = request.headers.get('X-PayGate-Signature', '')
+        if hmac_header:
+            raw_body = request._request.body
+            expected = hmac.new(
+                webhook_secret.encode('utf-8'),
+                raw_body,
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(hmac_header, expected):
+                logger.warning("Webhook PayGate rejeté : signature HMAC invalide")
+                return Response(status=403)
+
+        # ── 4. Validation de l'identifier ────────────────────────────────
+        identifier = request.data.get('identifier', '')
         if not identifier:
-            return Response(status=400)
+            return Response({"error": "identifier manquant"}, status=400)
 
         try:
-            parts          = identifier.split('-')
+            parts = identifier.split('-')
+            # Format attendu : KOVOIT-{reservation_id}-{hash8}
+            if len(parts) < 3 or parts[0] != 'KOVOIT' or not parts[1]:
+                raise ValueError("format invalide")
             reservation_id = parts[1]
-            reservation    = Reservation.objects.get(pk=reservation_id)
+        except (ValueError, IndexError):
+            logger.warning("Webhook PayGate : identifier malformé '%s'", identifier)
+            return Response({"error": "identifier invalide"}, status=400)
 
-            paiement, _ = Paiement.objects.get_or_create(
-                reservation=reservation,
-                defaults={
-                    'montant':        montant or reservation.trajet.prix_par_place,
-                    'moyen_paiement': payment_method or 'mobile',
-                    'statut':         'payee',
-                }
-            )
-            paiement.statut = 'payee'
-            paiement.save()
+        # ── 5. Mise à jour atomique sous verrou ───────────────────────────
+        try:
+            with transaction.atomic():
+                try:
+                    reservation = Reservation.objects.select_for_update().select_related(
+                        'trajet'
+                    ).get(pk=reservation_id)
+                except Reservation.DoesNotExist:
+                    logger.warning("Webhook PayGate : réservation %s introuvable", reservation_id)
+                    # 200 = on ne déclenche pas les retries PayGate pour des IDs inconnus
+                    return Response({"status": "ok"})
 
-        except Exception:
-            pass
+                try:
+                    paiement = Paiement.objects.select_for_update().get(reservation=reservation)
+                except Paiement.DoesNotExist:
+                    logger.warning(
+                        "Webhook PayGate : aucun paiement initié pour réservation %s",
+                        reservation_id,
+                    )
+                    return Response({"status": "ok"})
+
+                # Idempotence : ne pas re-traiter un paiement déjà confirmé
+                if paiement.statut in (Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE):
+                    return Response({"status": "ok"})
+
+                # Valider que le montant reçu correspond au montant attendu en DB
+                montant_recu = request.data.get('amount')
+                if montant_recu is not None:
+                    try:
+                        if Decimal(str(montant_recu)) != paiement.montant:
+                            logger.error(
+                                "Webhook PayGate : montant incohérent pour paiement %s "
+                                "(reçu=%s, attendu=%s)",
+                                paiement.id, montant_recu, paiement.montant,
+                            )
+                            return Response({"error": "montant incohérent"}, status=400)
+                    except (InvalidOperation, TypeError):
+                        pass  # Montant absent ou non parseable → on ne bloque pas
+
+                paiement.statut = Paiement.Statut.PAYEE
+                paiement.reference_mobile = (
+                    request.data.get('tx_reference') or paiement.reference_mobile
+                )
+                paiement.date_payement = timezone.now()
+                paiement.save()
+
+                logger.info(
+                    "Webhook PayGate : paiement %s confirmé pour réservation %s",
+                    paiement.id, reservation_id,
+                )
+
+        except Exception as e:
+            # 500 force PayGate à re-tenter la livraison du webhook
+            logger.error("Webhook PayGate : erreur inattendue — %s", str(e))
+            return Response(status=500)
 
         return Response({"status": "ok"})

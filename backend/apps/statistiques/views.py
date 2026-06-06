@@ -72,17 +72,19 @@ class StatistiqueConducteurView(APIView):
             fin = date(annee, 12, 31)
         
         # Calculer les revenus depuis les paiements
+        # CONFIRME (espèces/mobile) → date_confirmation ; PAYEE (PayGate) → date_payement
         paiements = Paiement.objects.filter(
             conducteur=conducteur,
             statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
-            date_confirmation__gte=debut,
-            date_confirmation__lte=fin
+        ).filter(
+            Q(statut=Paiement.Statut.CONFIRME, date_confirmation__gte=debut, date_confirmation__lte=fin) |
+            Q(statut=Paiement.Statut.PAYEE, date_payement__gte=debut, date_payement__lte=fin)
         )
-        
+
         total_revenus = paiements.aggregate(
             total=Sum('montant')
         )['total'] or Decimal('0')
-        
+
         # Calculer les trajets
         trajets = Trajet.objects.filter(
             conducteur=conducteur,
@@ -90,25 +92,26 @@ class StatistiqueConducteurView(APIView):
             date_heure_depart__lte=fin,
             statut='termine'
         )
-        
+
         total_trajets = trajets.count()
         total_km = trajets.aggregate(
             total=Sum('distance_km')
         )['total'] or 0
-        
+
         revenu_moyen_trajet = total_revenus / total_trajets if total_trajets > 0 else Decimal('0')
-        
+
         # Évolution mensuelle
         evolution = []
         for mois in range(1, 13):
             debut_mois = date(annee, mois, 1)
             fin_mois = date(annee, mois, monthrange(annee, mois)[1])
-            
+
             revenus_mois = Paiement.objects.filter(
                 conducteur=conducteur,
                 statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
-                date_confirmation__gte=debut_mois,
-                date_confirmation__lte=fin_mois
+            ).filter(
+                Q(statut=Paiement.Statut.CONFIRME, date_confirmation__gte=debut_mois, date_confirmation__lte=fin_mois) |
+                Q(statut=Paiement.Statut.PAYEE, date_payement__gte=debut_mois, date_payement__lte=fin_mois)
             ).aggregate(total=Sum('montant'))['total'] or Decimal('0')
             
             nb_trajets_mois = trajets.filter(
@@ -327,15 +330,17 @@ class ResumeEconomieView(APIView):
                 revenus_mois = Paiement.objects.filter(
                     conducteur=utilisateur,
                     statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
-                    date_confirmation__gte=debut_mois,
-                    date_confirmation__lte=fin_mois
+                ).filter(
+                    Q(statut=Paiement.Statut.CONFIRME, date_confirmation__gte=debut_mois, date_confirmation__lte=fin_mois) |
+                    Q(statut=Paiement.Statut.PAYEE, date_payement__gte=debut_mois, date_payement__lte=fin_mois)
                 ).aggregate(total=Sum('montant'))['total'] or Decimal('0')
-                
+
                 revenus_precedent = Paiement.objects.filter(
                     conducteur=utilisateur,
-                    statut='CONFIRME',
-                    date_confirmation__gte=debut_precedent,
-                    date_confirmation__lte=fin_precedent
+                    statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
+                ).filter(
+                    Q(statut=Paiement.Statut.CONFIRME, date_confirmation__gte=debut_precedent, date_confirmation__lte=fin_precedent) |
+                    Q(statut=Paiement.Statut.PAYEE, date_payement__gte=debut_precedent, date_payement__lte=fin_precedent)
                 ).aggregate(total=Sum('montant'))['total'] or Decimal('0')
                 
                 nb_trajets = Trajet.objects.filter(

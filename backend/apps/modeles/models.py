@@ -4,7 +4,11 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-from .validators import validate_positive_number, validate_rating, validate_gps_latitude, validate_gps_coordinate
+from .validators import (
+    validate_positive_number, validate_rating,
+    validate_gps_latitude, validate_gps_coordinate,
+    valider_image_profil, valider_image_document,
+)
 
 
 def chemin_photo(instance, filename):
@@ -23,20 +27,33 @@ STATUT_VALIDATION_CHOICES = (
 # ----------------- Utilisateur -----------------
 class Utilisateur(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    ROLE_CHOICES = (
-        ('conducteur', 'Conducteur'),
-        ('passager',   'Passager'),
-        ('admin',      'Admin'),
-    )
+
+    class Role(models.TextChoices):
+        CONDUCTEUR = 'conducteur', 'Conducteur'
+        PASSAGER   = 'passager',   'Passager'
+        ADMIN      = 'admin',      'Admin'
+
+    # Gardé pour la compatibilité des vieux imports
+    ROLE_CHOICES = Role.choices
+
     email            = models.EmailField(unique=True)
-    role             = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    role             = models.CharField(max_length=20, choices=Role.choices)
     numero_telephone = models.CharField(max_length=20, blank=True, null=True)
-    photo_profil     = models.ImageField(upload_to=chemin_photo, blank=True, null=True)
+    photo_profil     = models.ImageField(
+        upload_to=chemin_photo, blank=True, null=True,
+        validators=[valider_image_profil],
+    )
     note             = models.FloatField(default=0)
 
     # --- Documents d'identité (CNI / Permis) ---
-    photo_cni         = models.ImageField(upload_to='documents/cni/',    blank=True, null=True)
-    photo_permis      = models.ImageField(upload_to='documents/permis/', blank=True, null=True)
+    photo_cni    = models.ImageField(
+        upload_to='documents/cni/', blank=True, null=True,
+        validators=[valider_image_document],
+    )
+    photo_permis = models.ImageField(
+        upload_to='documents/permis/', blank=True, null=True,
+        validators=[valider_image_document],
+    )
     statut_validation = models.CharField(
         max_length=20, choices=STATUT_VALIDATION_CHOICES, default='non_soumis'
     )
@@ -104,8 +121,10 @@ class Vehicule(models.Model):
     plaque            = models.CharField(max_length=20, unique=True)
     places_max        = models.IntegerField(validators=[validate_positive_number])
     est_actif         = models.BooleanField(default=True)
-    # Document légal du véhicule (Groupe 6)
-    photo_carte_grise = models.ImageField(upload_to='documents/carte_grise/', blank=True, null=True)
+    photo_carte_grise = models.ImageField(
+        upload_to='documents/carte_grise/', blank=True, null=True,
+        validators=[valider_image_document],
+    )
     created_at        = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

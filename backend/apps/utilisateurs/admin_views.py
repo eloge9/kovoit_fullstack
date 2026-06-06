@@ -23,7 +23,7 @@ from ..modeles.serializers import (
 class IsAdmin(permissions.BasePermission):
     """Permission personnalisée pour l'admin"""
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role == 'admin'
+        return request.user and request.user.is_authenticated and request.user.role == Utilisateur.Role.ADMIN
 
 
 class AdminViewSet(viewsets.GenericViewSet):

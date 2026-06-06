@@ -5,7 +5,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
 from django.db.models import Q
-from ..modeles.models import Trajet
+from django.shortcuts import get_object_or_404
+from ..modeles.models import Trajet, Reservation, Utilisateur
 from .serializers import TrajetSerializer, TrajetCreateSerializer
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,12 @@ class TrajetViewSet(viewsets.ModelViewSet):
                 return Trajet.objects.filter(conducteur=self.request.user).select_related('conducteur')
             else:
                 return Trajet.objects.none()
-        # Pour les autres actions (create, update, etc), filtrer uniquement les trajets ouverts
+        # update / partial_update / destroy : uniquement les trajets du conducteur connecté
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+                return Trajet.objects.filter(conducteur=self.request.user).select_related('conducteur')
+            return Trajet.objects.none()
+        # create et autres : trajets ouverts uniquement
         return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
 
     def list(self, request):
@@ -67,7 +73,7 @@ class TrajetViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        if request.user.role != 'conducteur':
+        if request.user.role != Utilisateur.Role.CONDUCTEUR:
             return Response(
                 {"error": "Seuls les conducteurs peuvent proposer des trajets."},
                 status=status.HTTP_403_FORBIDDEN
@@ -165,16 +171,10 @@ class TrajetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='commencer_trajet', permission_classes=[IsAuthenticated])
     def commencer_trajet(self, request, pk=None):
         """Démarre un trajet et retourne l'objet trajet mis à jour."""
-        try:
-            trajet = Trajet.objects.get(pk=pk)
-        except Trajet.DoesNotExist:
-            return Response({"error": "Trajet introuvable."}, status=404)
-
-        if trajet.conducteur != request.user:
-            return Response({"error": "Non autorisé."}, status=403)
+        # get_object_or_404 avec filtre conducteur : même 404 si inexistant ou non propriétaire
+        trajet = get_object_or_404(Trajet, pk=pk, conducteur=request.user)
         if trajet.statut != 'ouvert':
             return Response({"error": "Seuls les trajets ouverts peuvent être commencés."}, status=400)
-
         trajet.statut = 'en_cours'
         trajet.save()
         return Response({
@@ -185,16 +185,9 @@ class TrajetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='terminer_trajet', permission_classes=[IsAuthenticated])
     def terminer_trajet(self, request, pk=None):
         """Termine un trajet et retourne l'objet trajet mis à jour."""
-        try:
-            trajet = Trajet.objects.get(pk=pk)
-        except Trajet.DoesNotExist:
-            return Response({"error": "Trajet introuvable."}, status=404)
-
-        if trajet.conducteur != request.user:
-            return Response({"error": "Non autorisé."}, status=403)
+        trajet = get_object_or_404(Trajet, pk=pk, conducteur=request.user)
         if trajet.statut != 'en_cours':
             return Response({"error": "Seuls les trajets en cours peuvent être terminés."}, status=400)
-
         trajet.statut = 'termine'
         trajet.save()
         trajet.reservations.filter(statut='confirmee').update(statut='terminee')
@@ -208,13 +201,7 @@ class TrajetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='mettre_a_jour_position', permission_classes=[IsAuthenticated])
     def mettre_a_jour_position(self, request, pk=None):
         """Le conducteur pousse sa position GPS (fallback REST)."""
-        try:
-            trajet = Trajet.objects.get(pk=pk)
-        except Trajet.DoesNotExist:
-            return Response({"error": "Trajet introuvable."}, status=404)
-
-        if trajet.conducteur != request.user:
-            return Response({"error": "Non autorisé."}, status=403)
+        trajet = get_object_or_404(Trajet, pk=pk, conducteur=request.user)
         if trajet.statut != 'en_cours':
             return Response({"error": "Le trajet n'est pas en cours."}, status=400)
 
@@ -223,10 +210,18 @@ class TrajetViewSet(viewsets.ModelViewSet):
         if lat is None or lng is None:
             return Response({"error": "latitude et longitude requis."}, status=400)
 
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            return Response({"error": "latitude et longitude doivent être des nombres."}, status=400)
+
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            return Response({"error": "Coordonnées GPS hors limites."}, status=400)
+
         _gps_cache[str(pk)] = {
             'type':        'position_update',
-            'latitude':    float(lat),
-            'longitude':   float(lng),
+            'latitude':    lat,
+            'longitude':   lng,
             'vitesse_kmh': request.data.get('vitesse_kmh'),
             'direction':   request.data.get('direction'),
             'timestamp':   timezone.now().isoformat(),
@@ -236,13 +231,21 @@ class TrajetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='position_actuelle', permission_classes=[IsAuthenticated])
     def position_actuelle(self, request, pk=None):
         """Retourne la dernière position GPS connue (passager + conducteur)."""
-        try:
-            trajet = Trajet.objects.get(pk=pk)
-        except Trajet.DoesNotExist:
-            return Response({"error": "Trajet introuvable."}, status=404)
+        trajet = get_object_or_404(Trajet, pk=pk)
 
         if trajet.statut != 'en_cours':
             return Response({"error": "Le trajet n'est pas en cours."}, status=400)
+
+        # Seuls le conducteur et les passagers confirmés peuvent consulter la position
+        est_conducteur = trajet.conducteur == request.user
+        est_passager = (
+            not est_conducteur and
+            Reservation.objects.filter(
+                trajet=trajet, passager=request.user, statut='confirmee'
+            ).exists()
+        )
+        if not est_conducteur and not est_passager:
+            return Response({"error": "Accès non autorisé."}, status=403)
 
         pos = _gps_cache.get(str(pk))
         if not pos:
@@ -272,8 +275,8 @@ class TrajetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(places_disponibles__gte=int(places))
         if type_vehicule:
             queryset = queryset.filter(
-                conducteur__profil_conducteur__type_vehicule__icontains=type_vehicule
-            )
+                vehicule__type_vehicule__icontains=type_vehicule
+            ).distinct()
 
         serializer = TrajetSerializer(queryset, many=True)
         return Response(serializer.data)
