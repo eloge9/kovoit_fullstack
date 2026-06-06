@@ -1,5 +1,28 @@
 from django.contrib import admin
+from django.utils.html import format_html
 from .models import *
+
+
+# =====================================================
+# PERSONNALISATION DU SITE ADMIN
+# =====================================================
+
+admin.site.site_header = "KoVoit — Administration"
+admin.site.site_title  = "KoVoit Admin"
+admin.site.index_title = "Tableau de bord administrateur"
+
+
+# =====================================================
+# ACTIONS ADMIN PERSONNALISÉES
+# =====================================================
+
+@admin.action(description='Valider les documents selectionnes')
+def valider_documents(modeladmin, request, queryset):
+    queryset.update(statut_validation='valide', is_active=True, peut_conduire=True)
+
+@admin.action(description='Rejeter les documents selectionnes')
+def rejeter_documents(modeladmin, request, queryset):
+    queryset.update(statut_validation='rejete', peut_conduire=False)
 
 
 # =====================================================
@@ -7,10 +30,48 @@ from .models import *
 # =====================================================
 
 class UtilisateurAdmin(admin.ModelAdmin):
-    list_display = ['username', 'email', 'role', 'is_active', 'note', 'date_joined']
-    list_filter = ['role', 'is_active', 'date_joined']
+    list_display  = ['username', 'email', 'role', 'peut_conduire', 'statut_validation',
+                     'apercu_cni', 'apercu_permis', 'is_active', 'note', 'date_joined']
+    list_filter   = ['role', 'is_active', 'statut_validation', 'peut_conduire', 'date_joined']
     search_fields = ['username', 'email', 'numero_telephone']
-    readonly_fields = ['id', 'date_joined']
+    readonly_fields = ['id', 'date_joined', 'apercu_cni', 'apercu_permis']
+    actions = [valider_documents, rejeter_documents]
+
+    fieldsets = (
+        ('Compte', {
+            'fields': ('id', 'username', 'email', 'role', 'is_active', 'note', 'date_joined')
+        }),
+        ('Coordonnees', {
+            'fields': ('first_name', 'last_name', 'numero_telephone', 'photo_profil')
+        }),
+        ('Documents identite et validation conducteur', {
+            'fields': ('photo_cni', 'apercu_cni', 'photo_permis', 'apercu_permis',
+                       'statut_validation', 'peut_conduire'),
+            'description': 'Documents soumis pour validation. Utilisez les actions ci-dessus.',
+        }),
+    )
+
+    @admin.display(description='CNI')
+    def apercu_cni(self, obj):
+        if obj.photo_cni:
+            return format_html(
+                '<a href="{}" target="_blank">'
+                '<img src="{}" style="max-height:60px;max-width:100px;border-radius:4px;" />'
+                '</a>',
+                obj.photo_cni.url, obj.photo_cni.url
+            )
+        return "—"
+
+    @admin.display(description='Permis')
+    def apercu_permis(self, obj):
+        if obj.photo_permis:
+            return format_html(
+                '<a href="{}" target="_blank">'
+                '<img src="{}" style="max-height:60px;max-width:100px;border-radius:4px;" />'
+                '</a>',
+                obj.photo_permis.url, obj.photo_permis.url
+            )
+        return "—"
 
 
 class AdminInline(admin.StackedInline):

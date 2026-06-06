@@ -38,13 +38,15 @@ interface VehiculeForm {
 export default function ProfilConducteurPage() {
     const { user } = useAuth();
 
-    const [onglet, setOnglet] = useState<"profil" | "vehicules">("profil");
+    const [onglet, setOnglet] = useState<"profil" | "vehicules" | "documents">("profil");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [vehicules, setVehicules] = useState<Vehicule[]>([]);
     const [ajout, setAjout] = useState(false);
     const [photoFile, setPhotoFile] = useState<File | null>(null);
+    const [cniFile, setCniFile] = useState<File | null>(null);
+    const [permisFile, setPermisFile] = useState<File | null>(null);
 
     const [profil, setProfil] = useState<ProfilForm>({
         first_name: "",
@@ -66,9 +68,6 @@ export default function ProfilConducteurPage() {
     // Charger les données utilisateur
     useEffect(() => {
         if (user) {
-            console.log(" Données utilisateur:", user);
-            console.log(" first_name:", user.first_name);
-            console.log(" last_name:", user.last_name);
             setProfil({
                 first_name: user.first_name || "",
                 last_name: user.last_name || "",
@@ -153,6 +152,31 @@ export default function ProfilConducteurPage() {
         }
     };
 
+    // Upload CNI / Permis
+    const handleUploadDocuments = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!cniFile && !permisFile) {
+            setError("Sélectionnez au moins un document à uploader.");
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const payload = new FormData();
+            if (cniFile)    payload.append("photo_cni",    cniFile);
+            if (permisFile) payload.append("photo_permis", permisFile);
+            await api("/utilisateurs/ko/upload-documents/", "POST", payload);
+            setSuccess("Documents envoyés. En attente de validation par l'administrateur.");
+            setCniFile(null);
+            setPermisFile(null);
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de l'upload.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Désactiver un véhicule
     const handleDesactiver = async (id: number) => {
         if (!confirm("Désactiver ce véhicule ? Il ne sera plus disponible pour les trajets.")) return;
@@ -209,8 +233,9 @@ export default function ProfilConducteurPage() {
             {/* ONGLETS */}
             <div className="flex gap-1 bg-base-200 rounded-xl p-1">
                 {([
-                    { value: "profil", label: "Informations" },
+                    { value: "profil",    label: "Informations" },
                     { value: "vehicules", label: "Mes véhicules" },
+                    { value: "documents", label: "Documents" },
                 ] as const).map((tab) => (
                     <button
                         key={tab.value}
@@ -491,6 +516,90 @@ export default function ProfilConducteurPage() {
                             </div>
                         </form>
                     )}
+                </div>
+            )}
+
+            {/* ── ONGLET DOCUMENTS ── */}
+            {onglet === "documents" && (
+                <div className="space-y-6">
+
+                    {/* Badge statut validation */}
+                    {(() => {
+                        const statut = user?.statut_validation || "non_soumis";
+                        const config: Record<string, { label: string; cls: string; desc: string }> = {
+                            non_soumis: { label: "Non soumis",          cls: "badge-ghost",   desc: "Aucun document envoyé." },
+                            en_attente: { label: "En attente",          cls: "badge-warning",  desc: "Vos documents sont en cours de vérification." },
+                            valide:     { label: "✓ Validé",            cls: "badge-success",  desc: "Vos documents ont été validés par l'administrateur." },
+                            rejete:     { label: "✗ Rejeté",            cls: "badge-error",    desc: "Vos documents ont été rejetés. Renvoyez des documents conformes." },
+                        };
+                        const c = config[statut] || config["non_soumis"];
+                        return (
+                            <div className="bg-base-100 rounded-2xl border border-base-200 p-5 flex items-start gap-4">
+                                <span className={`badge badge-lg rounded-full ${c.cls}`}>{c.label}</span>
+                                <p className="text-sm text-base-content/60">{c.desc}</p>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Formulaire upload */}
+                    <form onSubmit={handleUploadDocuments}
+                        className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-5">
+                        <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                            Envoyer mes documents
+                        </p>
+
+                        <div className="form-control">
+                            <label className="label py-1">
+                                <span className="label-text text-sm font-medium">Pièce d'identité (CNI)</span>
+                                <span className="label-text-alt text-base-content/40">JPG, PNG — max 5 Mo</span>
+                            </label>
+                            <input
+                                type="file" accept="image/*,.pdf"
+                                className="file-input file-input-bordered rounded-xl w-full"
+                                onChange={(e) => setCniFile(e.target.files?.[0] || null)}
+                            />
+                            {user?.photo_cni && (
+                                <p className="text-xs text-success mt-1 ml-1">
+                                    ✓ Document CNI déjà enregistré — uploader pour remplacer
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="form-control">
+                            <label className="label py-1">
+                                <span className="label-text text-sm font-medium">Permis de conduire</span>
+                                <span className="label-text-alt text-base-content/40">JPG, PNG — max 5 Mo</span>
+                            </label>
+                            <input
+                                type="file" accept="image/*,.pdf"
+                                className="file-input file-input-bordered rounded-xl w-full"
+                                onChange={(e) => setPermisFile(e.target.files?.[0] || null)}
+                            />
+                            {user?.photo_permis && (
+                                <p className="text-xs text-success mt-1 ml-1">
+                                    ✓ Permis déjà enregistré — uploader pour remplacer
+                                </p>
+                            )}
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={loading || (!cniFile && !permisFile)}
+                            className="btn btn-primary w-full rounded-full"
+                        >
+                            {loading
+                                ? <span className="loading loading-spinner loading-sm" />
+                                : "Envoyer pour validation"
+                            }
+                        </button>
+                    </form>
+
+                    <div className="bg-base-200/50 rounded-xl px-4 py-3">
+                        <p className="text-xs text-base-content/50">
+                            Documents acceptés : CNI, carte de résident, passeport. Permis de conduire valide obligatoire pour conduire.
+                            La validation est effectuée par un administrateur sous 24h.
+                        </p>
+                    </div>
                 </div>
             )}
 

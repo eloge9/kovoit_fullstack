@@ -44,9 +44,8 @@ export default function DetailReservationPage() {
                 try {
                     const trajetData = await getTrajet(reservationData.trajet_id);
                     setTrajet(trajetData);
-                } catch (trajetErr: any) {
-                    // Si le trajet n'est plus accessible (terminé/annulé), on garde quand même la réservation
-                    console.warn("Trajet non accessible, mais réservation trouvée:", trajetErr);
+                } catch {
+                    // Trajet non accessible (terminé/annulé) — on garde quand même la réservation
                     setTrajet(null);
                 }
             } catch (err: any) {

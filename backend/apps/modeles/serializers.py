@@ -395,6 +395,7 @@ class UtilisateurDetailAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'email', 'role', 'numero_telephone',
             'photo_profil', 'note', 'is_active', 'date_joined',
+            'photo_cni', 'photo_permis', 'statut_validation',
             'profil_conducteur', 'profil_passager', 'vehicules',
             'nombre_trajets', 'nombre_reservations',
             'nombre_evaluations_recues', 'nombre_plaintes'

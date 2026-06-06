@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
 import Link from 'next/link';
 
 import CarteTrajet from '@/components/CarteTrajet';
 import InfoSuivi from '@/components/InfoSuivi';
 import trajetApi from '@/libs/trajet-api';
+import { useTrajetWebSocket, type PositionPayload } from '@/src/hooks/useTrajetWebSocket';
 import { Trajet, PositionActuelleResponse } from '@/types/trajet';
 
 export default function SuiviTrajetPage() {
@@ -20,6 +21,25 @@ export default function SuiviTrajetPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // WebSocket — écoute la position en temps réel dès que le trajet est en_cours
+  const { isConnected: wsConnected } = useTrajetWebSocket({
+    trajetId: trajet?.statut === 'en_cours' ? trajetId : null,
+    onPosition: useCallback((pos: PositionPayload) => {
+      setPositionData((prev) => ({
+        ...prev,
+        position: {
+          latitude:    pos.latitude,
+          longitude:   pos.longitude,
+          vitesse_kmh: pos.vitesse_kmh,
+          direction:   pos.direction,
+          timestamp:   pos.timestamp,
+        },
+      }));
+      // Effacer l'erreur "pas de position" si on reçoit des données
+      setError(null);
+    }, []),
+  });
 
   // Charger les informations du trajet
   const loadTrajet = async () => {
@@ -69,16 +89,16 @@ export default function SuiviTrajetPage() {
     }
   }, [trajetId]);
 
-  // Rafraîchissement automatique toutes les 30 secondes
+  // Fallback REST : polling 5s si WebSocket non connecté et trajet en cours
   useEffect(() => {
-    if (trajet?.statut !== 'en_cours') return;
+    if (trajet?.statut !== 'en_cours' || wsConnected) return;
 
     const interval = setInterval(() => {
       loadPosition();
-    }, 30000); // 30 secondes
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [trajet?.statut, trajetId]);
+  }, [trajet?.statut, trajetId, wsConnected]);
 
   if (loading) {
     return (
@@ -99,7 +119,7 @@ export default function SuiviTrajetPage() {
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Erreur</h1>
           <p className="text-gray-600 mb-6">{error}</p>
           <Link
-            href="/passager/mes-reservations"
+            href="/passager/reservations"
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -118,7 +138,7 @@ export default function SuiviTrajetPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Link
-                href="/passager/mes-reservations"
+                href="/passager/reservations"
                 className="inline-flex items-center text-gray-600 hover:text-gray-900 mr-4"
               >
                 <ArrowLeft className="w-5 h-5 mr-2" />
@@ -128,14 +148,30 @@ export default function SuiviTrajetPage() {
                 Suivi du trajet
               </h1>
             </div>
-            <button
-              onClick={refreshData}
-              disabled={refreshing}
-              className="inline-flex items-center px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-              {refreshing ? 'Actualisation...' : 'Actualiser'}
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Indicateur connexion temps réel */}
+              {trajet?.statut === 'en_cours' && (
+                wsConnected ? (
+                  <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                    <Wifi className="w-4 h-4 animate-pulse" />
+                    <span>Temps réel</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-gray-400 text-sm">
+                    <WifiOff className="w-4 h-4" />
+                    <span>Connexion...</span>
+                  </div>
+                )
+              )}
+              <button
+                onClick={refreshData}
+                disabled={refreshing}
+                className="inline-flex items-center px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Actualisation...' : 'Actualiser'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -243,7 +279,7 @@ export default function SuiviTrajetPage() {
               Le trajet est terminé. Vous pouvez maintenant procéder au paiement si ce n'est pas déjà fait.
             </p>
             <Link
-              href="/passager/paiements"
+              href="/passager/reservations"
               className="inline-flex items-center mt-3 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
               Voir mes paiements

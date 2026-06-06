@@ -12,7 +12,7 @@ export interface Reservation {
   passager_nom?: string;
   passager_note?: number;
   prix_par_place: number;
-  statut: "en_attente" | "confirmee" | "declinee" | "terminee" | "annulee";
+  statut: "en_attente" | "confirmee" | "declinee" | "terminee";
   date_reservation: string;
 }
 

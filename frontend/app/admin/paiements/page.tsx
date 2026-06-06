@@ -53,8 +53,8 @@ export default function AdminPaiements() {
                     const statsData = await statsResponse.json();
                     setStats(statsData);
                 }
-            } catch (err: any) {
-                console.error(err.message);
+            } catch {
+                // erreur déjà gérée par l'état error
             } finally {
                 setLoading(false);
             }

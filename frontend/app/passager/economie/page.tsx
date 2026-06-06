@@ -129,9 +129,7 @@ export default function EconomiePassager() {
       }
       // Pour "tous", on ne filtre pas
 
-      console.log('Appel API économies avec params:', params.toString());
       const statsData = await api(`/economie/mes_economies/?${params.toString()}`);
-      console.log('Données économies reçues:', statsData);
       setStatistiques(statsData);
 
       // Mettre à jour le résumé
@@ -183,11 +181,9 @@ export default function EconomiePassager() {
 
       // Récupérer la comparaison par type de véhicule
       const comparaisonData = await api('/economie/comparaison_types_vehicule/');
-      console.log('Données comparaison reçues:', comparaisonData);
       setComparaisonTypes(comparaisonData);
 
     } catch (error: any) {
-      console.error('Erreur lors de la récupération des données économiques:', error);
       if (error.response?.status === 401) {
         setError("Session expirée. Veuillez vous reconnecter.");
       } else if (error.response?.status === 403) {

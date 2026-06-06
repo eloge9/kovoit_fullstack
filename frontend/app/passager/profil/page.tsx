@@ -23,6 +23,16 @@ export default function ProfilPassagerPage() {
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [suppression, setSuppression] = useState(false);
 
+    // Bascule conducteur
+    const [modaleBascule, setModaleBascule] = useState(false);
+    const [basculeForm, setBasculeForm] = useState({
+        numero_permis: "", experience_annees: "0",
+        type_vehicule: "", marque: "", modele: "", couleur: "", plaque: "",
+    });
+    const [cniFile,    setCniFile]    = useState<File | null>(null);
+    const [permisFile, setPermisFile] = useState<File | null>(null);
+    const [basculeLoading, setBasculeLoading] = useState(false);
+
     const [profil, setProfil] = useState<ProfilForm>({
         first_name: "",
         last_name: "",
@@ -62,6 +72,34 @@ export default function ProfilPassagerPage() {
             setError(err.response?.data?.error || "Erreur lors de la mise à jour.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const setBF = (field: keyof typeof basculeForm, value: string) =>
+        setBasculeForm((prev) => ({ ...prev, [field]: value }));
+
+    const handleBasculerRole = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setBasculeLoading(true);
+        setError(null);
+        try {
+            const payload = new FormData();
+            Object.entries(basculeForm).forEach(([k, v]) => payload.append(k, v));
+            if (cniFile)    payload.append("photo_cni",    cniFile);
+            if (permisFile) payload.append("photo_permis", permisFile);
+
+            await api("/utilisateurs/ko/basculer-role/", "POST", payload);
+            setModaleBascule(false);
+            setSuccess("Demande soumise ! Un administrateur validera votre dossier sous 24h. Reconnectez-vous ensuite.");
+        } catch (err: any) {
+            const d = err.response?.data;
+            if (d && typeof d === "object") {
+                setError(Object.entries(d).map(([k, v]) => `${k} : ${v}`).join(" | "));
+            } else {
+                setError("Erreur lors de la soumission.");
+            }
+        } finally {
+            setBasculeLoading(false);
         }
     };
 
@@ -243,19 +281,168 @@ export default function ProfilPassagerPage() {
             {/* Devenir conducteur */}
             <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-3">
                 <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                    Mode conducteur
+                    Devenir conducteur
                 </p>
-                <p className="text-sm text-base-content/60">
-                    Vous avez un véhicule et souhaitez proposer des trajets ?
-                    Passez en mode conducteur depuis le menu en haut à droite.
-                </p>
-                <button
-                    onClick={() => router.push("/conducteur/dashboard")}
-                    className="btn btn-outline btn-sm rounded-full border-primary text-primary hover:bg-primary hover:text-white"
-                >
-                    Passer en mode Conducteur
-                </button>
+
+                {/* Statut si demande déjà soumise */}
+                {user?.statut_validation === "en_attente" && (
+                    <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
+                        <p className="text-sm text-warning font-medium">⏳ Demande en cours de validation</p>
+                        <p className="text-xs text-base-content/50 mt-1">
+                            Votre dossier est examiné par un administrateur. Vous serez notifié sous 24h.
+                        </p>
+                    </div>
+                )}
+                {user?.statut_validation === "rejete" && (
+                    <div className="bg-error/10 border border-error/20 rounded-xl px-4 py-3">
+                        <p className="text-sm text-error font-medium">✗ Dossier rejeté</p>
+                        <p className="text-xs text-base-content/50 mt-1">
+                            Vos documents ont été refusés. Soumettez un nouveau dossier avec des documents conformes.
+                        </p>
+                    </div>
+                )}
+
+                {user?.statut_validation !== "en_attente" && (
+                    <>
+                        <p className="text-sm text-base-content/60">
+                            Vous avez un véhicule et souhaitez proposer des trajets ?
+                            Soumettez votre dossier pour devenir conducteur.
+                        </p>
+                        <button
+                            onClick={() => setModaleBascule(true)}
+                            className="btn btn-primary btn-sm rounded-full"
+                        >
+                            Devenir conducteur
+                        </button>
+                    </>
+                )}
             </div>
+
+            {/* ── MODALE BASCULE CONDUCTEUR ── */}
+            {modaleBascule && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-base-100 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+
+                        <div className="p-6 border-b border-base-200 flex justify-between items-center sticky top-0 bg-base-100">
+                            <div>
+                                <h2 className="font-bold text-lg">Devenir conducteur</h2>
+                                <p className="text-xs text-base-content/40">
+                                    Remplissez le formulaire — validation sous 24h
+                                </p>
+                            </div>
+                            <button onClick={() => setModaleBascule(false)} className="btn btn-ghost btn-sm btn-circle">✕</button>
+                        </div>
+
+                        <form onSubmit={handleBasculerRole} className="p-6 space-y-5">
+
+                            {/* Permis */}
+                            <div className="space-y-3">
+                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                    Informations conducteur
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="form-control col-span-2">
+                                        <label className="label py-1">
+                                            <span className="label-text text-sm font-medium">Numéro de permis</span>
+                                        </label>
+                                        <input type="text" placeholder="TG-12345-2020"
+                                            className="input input-bordered input-sm rounded-xl"
+                                            value={basculeForm.numero_permis}
+                                            onChange={(e) => setBF("numero_permis", e.target.value)}
+                                            required />
+                                    </div>
+                                    <div className="form-control">
+                                        <label className="label py-1">
+                                            <span className="label-text text-sm font-medium">Années d'expérience</span>
+                                        </label>
+                                        <input type="number" min="0" max="50"
+                                            className="input input-bordered input-sm rounded-xl"
+                                            value={basculeForm.experience_annees}
+                                            onChange={(e) => setBF("experience_annees", e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Véhicule */}
+                            <div className="space-y-3">
+                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                    Mon véhicule
+                                </p>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        { value: "moto",    label: "Moto",    detail: "1 place · 30F/km" },
+                                        { value: "voiture", label: "Voiture", detail: "5 places · 65F/km" },
+                                        { value: "minibus", label: "Minibus", detail: "15 places · 120F/km" },
+                                        { value: "camion",  label: "Camion",  detail: "3 places · 200F/km" },
+                                    ].map((t) => (
+                                        <button key={t.value} type="button"
+                                            onClick={() => setBF("type_vehicule", t.value)}
+                                            className={`btn btn-sm rounded-xl flex flex-col h-auto py-2 gap-0 ${basculeForm.type_vehicule === t.value ? "btn-primary" : "btn-outline"}`}>
+                                            <span className="font-semibold">{t.label}</span>
+                                            <span className="text-xs opacity-70 font-normal">{t.detail}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {(["marque", "modele", "couleur", "plaque"] as const).map((f) => (
+                                        <div key={f} className="form-control">
+                                            <label className="label py-1">
+                                                <span className="label-text text-sm font-medium capitalize">{f}</span>
+                                            </label>
+                                            <input type="text"
+                                                placeholder={f === "plaque" ? "TG 1234 LM" : f === "marque" ? "Toyota" : f === "modele" ? "Corolla" : "Blanc"}
+                                                className="input input-bordered input-sm rounded-xl"
+                                                value={basculeForm[f]}
+                                                onChange={(e) => setBF(f, e.target.value)}
+                                                required />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Documents */}
+                            <div className="space-y-3">
+                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                    Documents d'identité
+                                </p>
+                                <div className="form-control">
+                                    <label className="label py-1">
+                                        <span className="label-text text-sm font-medium">CNI / Carte d'identité</span>
+                                        <span className="label-text-alt text-base-content/40 text-xs">Recommandé</span>
+                                    </label>
+                                    <input type="file" accept="image/*,.pdf"
+                                        className="file-input file-input-bordered file-input-sm rounded-xl w-full"
+                                        onChange={(e) => setCniFile(e.target.files?.[0] || null)} />
+                                </div>
+                                <div className="form-control">
+                                    <label className="label py-1">
+                                        <span className="label-text text-sm font-medium">Permis de conduire</span>
+                                        <span className="label-text-alt text-base-content/40 text-xs">Recommandé</span>
+                                    </label>
+                                    <input type="file" accept="image/*,.pdf"
+                                        className="file-input file-input-bordered file-input-sm rounded-xl w-full"
+                                        onChange={(e) => setPermisFile(e.target.files?.[0] || null)} />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => setModaleBascule(false)}
+                                    className="btn btn-ghost btn-sm rounded-full flex-1 border border-base-300">
+                                    Annuler
+                                </button>
+                                <button type="submit"
+                                    disabled={basculeLoading || !basculeForm.numero_permis || !basculeForm.type_vehicule}
+                                    className="btn btn-primary btn-sm rounded-full flex-1">
+                                    {basculeLoading
+                                        ? <span className="loading loading-spinner loading-xs" />
+                                        : "Soumettre le dossier"
+                                    }
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {/* Zone danger */}
             <div className="bg-base-100 rounded-2xl border border-error/20 p-6 space-y-3">

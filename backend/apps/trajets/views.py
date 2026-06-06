@@ -1,3 +1,4 @@
+import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -6,6 +7,16 @@ from django.utils import timezone
 from django.db.models import Q
 from ..modeles.models import Trajet
 from .serializers import TrajetSerializer, TrajetCreateSerializer
+
+logger = logging.getLogger(__name__)
+
+# Cache GPS partagé avec le consumer WebSocket
+# Importé ici pour éviter l'import dans le corps de la classe
+try:
+    from .consumers import _derniere_position as _gps_cache
+except ImportError:
+    # Fallback si Django Channels n'est pas installé
+    _gps_cache: dict = {}
 
 
 class TrajetViewSet(viewsets.ModelViewSet):
@@ -129,10 +140,7 @@ class TrajetViewSet(viewsets.ModelViewSet):
             })
             
         except Exception as e:
-            # Log l'erreur pour le debugging
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Erreur lors de la terminaison du trajet {pk}: {str(e)}")
+            logger.error("Erreur lors de la terminaison du trajet %s: %s", pk, str(e))
             
             return Response({
                 "error": f"Erreur serveur lors de la terminaison du trajet: {str(e)}"
@@ -151,6 +159,96 @@ class TrajetViewSet(viewsets.ModelViewSet):
         trajet.statut = 'annule'
         trajet.save()
         return Response({"message": "Trajet annulé avec succès."})
+
+    # ── Aliases utilisés par trajet-api.ts (frontend) ─────────────────────
+
+    @action(detail=True, methods=['post'], url_path='commencer_trajet', permission_classes=[IsAuthenticated])
+    def commencer_trajet(self, request, pk=None):
+        """Démarre un trajet et retourne l'objet trajet mis à jour."""
+        try:
+            trajet = Trajet.objects.get(pk=pk)
+        except Trajet.DoesNotExist:
+            return Response({"error": "Trajet introuvable."}, status=404)
+
+        if trajet.conducteur != request.user:
+            return Response({"error": "Non autorisé."}, status=403)
+        if trajet.statut != 'ouvert':
+            return Response({"error": "Seuls les trajets ouverts peuvent être commencés."}, status=400)
+
+        trajet.statut = 'en_cours'
+        trajet.save()
+        return Response({
+            "message": "Trajet commencé avec succès.",
+            "trajet": TrajetSerializer(trajet).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='terminer_trajet', permission_classes=[IsAuthenticated])
+    def terminer_trajet(self, request, pk=None):
+        """Termine un trajet et retourne l'objet trajet mis à jour."""
+        try:
+            trajet = Trajet.objects.get(pk=pk)
+        except Trajet.DoesNotExist:
+            return Response({"error": "Trajet introuvable."}, status=404)
+
+        if trajet.conducteur != request.user:
+            return Response({"error": "Non autorisé."}, status=403)
+        if trajet.statut != 'en_cours':
+            return Response({"error": "Seuls les trajets en cours peuvent être terminés."}, status=400)
+
+        trajet.statut = 'termine'
+        trajet.save()
+        trajet.reservations.filter(statut='confirmee').update(statut='terminee')
+        return Response({
+            "message": "Trajet terminé avec succès.",
+            "trajet": TrajetSerializer(trajet).data,
+        })
+
+    # ── GPS REST (fallback si WebSocket indisponible) ──────────────────────
+
+    @action(detail=True, methods=['post'], url_path='mettre_a_jour_position', permission_classes=[IsAuthenticated])
+    def mettre_a_jour_position(self, request, pk=None):
+        """Le conducteur pousse sa position GPS (fallback REST)."""
+        try:
+            trajet = Trajet.objects.get(pk=pk)
+        except Trajet.DoesNotExist:
+            return Response({"error": "Trajet introuvable."}, status=404)
+
+        if trajet.conducteur != request.user:
+            return Response({"error": "Non autorisé."}, status=403)
+        if trajet.statut != 'en_cours':
+            return Response({"error": "Le trajet n'est pas en cours."}, status=400)
+
+        lat = request.data.get('latitude')
+        lng = request.data.get('longitude')
+        if lat is None or lng is None:
+            return Response({"error": "latitude et longitude requis."}, status=400)
+
+        _gps_cache[str(pk)] = {
+            'type':        'position_update',
+            'latitude':    float(lat),
+            'longitude':   float(lng),
+            'vitesse_kmh': request.data.get('vitesse_kmh'),
+            'direction':   request.data.get('direction'),
+            'timestamp':   timezone.now().isoformat(),
+        }
+        return Response({"message": "Position mise à jour.", **_gps_cache[str(pk)]})
+
+    @action(detail=True, methods=['get'], url_path='position_actuelle', permission_classes=[IsAuthenticated])
+    def position_actuelle(self, request, pk=None):
+        """Retourne la dernière position GPS connue (passager + conducteur)."""
+        try:
+            trajet = Trajet.objects.get(pk=pk)
+        except Trajet.DoesNotExist:
+            return Response({"error": "Trajet introuvable."}, status=404)
+
+        if trajet.statut != 'en_cours':
+            return Response({"error": "Le trajet n'est pas en cours."}, status=400)
+
+        pos = _gps_cache.get(str(pk))
+        if not pos:
+            return Response({"error": "Aucune position GPS disponible pour l'instant."}, status=404)
+
+        return Response(pos)
 
     @action(detail=False, methods=['get'])
     def rechercher(self, request):

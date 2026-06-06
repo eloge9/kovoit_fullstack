@@ -4,10 +4,11 @@ export const api = async (
   endpoint: string,
   method: string = "GET",
   body?: any,
-  token?: string,
+  token?: string | null,   // null = endpoint public, pas de token envoyé
 ) => {
-  // Récupère le token depuis localStorage si non fourni
-  const authToken = token || localStorage.getItem("token");
+  // null → endpoint public (inscription, connexion) : on n'envoie pas de token
+  // undefined → endpoint privé : on cherche dans localStorage
+  const authToken = token === null ? null : (token || localStorage.getItem("token"));
 
   const isFormData = body instanceof FormData;
 

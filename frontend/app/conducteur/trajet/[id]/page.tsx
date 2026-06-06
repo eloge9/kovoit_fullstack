@@ -1,23 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Play,
   Square,
-  MapPin,
   Navigation,
-  Users,
-  Clock,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import Link from 'next/link';
 
 import CarteTrajet from '@/components/CarteTrajet';
 import InfoSuivi from '@/components/InfoSuivi';
 import trajetApi from '@/libs/trajet-api';
+import { useTrajetWebSocket } from '@/src/hooks/useTrajetWebSocket';
 import { Trajet, PositionActuelleResponse, PositionMiseAJourData } from '@/types/trajet';
 
 export default function GestionTrajetPage() {
@@ -33,6 +33,11 @@ export default function GestionTrajetPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [gpsTracking, setGpsTracking] = useState(false);
   const [watchId, setWatchId] = useState<number | null>(null);
+
+  // WebSocket GPS — connexion automatique dès que le trajetId est connu
+  const { isConnected: wsConnected, sendPosition } = useTrajetWebSocket({
+    trajetId: trajet?.statut === 'en_cours' ? trajetId : null,
+  });
 
   // Charger les informations du trajet
   const loadTrajet = async () => {
@@ -75,9 +80,7 @@ export default function GestionTrajetPage() {
       setPositionData(positionResponse);
     } catch (err: any) {
       // Ne pas afficher d'erreur si le trajet n'est pas en cours
-      if (err.response?.status !== 400) {
-        console.error('Erreur de chargement de position:', err);
-      }
+      // Silencieux si le trajet n'est pas en cours (400)
     }
   };
 
@@ -136,24 +139,31 @@ export default function GestionTrajetPage() {
     setGpsTracking(true);
 
     const id = navigator.geolocation.watchPosition(
-      async (position) => {
-        const positionData: PositionMiseAJourData = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          altitude: position.coords.altitude || undefined,
-          vitesse_kmh: position.coords.speed ? position.coords.speed * 3.6 : undefined, // Convertir m/s en km/h
-          direction: position.coords.heading || undefined,
+      (position) => {
+        const pos = {
+          latitude:    position.coords.latitude,
+          longitude:   position.coords.longitude,
+          vitesse_kmh: position.coords.speed != null ? position.coords.speed * 3.6 : undefined,
+          direction:   position.coords.heading ?? undefined,
         };
 
-        try {
-          await trajetApi.mettreAJourPosition(trajetId, positionData);
-          await loadPosition(); // Rafraîchir la position affichée
-        } catch (err) {
-          console.error('Erreur de mise à jour de position:', err);
+        // Priorité : WebSocket (temps réel) → fallback REST
+        if (wsConnected) {
+          sendPosition(pos);
+          // Mettre à jour l'état local immédiatement
+          setPositionData({
+            position: pos,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+          });
+        } else {
+          trajetApi.mettreAJourPosition(trajetId, {
+            ...pos,
+            altitude: position.coords.altitude ?? undefined,
+          }).catch(() => {});
         }
       },
       (error) => {
-        console.error('Erreur GPS:', error);
         setError('Erreur de géolocalisation: ' + error.message);
       },
       {
@@ -248,7 +258,7 @@ export default function GestionTrajetPage() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Link
-                href="/conducteur/mes-trajets"
+                href="/conducteur/trajets"
                 className="inline-flex items-center text-gray-600 hover:text-gray-900 mr-4"
               >
                 <ArrowLeft className="w-5 h-5 mr-2" />
@@ -259,13 +269,26 @@ export default function GestionTrajetPage() {
               </h1>
             </div>
 
-            {/* Indicateur de suivi GPS */}
-            {gpsTracking && (
-              <div className="flex items-center text-green-600">
-                <Navigation className="w-5 h-5 mr-2 animate-pulse" />
-                <span className="text-sm font-medium">GPS actif</span>
-              </div>
-            )}
+            {/* Indicateurs GPS + WebSocket */}
+            <div className="flex items-center gap-3">
+              {wsConnected ? (
+                <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                  <Wifi className="w-4 h-4" />
+                  <span>Temps réel</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-gray-400 text-sm">
+                  <WifiOff className="w-4 h-4" />
+                  <span>Hors ligne</span>
+                </div>
+              )}
+              {gpsTracking && (
+                <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                  <Navigation className="w-4 h-4 animate-pulse" />
+                  <span>GPS actif</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

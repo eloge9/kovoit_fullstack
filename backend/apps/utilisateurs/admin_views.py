@@ -150,6 +150,52 @@ class AdminViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
     
+    @action(detail=False, methods=['post'], url_path=r'utilisateurs/(?P<user_id>[\w-]+)/valider-documents')
+    def valider_documents(self, request, user_id=None):
+        """Valider les documents CNI/Permis d'un utilisateur et l'activer."""
+        try:
+            utilisateur = Utilisateur.objects.get(pk=user_id)
+
+            if utilisateur.statut_validation not in ('en_attente', 'rejete'):
+                return Response(
+                    {'error': 'Aucun document en attente de validation pour cet utilisateur.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            utilisateur.statut_validation = 'valide'
+            utilisateur.is_active    = True
+            utilisateur.peut_conduire = True   # autorise le double rôle
+            utilisateur.save()
+
+            # Créer le profil Passager s'il n'existe pas (pour permettre le basculement)
+            from ..modeles.models import Passager as ProfilPassager
+            ProfilPassager.objects.get_or_create(utilisateur=utilisateur)
+
+            return Response({
+                'message': f'Documents de {utilisateur.username} validés. Double rôle activé.',
+                'utilisateur': UtilisateurDetailAdminSerializer(utilisateur).data
+            }, status=status.HTTP_200_OK)
+
+        except Utilisateur.DoesNotExist:
+            return Response({'error': 'Utilisateur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path=r'utilisateurs/(?P<user_id>[\w-]+)/rejeter-documents')
+    def rejeter_documents(self, request, user_id=None):
+        """Rejeter les documents d'un utilisateur avec un motif optionnel."""
+        try:
+            utilisateur = Utilisateur.objects.get(pk=user_id)
+            utilisateur.statut_validation = 'rejete'
+            utilisateur.peut_conduire     = False
+            utilisateur.save()
+
+            return Response({
+                'message': f'Documents de {utilisateur.username} rejetés.',
+                'utilisateur': UtilisateurDetailAdminSerializer(utilisateur).data
+            }, status=status.HTTP_200_OK)
+
+        except Utilisateur.DoesNotExist:
+            return Response({'error': 'Utilisateur non trouvé'}, status=status.HTTP_404_NOT_FOUND)
+
     @action(detail=False, methods=['post'], url_path=r'utilisateurs/(?P<user_id>[\w-]+)/supprimer')
     def supprimer_utilisateur(self, request, user_id=None):
         """Supprimer définitivement un utilisateur (à utiliser avec prudence)"""

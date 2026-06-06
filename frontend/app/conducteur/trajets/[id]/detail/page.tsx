@@ -79,9 +79,7 @@ export default function DetailTrajetPage() {
 
     const loadReservations = async () => {
         try {
-            console.log('Chargement des réservations pour le trajet:', Number(id));
             const reservationsData = await trajetApi.getReservationsTrajet(String(id));
-            console.log('Réservations reçues:', reservationsData);
             setReservations(reservationsData);
 
             // Charger les statuts de paiement pour chaque réservation
@@ -96,8 +94,8 @@ export default function DetailTrajetPage() {
                     // Pas de paiement existant
                 }
             }
-        } catch (err) {
-            console.error("Erreur lors du chargement des réservations:", err);
+        } catch {
+            // erreur silencieuse, l'UI affiche l'état vide
         } finally {
             setLoading(false);
         }
@@ -168,8 +166,6 @@ export default function DetailTrajetPage() {
     }
 
     const passagersConfirmes = reservations.filter((r: Reservation) => r.statut === "confirmee");
-    console.log('Passagers confirmés:', passagersConfirmes);
-    console.log('Statuts des réservations:', reservations.map(r => r.statut));
 
     return (
         <div className="min-h-screen bg-base-200">

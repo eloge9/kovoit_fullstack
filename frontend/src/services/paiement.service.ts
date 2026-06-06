@@ -79,3 +79,30 @@ export const getStatutPaiementReservation = (reservation_id: number): Promise<Pa
 
 // Mes paiements (passager)
 export const mesPaiements = () => api("/paiements/mes_paiements/", "GET");
+
+// ── T-Money / Flooz manuel ────────────────────────────────────────────────
+
+export interface SoumettreReferenceMobilePayload {
+  reservation_id: number;
+  reference_mobile: string;
+  network: "FLOOZ" | "TMONEY";
+}
+
+export interface SoumettreReferenceMobileResponse {
+  message: string;
+  paiement_id: number;
+  reference_mobile: string;
+  montant: number;
+  commission_kovoit: number;
+  statut: string;
+}
+
+// Passager soumet sa référence USSD après virement manuel
+export const soumettreReferenceMobile = (
+  data: SoumettreReferenceMobilePayload,
+): Promise<SoumettreReferenceMobileResponse> =>
+  api("/paiements/soumettre_reference_mobile/", "POST", data);
+
+// Conducteur confirme la réception du virement mobile money
+export const confirmerMobile = (reservation_id: number) =>
+  api("/paiements/confirmer_mobile/", "POST", { reservation_id });

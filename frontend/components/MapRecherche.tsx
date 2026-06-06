@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import "leaflet/dist/leaflet.css";
+import maplibregl from "maplibre-gl";
 
 interface Point { nom: string; lat: number; lng: number; }
 
@@ -25,6 +25,20 @@ interface Props {
     onTrajetClick: (id: number) => void;
 }
 
+const OSM_STYLE: maplibregl.StyleSpecification = {
+    version: 8,
+    sources: {
+        osm: {
+            type: "raster",
+            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            tileSize: 256,
+            attribution: "© <a href='https://openstreetmap.org' target='_blank'>OpenStreetMap</a>",
+            maxzoom: 19,
+        },
+    },
+    layers: [{ id: "osm-tiles", type: "raster", source: "osm" }],
+};
+
 export default function MapRecherche({
     trajets = [],
     trajetSurvole,
@@ -32,137 +46,160 @@ export default function MapRecherche({
     destination,
     onTrajetClick,
 }: Props) {
-    const mapRef = useRef<HTMLDivElement>(null);
-    const instanceRef = useRef<any>(null);
-    const layersRef = useRef<any[]>([]);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const mapRef       = useRef<maplibregl.Map | null>(null);
+    const markersRef   = useRef<maplibregl.Marker[]>([]);
+    const linesRef     = useRef<string[]>([]); // IDs des layers de lignes
 
-    // ── Initialiser la carte ──────────────────────────────────────────────
+    // Initialiser la carte une seule fois
     useEffect(() => {
-        if (instanceRef.current || !mapRef.current) return;
-        const L = require("leaflet");
+        if (mapRef.current || !containerRef.current) return;
 
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        L.Icon.Default.mergeOptions({
-            iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-            iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-            shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-        });
-
-        instanceRef.current = L.map(mapRef.current, {
-            center: [6.8, 1.1],
+        mapRef.current = new maplibregl.Map({
+            container: containerRef.current,
+            style: OSM_STYLE,
+            center: [1.1, 6.8], // Centre du Togo
             zoom: 7,
+            attributionControl: false,
         });
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "© OpenStreetMap contributors",
-        }).addTo(instanceRef.current);
+        mapRef.current.addControl(
+            new maplibregl.AttributionControl({ compact: true }),
+            "bottom-right"
+        );
 
         return () => {
-            instanceRef.current?.remove();
-            instanceRef.current = null;
+            mapRef.current?.remove();
+            mapRef.current = null;
         };
     }, []);
 
-    // ── Mettre à jour les marqueurs selon les trajets ─────────────────────
+    // Mettre à jour les marqueurs et lignes quand les trajets changent
     useEffect(() => {
-        if (!instanceRef.current) return;
+        const map = mapRef.current;
+        if (!map || !Array.isArray(trajets)) return;
 
-        // ✅ Garde — trajets doit être un tableau valide
-        if (!trajets || !Array.isArray(trajets)) return;
+        // Supprimer anciens marqueurs
+        markersRef.current.forEach((m) => m.remove());
+        markersRef.current = [];
 
-        const L = require("leaflet");
+        // Supprimer anciens layers de lignes
+        const removeLines = () => {
+            linesRef.current.forEach((id) => {
+                try { if (map.getLayer(id)) map.removeLayer(id); } catch {}
+                try { if (map.getSource(id)) map.removeSource(id); } catch {}
+            });
+            linesRef.current = [];
+        };
 
-        // Supprimer anciens layers
-        layersRef.current.forEach((l) => l.remove());
-        layersRef.current = [];
+        const renderTrajets = () => {
+            removeLines();
 
-        const makeIcon = (color: string, size: number) => L.divIcon({
-            html: `<div style="
-                width:${size}px;
-                height:${size}px;
-                background:${color};
-                border:2px solid white;
-                border-radius:50%;
-                box-shadow:0 2px 8px rgba(0,0,0,0.25);
-            "></div>`,
-            className: "",
-            iconSize: [size, size],
-            iconAnchor: [size / 2, size / 2],
-        });
+            const bounds = new maplibregl.LngLatBounds();
+            let hasBounds = false;
 
-        const points: [number, number][] = [];
+            trajets.forEach((trajet) => {
+                if (!trajet.depart_lat || !trajet.destination_lat) return;
 
-        trajets.forEach((trajet) => {
-            if (!trajet.depart_lat || !trajet.destination_lat) return;
+                const survole = trajetSurvole?.id === trajet.id;
+                const couleurDepart = survole ? "#2563eb" : "#475569";
+                const couleurDest   = survole ? "#16a34a" : "#94a3b8";
+                const tailleM       = survole ? 16 : 10;
 
-            const survole = trajetSurvole?.id === trajet.id;
-            const color = survole ? "#2563eb" : "#94a3b8";
-            const size = survole ? 16 : 10;
+                // Marqueur départ
+                const elDep = document.createElement("div");
+                elDep.style.cssText = `
+                    width:${tailleM}px; height:${tailleM}px;
+                    background:${couleurDepart}; border:2px solid #fff;
+                    border-radius:50%; box-shadow:0 1px 6px rgba(0,0,0,.3);
+                    cursor:pointer; z-index:${survole ? 10 : 1};
+                `;
 
-            // Marqueur départ
-            const mDepart = L.marker([trajet.depart_lat, trajet.depart_lng], {
-                icon: makeIcon(survole ? "#2563eb" : "#475569", size),
-                zIndexOffset: survole ? 1000 : 0,
-            })
-                .bindTooltip(
-                    `<b>${trajet.depart}</b> → ${trajet.destination}<br/>${Number(trajet.prix_par_place).toLocaleString("fr-FR")} FCFA`,
-                    { direction: "top" }
-                )
-                .on("click", () => onTrajetClick(trajet.id))
-                .addTo(instanceRef.current);
+                const mDep = new maplibregl.Marker({ element: elDep })
+                    .setLngLat([trajet.depart_lng, trajet.depart_lat])
+                    .setPopup(
+                        new maplibregl.Popup({ closeButton: false }).setHTML(
+                            `<b>${trajet.depart}</b> → ${trajet.destination}<br/>
+                            <span style="color:#2563eb;font-weight:600">
+                                ${Number(trajet.prix_par_place).toLocaleString("fr-FR")} FCFA
+                            </span>`
+                        )
+                    )
+                    .addTo(map);
+                elDep.addEventListener("click", () => onTrajetClick(trajet.id));
 
-            // Marqueur destination
-            const mDest = L.marker([trajet.destination_lat, trajet.destination_lng], {
-                icon: makeIcon(survole ? "#16a34a" : "#94a3b8", size),
-                zIndexOffset: survole ? 1000 : 0,
-            })
-                .bindTooltip(trajet.destination, { direction: "top" })
-                .on("click", () => onTrajetClick(trajet.id))
-                .addTo(instanceRef.current);
+                // Marqueur destination
+                const elDest = document.createElement("div");
+                elDest.style.cssText = `
+                    width:${tailleM}px; height:${tailleM}px;
+                    background:${couleurDest}; border:2px solid #fff;
+                    border-radius:50%; box-shadow:0 1px 6px rgba(0,0,0,.3);
+                    cursor:pointer; z-index:${survole ? 10 : 1};
+                `;
 
-            // Ligne du trajet
-            const ligne = L.polyline(
-                [
-                    [trajet.depart_lat, trajet.depart_lng],
-                    [trajet.destination_lat, trajet.destination_lng],
-                ],
-                {
-                    color,
-                    weight: survole ? 3 : 1.5,
-                    opacity: survole ? 0.9 : 0.35,
-                    dashArray: "6, 4",
-                }
-            )
-                .on("click", () => onTrajetClick(trajet.id))
-                .addTo(instanceRef.current);
+                const mDest = new maplibregl.Marker({ element: elDest })
+                    .setLngLat([trajet.destination_lng, trajet.destination_lat])
+                    .setPopup(
+                        new maplibregl.Popup({ closeButton: false }).setText(trajet.destination)
+                    )
+                    .addTo(map);
+                elDest.addEventListener("click", () => onTrajetClick(trajet.id));
 
-            layersRef.current.push(mDepart, mDest, ligne);
-            points.push(
-                [trajet.depart_lat, trajet.depart_lng],
-                [trajet.destination_lat, trajet.destination_lng]
-            );
-        });
+                markersRef.current.push(mDep, mDest);
 
-        // Ajuster le zoom
-        if (points.length > 0) {
-            instanceRef.current.fitBounds(
-                L.latLngBounds(points),
-                { padding: [40, 40] }
-            );
-        } else if (depart) {
-            instanceRef.current.setView([depart.lat, depart.lng], 10);
+                // Ligne départ → destination
+                const lineId = `line-${trajet.id}`;
+                map.addSource(lineId, {
+                    type: "geojson",
+                    data: {
+                        type: "Feature",
+                        geometry: {
+                            type: "LineString",
+                            coordinates: [
+                                [trajet.depart_lng, trajet.depart_lat],
+                                [trajet.destination_lng, trajet.destination_lat],
+                            ],
+                        },
+                        properties: {},
+                    },
+                });
+                map.addLayer({
+                    id: lineId,
+                    type: "line",
+                    source: lineId,
+                    paint: {
+                        "line-color": survole ? "#2563eb" : "#94a3b8",
+                        "line-width": survole ? 3 : 1.5,
+                        "line-opacity": survole ? 0.9 : 0.35,
+                        "line-dasharray": [5, 4],
+                    },
+                    layout: { "line-cap": "round", "line-join": "round" },
+                });
+                linesRef.current.push(lineId);
+
+                bounds.extend([trajet.depart_lng, trajet.depart_lat]);
+                bounds.extend([trajet.destination_lng, trajet.destination_lat]);
+                hasBounds = true;
+            });
+
+            // Ajuster la vue
+            if (hasBounds) {
+                map.fitBounds(bounds, { padding: 50, maxZoom: 13, duration: 600 });
+            } else if (depart) {
+                map.flyTo({ center: [depart.lng, depart.lat], zoom: 10 });
+            } else {
+                map.flyTo({ center: [1.1, 6.8], zoom: 7 });
+            }
+        };
+
+        if (map.isStyleLoaded()) {
+            renderTrajets();
         } else {
-            // Recentrer sur le Togo par défaut
-            instanceRef.current.setView([6.8, 1.1], 7);
+            map.once("load", renderTrajets);
         }
-
-    }, [trajets, trajetSurvole]);
+    }, [trajets, trajetSurvole, depart]);
 
     return (
-        <div
-            ref={mapRef}
-            style={{ height: "100%", width: "100%" }}
-            className="z-0"
-        />
+        <div ref={containerRef} style={{ height: "100%", width: "100%" }} className="z-0" />
     );
 }

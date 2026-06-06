@@ -8,11 +8,6 @@ export default function PassagerDashboard() {
     const { user } = useAuth();
     const { reservations, stats, pointsEconomies, loading, error, refresh } = usePassagerDashboardData();
 
-    // Debug: voir la structure des données utilisateur
-    console.log("Données utilisateur passager:", user);
-    console.log("Données réservations:", reservations);
-    console.log("Points calculés:", pointsEconomies);
-
     const heure = new Date().getHours();
     const salutation = heure < 12 ? "Bonjour" : heure < 18 ? "Bon après-midi" : "Bonsoir";
 

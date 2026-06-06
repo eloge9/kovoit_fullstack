@@ -34,7 +34,7 @@ function AutocompleteInput({
     const [results, setResults] = useState<NominatimResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [open, setOpen] = useState(false);
-    const debounceRef = useRef<NodeJS.Timeout>();
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     useEffect(() => { setQuery(value?.nom || ""); }, [value]);
 

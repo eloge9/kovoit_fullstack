@@ -24,31 +24,18 @@ export default function ConnexionPage() {
         try {
             const data = await connexion({ email: form.email, password: form.password });
 
-            console.log("✅ data complète:", data);
-            console.log("✅ utilisateur:", data.utilisateur);
-            console.log("✅ role:", data.utilisateur?.role);
-            console.log("✅ tokens:", data.tokens);
-
             login(data);
 
             const role = data.utilisateur?.role;
-            console.log("→ redirection vers role:", role);
-
             if (role === "conducteur") {
-                console.log("→ push /conducteur/dashboard");
                 router.push("/conducteur/dashboard");
             } else if (role === "passager") {
-                console.log("→ push /passager/dashboard");
                 router.push("/passager/dashboard");
             } else if (role === "admin") {
-                console.log("→ push /admin/dashboard");
                 router.push("/admin/dashboard");
-            } else {
-                console.log("❌ rôle inconnu:", role);
             }
 
         } catch (err: any) {
-            console.error("❌ erreur:", err);
             setError(err.response?.data?.error || "Email ou mot de passe incorrect.");
         } finally {
             setLoading(false);

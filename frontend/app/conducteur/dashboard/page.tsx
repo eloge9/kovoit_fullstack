@@ -10,9 +10,6 @@ export default function ConducteurDashboard() {
     const { trajets, reservations, stats, loading, error, refresh } = useDashboardData();
     const { vehiculePrincipal, loading: vehiculeLoading, error: vehiculeError } = useVehiculeData();
 
-    // Debug: voir la structure des données utilisateur
-    console.log("Données utilisateur:", user);
-
     const heure = new Date().getHours();
     const salutation = heure < 12 ? "Bonjour" : heure < 18 ? "Bon après-midi" : "Bonsoir";
 
@@ -220,7 +217,7 @@ export default function ConducteurDashboard() {
                                     ))}
                                     <div className="pt-2">
                                         <Link
-                                            href="/conducteur/profil/edit"
+                                            href="/conducteur/profil"
                                             className="btn btn-ghost btn-xs rounded-full w-full border border-base-200"
                                         >
                                             Modifier
@@ -233,7 +230,7 @@ export default function ConducteurDashboard() {
                                         Aucun véhicule renseigné
                                     </p>
                                     <Link
-                                        href="/conducteur/profil/edit"
+                                        href="/conducteur/profil"
                                         className="btn btn-primary btn-xs rounded-full"
                                     >
                                         Ajouter un véhicule

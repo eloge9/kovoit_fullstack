@@ -13,8 +13,8 @@ export default function HistoriquePage() {
     const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [filter, setFilter] = useState<string>("tous");
-    const [periodFilter, setPeriodFilter] = useState<string>("tous");
+    const [filter, setFilter] = useState<"tous" | "en_attente" | "confirmee" | "declinee" | "terminee">("tous");
+    const [periodFilter, setPeriodFilter] = useState<"tous" | "aujourd'hui" | "hier" | "semaine" | "mois" | "mois_dernier" | "annee" | "personnalise">("tous");
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
 
@@ -25,7 +25,6 @@ export default function HistoriquePage() {
                 const data = await historiqueReservations();
                 setReservations(data);
             } catch (err: any) {
-                console.error("Error loading history:", err);
                 if (err.response?.status === 401) {
                     setError("Veuillez vous connecter pour voir votre historique.");
                 } else {
@@ -130,7 +129,7 @@ export default function HistoriquePage() {
 
     // Helper function pour vérifier si des filtres sont actifs
     const hasActiveFilters = () => {
-        return filter !== "tous" || periodFilter !== "tous" || (periodFilter === "personnalise" && (startDate || endDate));
+        return filter !== "tous" || periodFilter !== "tous";
     };
 
     // ── État de chargement ──────────────────────────────────────────────────
@@ -201,13 +200,13 @@ export default function HistoriquePage() {
                     <div>
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-2">Statut</p>
                         <div className="flex gap-2 flex-wrap">
-                            {[
-                                { value: "tous", label: "Tous" },
-                                { value: "confirmee", label: "Confirmées" },
+                            {([
+                                { value: "tous",       label: "Tous" },
+                                { value: "confirmee",  label: "Confirmées" },
                                 { value: "en_attente", label: "En attente" },
-                                { value: "terminee", label: "Terminées" },
-                                { value: "declinee", label: "Déclinées" },
-                            ].map((option) => (
+                                { value: "terminee",   label: "Terminées" },
+                                { value: "declinee",   label: "Déclinées" },
+                            ] as const).map((option) => (
                                 <button
                                     key={option.value}
                                     onClick={() => setFilter(option.value)}
@@ -226,16 +225,16 @@ export default function HistoriquePage() {
                     <div>
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-2">Période</p>
                         <div className="flex gap-2 flex-wrap">
-                            {[
-                                { value: "tous", label: "Tous" },
-                                { value: "aujourd'hui", label: "Aujourd'hui" },
-                                { value: "hier", label: "Hier" },
-                                { value: "semaine", label: "Cette semaine" },
-                                { value: "mois", label: "Ce mois" },
+                            {([
+                                { value: "tous",         label: "Tous" },
+                                { value: "aujourd'hui",  label: "Aujourd'hui" },
+                                { value: "hier",         label: "Hier" },
+                                { value: "semaine",      label: "Cette semaine" },
+                                { value: "mois",         label: "Ce mois" },
                                 { value: "mois_dernier", label: "Mois dernier" },
-                                { value: "annee", label: "Cette année" },
+                                { value: "annee",        label: "Cette année" },
                                 { value: "personnalise", label: "Personnalisé" },
-                            ].map((option) => (
+                            ] as const).map((option) => (
                                 <button
                                     key={option.value}
                                     onClick={() => setPeriodFilter(option.value)}

@@ -5,6 +5,7 @@ import {
     confirmerReservation,
     declinerReservation,
 } from "@/src/services/reservation.service";
+import { confirmerEspeces, confirmerMobile } from "@/src/services/paiement.service";
 import { api } from "@/src/services/api";
 
 interface Reservation {
@@ -15,9 +16,13 @@ interface Reservation {
     date_depart: string;
     passager_nom: string;
     passager_note: number;
+    passager_telephone: string;
     prix_par_place: number;
     statut: "en_attente" | "confirmee" | "declinee";
     date_reservation: string;
+    paiement_statut: string | null;
+    paiement_moyen: string | null;
+    paiement_reference_mobile: string | null;
 }
 
 export default function ReservationsRecuesPage() {
@@ -25,7 +30,7 @@ export default function ReservationsRecuesPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [filtre, setFiltre] = useState<"tous" | "en_attente" | "confirmee" | "declinee">("tous");
-    const [actions, setActions] = useState<Record<number, "confirming" | "declining" | null>>({});
+    const [actions, setActions] = useState<Record<number, "confirming" | "declining" | "paying" | null>>({});
 
     useEffect(() => { fetchReservations(); }, []);
 
@@ -50,6 +55,25 @@ export default function ReservationsRecuesPage() {
             );
         } catch (err: any) {
             setError(err.response?.data?.error || "Erreur lors de la confirmation.");
+        } finally {
+            setActions((prev) => ({ ...prev, [id]: null }));
+        }
+    };
+
+    const handleConfirmerPaiement = async (id: number, moyen: string) => {
+        if (!confirm(`Confirmer la réception du paiement ${moyen} pour cette réservation ?`)) return;
+        setActions((prev) => ({ ...prev, [id]: "paying" }));
+        try {
+            if (moyen === "ESPECE") {
+                await confirmerEspeces(id);
+            } else {
+                await confirmerMobile(id);
+            }
+            setReservations((prev) =>
+                prev.map((r) => r.id === id ? { ...r, paiement_statut: "CONFIRME" } : r)
+            );
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de la confirmation du paiement.");
         } finally {
             setActions((prev) => ({ ...prev, [id]: null }));
         }
@@ -261,6 +285,54 @@ export default function ReservationsRecuesPage() {
                                                 : "Décliner"
                                             }
                                         </button>
+                                    </div>
+                                )}
+
+                                {/* Bloc paiement — visible si confirmée */}
+                                {resa.statut === "confirmee" && resa.paiement_statut && (
+                                    <div className={`mt-3 rounded-xl px-4 py-3 border ${
+                                        resa.paiement_statut === "CONFIRME"
+                                            ? "bg-success/5 border-success/20"
+                                            : "bg-warning/5 border-warning/20"
+                                    }`}>
+                                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                                            <div>
+                                                <p className="text-xs text-base-content/40 uppercase tracking-wide mb-0.5">Paiement</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-sm font-semibold text-base-content">
+                                                        {resa.paiement_moyen === "ESPECE"   ? "💵 Espèces"
+                                                        : resa.paiement_moyen === "TMONEY" ? "🟠 T-Money"
+                                                        : resa.paiement_moyen === "FLOOZ"  ? "🟢 Flooz"
+                                                        : resa.paiement_moyen}
+                                                    </span>
+                                                    <span className={`badge badge-sm ${
+                                                        resa.paiement_statut === "CONFIRME" ? "badge-success" : "badge-warning"
+                                                    }`}>
+                                                        {resa.paiement_statut === "CONFIRME" ? "✓ Confirmé" : "⏳ En attente"}
+                                                    </span>
+                                                </div>
+                                                {/* Référence mobile money */}
+                                                {resa.paiement_reference_mobile && (
+                                                    <p className="text-xs font-mono text-base-content/60 mt-1">
+                                                        Réf : <strong>{resa.paiement_reference_mobile}</strong>
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {/* Bouton confirmer si en attente */}
+                                            {resa.paiement_statut === "EN_ATTENTE_CONFIRMATION" && (
+                                                <button
+                                                    onClick={() => handleConfirmerPaiement(resa.id, resa.paiement_moyen || "ESPECE")}
+                                                    disabled={actions[resa.id] === "paying"}
+                                                    className="btn btn-success btn-xs rounded-full"
+                                                >
+                                                    {actions[resa.id] === "paying"
+                                                        ? <span className="loading loading-spinner loading-xs" />
+                                                        : "Confirmer réception"
+                                                    }
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>

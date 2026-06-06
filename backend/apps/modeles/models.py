@@ -2,11 +2,22 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+from .validators import validate_positive_number, validate_rating, validate_gps_latitude, validate_gps_coordinate
 
 
 def chemin_photo(instance, filename):
     ext = filename.split('.')[-1]
     return f"profils/{instance.pk}/{instance.pk}.{ext}"
+
+
+STATUT_VALIDATION_CHOICES = (
+    ('non_soumis', 'Non soumis'),
+    ('en_attente', 'En attente de validation'),
+    ('valide',     'Validé'),
+    ('rejete',     'Rejeté'),
+)
 
 
 # ----------------- Utilisateur -----------------
@@ -22,6 +33,18 @@ class Utilisateur(AbstractUser):
     numero_telephone = models.CharField(max_length=20, blank=True, null=True)
     photo_profil     = models.ImageField(upload_to=chemin_photo, blank=True, null=True)
     note             = models.FloatField(default=0)
+
+    # --- Documents d'identité (CNI / Permis) ---
+    photo_cni         = models.ImageField(upload_to='documents/cni/',    blank=True, null=True)
+    photo_permis      = models.ImageField(upload_to='documents/permis/', blank=True, null=True)
+    statut_validation = models.CharField(
+        max_length=20, choices=STATUT_VALIDATION_CHOICES, default='non_soumis'
+    )
+
+    # --- Double rôle ---
+    # True quand l'admin a validé les documents conducteur.
+    # Permet à un passager de basculer en mode conducteur sans re-soumettre.
+    peut_conduire = models.BooleanField(default=False)
 
     REQUIRED_FIELDS = ['email', 'role']
 
@@ -73,18 +96,25 @@ PLACES_MAX_PAR_TYPE = {
 
 
 class Vehicule(models.Model):
-    conducteur    = models.ForeignKey(Conducteur, on_delete=models.CASCADE, related_name='vehicules')
-    type_vehicule = models.CharField(max_length=20, choices=TYPE_VEHICULE_CHOICES)
-    marque        = models.CharField(max_length=100)
-    modele        = models.CharField(max_length=100)
-    couleur       = models.CharField(max_length=50)
-    plaque        = models.CharField(max_length=20, unique=True)
-    places_max    = models.IntegerField()
-    est_actif     = models.BooleanField(default=True)
-    created_at    = models.DateTimeField(auto_now_add=True)
+    conducteur        = models.ForeignKey(Conducteur, on_delete=models.CASCADE, related_name='vehicules')
+    type_vehicule     = models.CharField(max_length=20, choices=TYPE_VEHICULE_CHOICES)
+    marque            = models.CharField(max_length=100)
+    modele            = models.CharField(max_length=100)
+    couleur           = models.CharField(max_length=50)
+    plaque            = models.CharField(max_length=20, unique=True)
+    places_max        = models.IntegerField(validators=[validate_positive_number])
+    est_actif         = models.BooleanField(default=True)
+    # Document légal du véhicule (Groupe 6)
+    photo_carte_grise = models.ImageField(upload_to='documents/carte_grise/', blank=True, null=True)
+    created_at        = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.marque} {self.modele} ({self.plaque})"
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['conducteur', 'est_actif']),
+        ]
 
 
 class Passager(models.Model):
@@ -105,17 +135,17 @@ class Trajet(models.Model):
 
     depart          = models.CharField(max_length=255)
     destination     = models.CharField(max_length=255)
-    depart_lat      = models.FloatField(null=True, blank=True)
-    depart_lng      = models.FloatField(null=True, blank=True)
-    destination_lat = models.FloatField(null=True, blank=True)
-    destination_lng = models.FloatField(null=True, blank=True)
+    depart_lat      = models.FloatField(null=True, blank=True, validators=[validate_gps_latitude])
+    depart_lng      = models.FloatField(null=True, blank=True, validators=[validate_gps_coordinate])
+    destination_lat = models.FloatField(null=True, blank=True, validators=[validate_gps_latitude])
+    destination_lng = models.FloatField(null=True, blank=True, validators=[validate_gps_coordinate])
 
-    distance_km    = models.FloatField(null=True, blank=True)
-    cout_total     = models.FloatField(null=True, blank=True)
-    prix_par_place = models.DecimalField(max_digits=10, decimal_places=2)
+    distance_km    = models.FloatField(null=True, blank=True, validators=[validate_positive_number])
+    cout_total     = models.FloatField(null=True, blank=True, validators=[validate_positive_number])
+    prix_par_place = models.DecimalField(max_digits=10, decimal_places=2, validators=[validate_positive_number])
 
     date_heure_depart  = models.DateTimeField()
-    places_disponibles = models.IntegerField()
+    places_disponibles = models.IntegerField(validators=[validate_positive_number])
     description        = models.TextField(blank=True)
 
     est_regulier  = models.BooleanField(default=False)
@@ -126,12 +156,22 @@ class Trajet(models.Model):
         ('en_cours', 'En cours'),
         ('termine',  'Terminé'),
         ('annule',   'Annulé'),
-    ), default='ouvert')
+    ), default='ouvert', db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        """Validations additionnelles"""
+        if self.date_heure_depart <= timezone.now():
+            raise ValidationError("Le départ doit être dans le futur.")
+        if self.date_heure_depart > timezone.now() + timezone.timedelta(days=180):
+            raise ValidationError("Le départ ne peut pas être plus de 6 mois à l'avance.")
+
     def save(self, *args, **kwargs):
+        # Valider avant de sauvegarder
+        self.full_clean()
+        
         # Vérifier si le statut change
         old_statut = None
         if self.pk:
@@ -149,6 +189,11 @@ class Trajet(models.Model):
 
     class Meta:
         ordering = ['-date_heure_depart']
+        indexes = [
+            models.Index(fields=['conducteur', '-date_heure_depart']),
+            models.Index(fields=['statut', '-date_heure_depart']),
+            models.Index(fields=['-date_heure_depart']),
+        ]
 
     def __str__(self):
         return f"{self.depart} → {self.destination} ({self.conducteur.username})"
@@ -158,7 +203,7 @@ class Trajet(models.Model):
 class Reservation(models.Model):
     trajet           = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='reservations')
     passager         = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='reservations')
-    places_reservees = models.IntegerField(default=1)
+    places_reservees = models.IntegerField(default=1, validators=[validate_positive_number])
     statut           = models.CharField(max_length=20, choices=(
         ('en_attente', 'En attente'),
         ('confirmee',  'Confirmée'),
@@ -166,6 +211,28 @@ class Reservation(models.Model):
         ('terminee',   'Terminée'),
     ), default='en_attente')
     date_reservation = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        """Valider que le passager ne réserve pas 2x le même trajet"""
+        if Reservation.objects.filter(
+            trajet=self.trajet,
+            passager=self.passager,
+            statut__in=['en_attente', 'confirmee']
+        ).exclude(pk=self.pk).exists():
+            raise ValidationError("Vous avez déjà réservé ce trajet.")
+        if self.places_reservees > self.trajet.places_disponibles:
+            raise ValidationError(f"Seulement {self.trajet.places_disponibles} places disponibles.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    class Meta:
+        unique_together = [['trajet', 'passager']]
+        indexes = [
+            models.Index(fields=['passager', '-date_reservation']),
+            models.Index(fields=['statut']),
+        ]
 
     def __str__(self):
         return f"{self.passager.username} → {self.trajet}"
@@ -186,18 +253,42 @@ class Paiement(models.Model):
     passager = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements", null=True, blank=True)
     conducteur = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements_conducteur", null=True, blank=True)
     
-    montant = models.DecimalField(max_digits=10, decimal_places=2)
-    moyen_paiement = models.CharField(max_length=20, default="ESPECE")
+    montant          = models.DecimalField(max_digits=10, decimal_places=2, validators=[validate_positive_number])
+    moyen_paiement   = models.CharField(max_length=20, default="ESPECE")
+    reference_mobile = models.CharField(max_length=100, blank=True, null=True)
     
     statut = models.CharField(
         max_length=30,
         choices=Statut.choices,
-        default=Statut.EN_ATTENTE_CONFIRMATION
+        default=Statut.EN_ATTENTE_CONFIRMATION,
+        db_index=True
     )
     
     date_creation = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     date_confirmation = models.DateTimeField(null=True, blank=True)
     date_payement = models.DateTimeField(null=True, blank=True)  # Pour compatibilité mobile money
+
+    def clean(self):
+        """Valider le paiement"""
+        from django.db import transaction
+        # Vérifier que montant correspond à la réservation
+        if self.reservation:
+            prix_total = self.reservation.places_reservees * self.reservation.trajet.prix_par_place
+            if self.montant != prix_total:
+                raise ValidationError(f"Montant doit être {prix_total} FCFA pour {self.reservation.places_reservees} place(s)")
+
+    def save(self, *args, **kwargs):
+        from django.db import transaction
+        self.full_clean()
+        # Utiliser une transaction atomique pour éviter les double-paiements
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['reservation']),
+            models.Index(fields=['statut', '-date_creation']),
+        ]
 
     def __str__(self):
         return f"{self.reservation} → {self.statut}"
@@ -208,9 +299,15 @@ class Evaluation(models.Model):
     trajet          = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='evaluations')
     auteur          = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='evaluations_donnees')
     cible           = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='evaluations_recues')
-    note            = models.IntegerField()
+    note            = models.IntegerField(validators=[validate_rating])
     commentaire     = models.TextField(blank=True)
     date_evaluation = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [['trajet', 'auteur', 'cible']]
+        indexes = [
+            models.Index(fields=['cible', '-date_evaluation']),
+        ]
 
     def __str__(self):
         return f"{self.auteur} → {self.cible}: {self.note}/5"
@@ -224,6 +321,13 @@ class Message(models.Model):
     trajet       = models.ForeignKey(Trajet, on_delete=models.SET_NULL, null=True, blank=True)
     created_at   = models.DateTimeField(auto_now_add=True)
     lu           = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['destinataire', 'lu', '-created_at']),
+            models.Index(fields=['expediteur', '-created_at']),
+        ]
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.expediteur} → {self.destinataire}"

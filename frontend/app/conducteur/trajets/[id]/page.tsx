@@ -27,7 +27,6 @@ export default function DetailTrajetPage() {
                 const data = await getTrajet(Number(id));
                 setTrajet(data);
             } catch (err: any) {
-                console.error("Error loading trip:", err);
                 if (err.response?.status === 404) {
                     setError("Trajet introuvable.");
                 } else if (err.response?.status === 401) {
@@ -81,12 +80,10 @@ export default function DetailTrajetPage() {
         setTerminaison(true);
         setError(null);
         try {
-            const result = await terminerTrajet(Number(id));
-            console.log("Trajet terminé avec succès:", result);
+            await terminerTrajet(Number(id));
             setTrajet(prev => prev ? { ...prev, statut: "termine" } : null);
             setSuccess(true);
         } catch (err: any) {
-            console.error("Erreur détaillée lors de la terminaison:", err);
             const errorMessage = err.response?.data?.error || err.message || "Erreur lors de la terminaison du trajet.";
             const statusCode = err.response?.status;
 
@@ -172,7 +169,7 @@ export default function DetailTrajetPage() {
                 <div className="space-y-3">
                     {error?.includes("connectez") ? (
                         <button
-                            onClick={() => router.push("/auth/login")}
+                            onClick={() => router.push("/auth/connexion")}
                             className="btn btn-primary rounded-full px-6"
                         >
                             Se connecter

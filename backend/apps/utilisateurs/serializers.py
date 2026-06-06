@@ -6,7 +6,9 @@ from ..modeles.models import Utilisateur, Conducteur, Passager, Admin, Vehicule,
 class VehiculeSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Vehicule
-        fields = ['id', 'type_vehicule', 'marque', 'modele', 'couleur', 'plaque', 'places_max', 'est_actif']
+        fields = ['id', 'type_vehicule', 'marque', 'modele', 'couleur', 'plaque',
+                  'places_max', 'est_actif', 'photo_carte_grise']
+        extra_kwargs = {'photo_carte_grise': {'required': False, 'allow_null': True}}
 
 
 class ConducteurSerializer(serializers.ModelSerializer):
@@ -146,11 +148,14 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'email', 'role', 'numero_telephone',
             'photo_profil', 'note', 'is_active',
             'date_joined', 'last_login',
+            'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire',
             'profil_conducteur', 'profil_passager', 'profil_admin',
         ]
         extra_kwargs = {
             'photo_profil': {'required': False, 'allow_null': True},
+            'photo_cni':    {'required': False, 'allow_null': True},
+            'photo_permis': {'required': False, 'allow_null': True},
             'username': {'required': False},
-            'email': {'required': False},
-            'role': {'required': False},
+            'email':    {'required': False},
+            'role':     {'required': False},
         }

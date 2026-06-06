@@ -46,8 +46,8 @@ export default function AdminPlaintes() {
                 if (!response.ok) throw new Error("Erreur");
                 const data = await response.json();
                 setPlaintes(Array.isArray(data) ? data : []);
-            } catch (err: any) {
-                console.error(err.message);
+            } catch {
+                // erreur déjà gérée par l'état error
             } finally {
                 setLoading(false);
             }

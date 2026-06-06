@@ -16,6 +16,10 @@ interface PositionActuelleResponse {
 interface PositionMiseAJourData {
   latitude: number;
   longitude: number;
+  altitude?: number;
+  precision?: number;
+  vitesse_kmh?: number;
+  direction?: number;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api';
@@ -40,25 +44,25 @@ apiClient.interceptors.request.use((config) => {
 });
 
 export const trajetApi = {
-  // Démarrer un trajet
+  // Démarrer un trajet (alias vers commencer_trajet/ — endpoint dédié avec retour trajet)
   commencerTrajet: async (trajetId: string): Promise<TrajetActionResponse> => {
     const response = await apiClient.post(`/trajets/${trajetId}/commencer_trajet/`);
     return response.data;
   },
 
-  // Terminer un trajet
+  // Terminer un trajet (alias vers terminer_trajet/ — endpoint dédié avec retour trajet)
   terminerTrajet: async (trajetId: string): Promise<TrajetActionResponse> => {
     const response = await apiClient.post(`/trajets/${trajetId}/terminer_trajet/`);
     return response.data;
   },
 
-  // Mettre à jour la position GPS
+  // Mettre à jour la position GPS (fallback REST si WebSocket indisponible)
   mettreAJourPosition: async (trajetId: string, positionData: PositionMiseAJourData): Promise<any> => {
     const response = await apiClient.post(`/trajets/${trajetId}/mettre_a_jour_position/`, positionData);
     return response.data;
   },
 
-  // Obtenir la position actuelle
+  // Obtenir la dernière position GPS connue (fallback REST)
   getPositionActuelle: async (trajetId: string): Promise<PositionActuelleResponse> => {
     const response = await apiClient.get(`/trajets/${trajetId}/position_actuelle/`);
     return response.data;

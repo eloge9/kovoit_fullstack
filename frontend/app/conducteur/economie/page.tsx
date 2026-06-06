@@ -121,9 +121,7 @@ export default function EconomieConducteur() {
       params.set('periode', backendPeriode);
       params.set('annee', annee.toString());
 
-      console.log('Appel API avec params:', params.toString());
       const statsData = await api(`/statistiques/conducteur/?${params.toString()}`);
-      console.log('Données reçues:', statsData);
       setStatistiques(statsData);
 
       // Transformer les données pour le graphique
@@ -154,7 +152,6 @@ export default function EconomieConducteur() {
       setTrajets(trajetsRecents);
 
     } catch (error) {
-      console.error('Erreur lors de la récupération des données:', error);
       // Réinitialiser les données en cas d'erreur
       setStatistiques({
         periode: "",

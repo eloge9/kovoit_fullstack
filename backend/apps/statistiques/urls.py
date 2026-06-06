@@ -1,7 +1,16 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
+from .viewsets import StatistiqueEconomieViewSet
+
+# Router pour les viewsets
+router = DefaultRouter()
+router.register(r'economies', StatistiqueEconomieViewSet, basename='economies')
 
 urlpatterns = [
+    # Endpoints du router
+    path('', include(router.urls)),
+    
     # Résumé économique rapide tableau de bord
     path('resume/', views.ResumeEconomieView.as_view(), name='resume_economie'),
     

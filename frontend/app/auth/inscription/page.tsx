@@ -112,11 +112,31 @@ export default function InscriptionPage() {
             else router.push("/passager/dashboard");
 
         } catch (err: any) {
-            const errors = err.response?.data;
-            if (errors && typeof errors === "object") {
-                setError(Object.entries(errors).map(([k, v]) => `${k} : ${v}`).join(" | "));
+            const data = err.response?.data;
+
+            if (data && typeof data === "object") {
+                // Messages d'erreur lisibles par l'utilisateur
+                const LABELS: Record<string, string> = {
+                    username:      "Nom d'utilisateur",
+                    email:         "Email",
+                    password:      "Mot de passe",
+                    numero_permis: "Numéro de permis",
+                    plaque:        "Plaque",
+                    type_vehicule: "Type de véhicule",
+                    non_field_errors: "",
+                };
+
+                const messages = Object.entries(data)
+                    .filter(([k]) => !["code", "messages"].includes(k))
+                    .map(([k, v]) => {
+                        const label = LABELS[k] ?? k;
+                        const texte = Array.isArray(v) ? v.join(", ") : String(v);
+                        return label ? `${label} : ${texte}` : texte;
+                    });
+
+                setError(messages.join(" — ") || "Erreur lors de l'inscription.");
             } else {
-                setError("Erreur lors de l'inscription.");
+                setError("Erreur lors de l'inscription. Vérifiez votre connexion.");
             }
         } finally {
             setLoading(false);

@@ -74,7 +74,7 @@ class StatistiqueConducteurView(APIView):
         # Calculer les revenus depuis les paiements
         paiements = Paiement.objects.filter(
             conducteur=conducteur,
-            statut='CONFIRME',
+            statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
             date_confirmation__gte=debut,
             date_confirmation__lte=fin
         )
@@ -106,7 +106,7 @@ class StatistiqueConducteurView(APIView):
             
             revenus_mois = Paiement.objects.filter(
                 conducteur=conducteur,
-                statut='CONFIRME',
+                statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
                 date_confirmation__gte=debut_mois,
                 date_confirmation__lte=fin_mois
             ).aggregate(total=Sum('montant'))['total'] or Decimal('0')
@@ -326,7 +326,7 @@ class ResumeEconomieView(APIView):
                 # Statistiques conducteur
                 revenus_mois = Paiement.objects.filter(
                     conducteur=utilisateur,
-                    statut='CONFIRME',
+                    statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
                     date_confirmation__gte=debut_mois,
                     date_confirmation__lte=fin_mois
                 ).aggregate(total=Sum('montant'))['total'] or Decimal('0')

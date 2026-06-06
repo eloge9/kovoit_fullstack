@@ -22,8 +22,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return f"{obj.trajet.depart} → {obj.trajet.destination}"
 
 class EvaluationCreateSerializer(serializers.Serializer):
-    trajet_id = serializers.UUIDField()
-    cible_id = serializers.UUIDField()
+    trajet_id = serializers.IntegerField()  # Trajet uses BigAutoField
+    cible_id = serializers.UUIDField()      # Utilisateur uses UUID
     note = serializers.IntegerField(min_value=1, max_value=5)
     commentaire = serializers.CharField(required=False, allow_blank=True)
     ponctualite = serializers.IntegerField(min_value=1, max_value=5, required=False)
@@ -31,7 +31,7 @@ class EvaluationCreateSerializer(serializers.Serializer):
     proprete = serializers.IntegerField(min_value=1, max_value=5, required=False)
 
 class TrajetTermineSerializer(serializers.Serializer):
-    trajet_id = serializers.UUIDField()
+    trajet_id = serializers.IntegerField()  # Trajet uses BigAutoField
 
 class TrajetAEvaluerSerializer(serializers.ModelSerializer):
     conducteur_nom = serializers.SerializerMethodField()
