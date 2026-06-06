@@ -1,3 +1,7 @@
+import hmac as hmac_lib
+import hashlib
+import time
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,7 +9,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from ..modeles.models import Reservation, Trajet
+from django.conf import settings
+from ..modeles.models import Reservation, Trajet, BlocagePassager
 from .serializers import ReservationSerializer, ReservationCreateSerializer
 
 
@@ -49,6 +54,10 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
             if trajet.conducteur == request.user:
                 return Response({"error": "Vous ne pouvez pas réserver votre propre trajet."}, status=400)
+
+            # Vérifier que le conducteur n'a pas bloqué ce passager
+            if BlocagePassager.objects.filter(conducteur=trajet.conducteur, passager=request.user).exists():
+                return Response({"error": "Vous n'êtes pas autorisé à réserver ce trajet."}, status=403)
 
             if Reservation.objects.filter(trajet=trajet, passager=request.user, statut__in=['en_attente', 'confirmee']).exists():
                 return Response({"error": "Vous avez déjà une réservation active pour ce trajet."}, status=400)
@@ -168,3 +177,84 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
         serializer = ReservationSerializer(reservations, many=True)
         return Response(serializer.data)
+
+    # ── QR Code de montée ─────────────────────────────────────────────────
+    @action(detail=True, methods=['get'], url_path='qr-code')
+    def qr_code(self, request, pk=None):
+        """
+        Génère un token HMAC signé pour la réservation.
+        Le passager présente ce code au conducteur au moment de la montée.
+        Valide pendant 2 heures (tolérance de 1h de chaque côté).
+        """
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'trajet__conducteur'
+            ).get(pk=pk, passager=request.user, statut='confirmee')
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable ou non confirmée.")
+
+        # Token valide par tranche horaire (change toutes les heures)
+        ts_heure = str(int(time.time()) // 3600)
+        secret   = settings.SECRET_KEY.encode()
+        token    = hmac_lib.new(
+            secret,
+            f"{pk}:{ts_heure}".encode(),
+            hashlib.sha256,
+        ).hexdigest()[:24].upper()
+
+        return Response({
+            "token":          token,
+            "reservation_id": str(pk),
+            "passager":       request.user.get_full_name() or request.user.username,
+            "trajet":         f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            "date_depart":    reservation.trajet.date_heure_depart.isoformat(),
+            "places":         reservation.places_reservees,
+            "expire_dans":    "1 heure",
+        })
+
+    # ── Scanner le QR Code (conducteur) ──────────────────────────────────
+    @action(detail=True, methods=['post'], url_path='scanner-qr')
+    def scanner_qr(self, request, pk=None):
+        """
+        Conducteur saisit le code affiché par le passager → validation de la montée.
+        Body: { token }
+        """
+        token_recu = str(request.data.get('token', '')).strip().upper()
+        if not token_recu:
+            return Response({"error": "Token manquant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'passager'
+            ).get(pk=pk, trajet__conducteur=request.user, statut='confirmee')
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable ou vous n'êtes pas le conducteur.")
+
+        # Vérifier sur l'heure courante ET l'heure précédente (tolérance)
+        secret = settings.SECRET_KEY.encode()
+        ts_now = int(time.time()) // 3600
+
+        valide = any(
+            hmac_lib.compare_digest(
+                hmac_lib.new(
+                    secret,
+                    f"{pk}:{ts}".encode(),
+                    hashlib.sha256,
+                ).hexdigest()[:24].upper(),
+                token_recu,
+            )
+            for ts in [ts_now, ts_now - 1]
+        )
+
+        if not valide:
+            return Response(
+                {"error": "Code invalide ou expiré. Demandez au passager d'actualiser son code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "valide":   True,
+            "passager": reservation.passager.get_full_name() or reservation.passager.username,
+            "places":   reservation.places_reservees,
+            "trajet":   f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+        })

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { api } from "@/src/services/api";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
+import { getQrCode } from "@/src/services/messagerie.service";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -31,6 +32,8 @@ export default function DetailReservationPage() {
     const [loading, setLoading] = useState(true);
     const [annulation, setAnnulation] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [qrToken, setQrToken] = useState<string | null>(null);
+    const [qrLoading, setQrLoading] = useState(false);
 
     useEffect(() => {
         const fetchReservation = async () => {
@@ -64,6 +67,19 @@ export default function DetailReservationPage() {
 
         if (id) fetchReservation();
     }, [id]);
+
+    const handleQrCode = async () => {
+        if (!reservation) return;
+        setQrLoading(true);
+        try {
+            const data = await getQrCode(String(reservation.id));
+            setQrToken(data?.token ?? null);
+        } catch {
+            setQrToken(null);
+        } finally {
+            setQrLoading(false);
+        }
+    };
 
     const handleAnnuler = async () => {
         if (!confirm("Confirmer l'annulation de cette réservation ?")) return;
@@ -300,6 +316,51 @@ export default function DetailReservationPage() {
                     </div>
                 </div>
             </div>
+
+            {/* QR CODE — visible si confirmée */}
+            {reservation.statut === "confirmee" && (
+                <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
+                    <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-4">
+                        Code d'embarquement
+                    </p>
+                    {qrToken ? (
+                        <div className="text-center space-y-3">
+                            <div className="inline-block bg-base-200 rounded-2xl p-6">
+                                <p className="font-mono text-4xl font-bold tracking-[0.3em] text-primary select-all">
+                                    {qrToken}
+                                </p>
+                            </div>
+                            <p className="text-xs text-base-content/40">
+                                Présentez ce code au conducteur pour valider votre embarquement.
+                                Valide 1 heure.
+                            </p>
+                            <button
+                                onClick={() => setQrToken(null)}
+                                className="btn btn-ghost btn-xs rounded-full"
+                            >
+                                Masquer
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={handleQrCode}
+                            disabled={qrLoading}
+                            className="btn btn-outline btn-primary rounded-full w-full gap-2"
+                        >
+                            {qrLoading
+                                ? <span className="loading loading-spinner loading-sm" />
+                                : (
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                            d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5a.5.5 0 11-1 0 .5.5 0 011 0zM6.5 8.5a.5.5 0 11-1 0 .5.5 0 011 0z" />
+                                    </svg>
+                                )
+                            }
+                            Afficher mon code d'embarquement
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* ACTIONS */}
             <div className="flex gap-3">

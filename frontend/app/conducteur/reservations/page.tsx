@@ -8,12 +8,17 @@ import {
 import { confirmerEspeces, confirmerMobile } from "@/src/services/paiement.service";
 import { api } from "@/src/services/api";
 
+async function bloquerPassager(passagerId: string, motif: string) {
+    return api("/evaluations/bloquer/", "POST", { passager_id: passagerId, motif });
+}
+
 interface Reservation {
     id: number;
     trajet_id: number;
     depart: string;
     destination: string;
     date_depart: string;
+    passager_id?: string;
     passager_nom: string;
     passager_note: number;
     passager_telephone: string;
@@ -234,33 +239,7 @@ export default function ReservationsRecuesPage() {
                                 </div>
 
                                 {/* Passager */}
-                                <div className="flex items-center gap-3 py-3 border-t border-base-200">
-                                    <div className="w-8 h-8 rounded-full bg-base-200 flex items-center justify-center shrink-0">
-                                        <span className="text-xs font-bold text-base-content/60">
-                                            {resa.passager_nom?.[0]?.toUpperCase()}
-                                        </span>
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium text-base-content">
-                                            {resa.passager_nom}
-                                        </p>
-                                        <div className="flex items-center gap-1 mt-0.5">
-                                            <div className="flex gap-0.5">
-                                                {[1, 2, 3, 4, 5].map((s) => (
-                                                    <div key={s} className={`w-2 h-2 rounded-sm ${s <= Math.round(resa.passager_note)
-                                                            ? "bg-warning" : "bg-base-300"
-                                                        }`} />
-                                                ))}
-                                            </div>
-                                            <span className="text-xs text-base-content/40 ml-1">
-                                                {resa.passager_note} / 5
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <p className="text-xs text-base-content/30">
-                                        Demandé le {formatDate(resa.date_reservation)}
-                                    </p>
-                                </div>
+                                <BlocagePassagerRow resa={resa} formatDate={formatDate} />
 
                                 {/* Boutons — seulement si en attente */}
                                 {resa.statut === "en_attente" && (
@@ -341,6 +320,73 @@ export default function ReservationsRecuesPage() {
                 </div>
             )}
 
+        </div>
+    );
+}
+
+function BlocagePassagerRow({ resa, formatDate }: {
+    resa: Reservation;
+    formatDate: (d: string) => string;
+}) {
+    const [bloque,      setBloque]      = useState(false);
+    const [showBlocage, setShowBlocage] = useState(false);
+    const [motif,       setMotif]       = useState("");
+    const [loading,     setLoading]     = useState(false);
+
+    const handleBloquer = async () => {
+        if (!resa.passager_id) return;
+        setLoading(true);
+        try {
+            await bloquerPassager(resa.passager_id, motif);
+            setBloque(true);
+            setShowBlocage(false);
+        } catch { }
+        finally { setLoading(false); }
+    };
+
+    return (
+        <div className="py-3 border-t border-base-200">
+            <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-base-200 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-base-content/60">
+                        {resa.passager_nom?.[0]?.toUpperCase()}
+                    </span>
+                </div>
+                <div className="flex-1">
+                    <p className="text-sm font-medium text-base-content">{resa.passager_nom}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                            <div key={s} className={`w-2 h-2 rounded-sm ${s <= Math.round(resa.passager_note) ? "bg-warning" : "bg-base-300"}`} />
+                        ))}
+                        <span className="text-xs text-base-content/40 ml-1">{resa.passager_note} / 5</span>
+                    </div>
+                </div>
+                <p className="text-xs text-base-content/30">Demandé le {formatDate(resa.date_reservation)}</p>
+            </div>
+            {/* Blocage */}
+            {resa.passager_id && (
+                bloque ? (
+                    <p className="text-xs text-error mt-2">✓ Passager bloqué.</p>
+                ) : !showBlocage ? (
+                    <button onClick={() => setShowBlocage(true)}
+                        className="btn btn-ghost btn-xs rounded-full text-base-content/30 hover:text-error mt-1">
+                        Bloquer ce passager
+                    </button>
+                ) : (
+                    <div className="mt-2 space-y-2">
+                        <textarea value={motif} onChange={(e) => setMotif(e.target.value)}
+                            placeholder="Motif du blocage (facultatif)…"
+                            className="textarea textarea-bordered textarea-xs w-full rounded-xl" rows={2} />
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowBlocage(false)} className="btn btn-ghost btn-xs rounded-full">Annuler</button>
+                            <button onClick={handleBloquer} disabled={loading}
+                                className="btn btn-error btn-xs rounded-full">
+                                {loading ? <span className="loading loading-spinner loading-xs" /> : "Bloquer"}
+                            </button>
+                        </div>
+                    </div>
+                )
+            )}
         </div>
     );
 }

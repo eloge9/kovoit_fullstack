@@ -128,9 +128,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '30/minute',   # Visiteurs non connectés (ex: recherche de trajets)
-        'user': '200/minute',  # Utilisateurs connectés
-        'auth': '5/minute',    # Endpoints login/inscription (scope dédié)
+        'anon':        '30/minute',   # Visiteurs non connectés
+        'user':        '200/minute',  # Utilisateurs connectés
+        'auth':        '5/minute',    # Endpoints login/inscription
+        'signalement': '10/hour',     # Signalement d'évaluations abusives
+        'sos':         '5/hour',      # Bouton SOS (anti-spam)
     },
 }
 
@@ -169,6 +171,10 @@ CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 # CORRECTION AUDIT : Clé secrète pour vérifier les webhooks PayGate
 PAYGATE_WEBHOOK_SECRET = os.getenv('PAYGATE_WEBHOOK_SECRET')
+
+# ── Africa's Talking (SMS SOS) ────────────────────────────────────────────
+AFRICASTALKING_API_KEY  = os.getenv('AFRICASTALKING_API_KEY', '')
+AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
 
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'

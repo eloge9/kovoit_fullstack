@@ -19,6 +19,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     conducteur_telephone = serializers.SerializerMethodField()
 
     # Infos passager (pour le conducteur)
+    passager_id        = serializers.UUIDField(source='passager.id', read_only=True)
     passager_nom       = serializers.SerializerMethodField()
     passager_telephone = serializers.SerializerMethodField()
     passager_note      = serializers.SerializerMethodField()
@@ -35,7 +36,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'depart', 'destination', 'date_depart',
             'prix_par_place',
             'conducteur', 'conducteur_note', 'conducteur_telephone',
-            'passager_nom', 'passager_telephone', 'passager_note',
+            'passager_id', 'passager_nom', 'passager_telephone', 'passager_note',
             'statut', 'date_reservation',
             'paiement_statut', 'paiement_moyen', 'paiement_reference_mobile',
         ]

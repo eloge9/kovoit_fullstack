@@ -280,3 +280,145 @@ class TrajetViewSet(viewsets.ModelViewSet):
 
         serializer = TrajetSerializer(queryset, many=True)
         return Response(serializer.data)
+
+    # ── Itinéraire OSRM (principal + alternatifs) ─────────────────────────
+    @action(detail=True, methods=['get'], url_path='itineraire', permission_classes=[AllowAny])
+    def itineraire(self, request, pk=None):
+        """
+        Retourne les itinéraires d'un trajet via OSRM (gratuit, sans clé).
+        GET /api/trajets/{id}/itineraire/?alternatives=true
+        """
+        trajet = get_object_or_404(Trajet, pk=pk)
+
+        if not all([trajet.depart_lat, trajet.depart_lng,
+                    trajet.destination_lat, trajet.destination_lng]):
+            return Response({"error": "Coordonnées GPS manquantes pour ce trajet."}, status=400)
+
+        alternatives = request.query_params.get('alternatives', 'false').lower() == 'true'
+        coords = (
+            f"{trajet.depart_lng},{trajet.depart_lat};"
+            f"{trajet.destination_lng},{trajet.destination_lat}"
+        )
+        url = (
+            f"http://router.project-osrm.org/route/v1/driving/{coords}"
+            f"?overview=full&geometries=geojson&steps=true"
+            f"&alternatives={'true' if alternatives else 'false'}"
+        )
+
+        try:
+            resp = requests.get(url, timeout=10, headers={"User-Agent": "KoVoit-App/1.0"})
+            data = resp.json()
+        except Exception:
+            return Response({"error": "Service de routage temporairement indisponible."}, status=503)
+
+        if data.get('code') != 'Ok' or not data.get('routes'):
+            return Response({"error": "Aucun itinéraire trouvé."}, status=404)
+
+        routes = []
+        for route in data['routes']:
+            steps = [
+                {
+                    'instruction': step.get('maneuver', {}).get('type', ''),
+                    'distance_m':  round(step.get('distance', 0)),
+                    'duree_s':     round(step.get('duration', 0)),
+                    'nom_rue':     step.get('name', ''),
+                }
+                for leg in route.get('legs', [])
+                for step in leg.get('steps', [])
+                if step.get('distance', 0) > 50
+            ]
+            routes.append({
+                'distance_km': round(route['distance'] / 1000, 1),
+                'duree_min':   round(route['duration'] / 60),
+                'geometry':    route['geometry'],
+                'steps':       steps,
+            })
+
+        return Response({
+            'trajet_id':   str(pk),
+            'depart':      trajet.depart,
+            'destination': trajet.destination,
+            'routes':      routes,
+        })
+
+    # ── Alertes routes (Overpass API) ─────────────────────────────────────
+    @action(detail=False, methods=['get'], url_path='alertes-routes', permission_classes=[AllowAny])
+    def alertes_routes(self, request):
+        """
+        Routes bloquées, inondables ou impraticables à Lomé via Overpass API.
+        GET /api/trajets/alertes-routes/?type=bloquee|inondable|impraticable
+        """
+        type_filtre = request.query_params.get('type', '')
+
+        overpass_query = """
+[out:json][timeout:25];
+(
+  way["access"="no"](6.0,1.0,6.5,1.5);
+  way["flood_prone"="yes"](6.0,1.0,6.5,1.5);
+  way["surface"~"unpaved|dirt|gravel"]["highway"~"primary|secondary|tertiary"](6.0,1.0,6.5,1.5);
+  way["construction"]["highway"](6.0,1.0,6.5,1.5);
+);
+out geom;
+"""
+        try:
+            resp = requests.post(
+                "https://overpass-api.de/api/interpreter",
+                data={"data": overpass_query},
+                timeout=20,
+                headers={"User-Agent": "KoVoit-App/1.0"},
+            )
+            elements = resp.json().get('elements', [])
+        except Exception:
+            return Response({'type': 'FeatureCollection', 'features': [], 'source': 'overpass_indisponible'})
+
+        features = []
+        for el in elements:
+            if el.get('type') != 'way' or not el.get('geometry'):
+                continue
+            tags   = el.get('tags', {})
+            coords = [[p['lon'], p['lat']] for p in el['geometry']]
+
+            if tags.get('access') == 'no' or tags.get('construction'):
+                type_alerte = 'bloquee'
+            elif tags.get('flood_prone') == 'yes':
+                type_alerte = 'inondable'
+            else:
+                type_alerte = 'impraticable'
+
+            if type_filtre and type_alerte != type_filtre:
+                continue
+
+            features.append({
+                'type': 'Feature',
+                'geometry': {'type': 'LineString', 'coordinates': coords},
+                'properties': {'type_alerte': type_alerte, 'nom': tags.get('name', 'Route'), 'ref': tags.get('ref', '')},
+            })
+
+        return Response({'type': 'FeatureCollection', 'features': features, 'count': len(features)})
+
+    # ── Autocomplétion villes togolaises (Nominatim) ──────────────────────
+    @action(detail=False, methods=['get'], url_path='autocomplete', permission_classes=[AllowAny])
+    def autocomplete(self, request):
+        """
+        Suggestions de villes/lieux au Togo via Nominatim (sans clé API).
+        GET /api/trajets/autocomplete/?q=Lomé
+        """
+        q = request.query_params.get('q', '').strip()
+        if len(q) < 2:
+            return Response([])
+
+        try:
+            resp = requests.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": q, "countrycodes": "tg", "format": "json", "limit": 6, "addressdetails": 1},
+                headers={"User-Agent": "KoVoit-App/1.0", "Accept-Language": "fr"},
+                timeout=5,
+            )
+            results = resp.json()
+        except Exception:
+            return Response([])
+
+        return Response([
+            {'nom': r.get('display_name', '').split(',')[0].strip(), 'display': r.get('display_name', ''), 'lat': float(r['lat']), 'lng': float(r['lon'])}
+            for r in results if r.get('lat') and r.get('lon')
+        ])

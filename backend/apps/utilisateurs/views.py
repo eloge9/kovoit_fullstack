@@ -1,12 +1,23 @@
+import logging
+import requests as http_requests
+
 from rest_framework import viewsets, status, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+
+
+class SosThrottle(UserRateThrottle):
+    scope = 'sos'
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from django.conf import settings
 
-from ..modeles.models import Utilisateur, Vehicule, Conducteur, Passager, PLACES_MAX_PAR_TYPE
+logger = logging.getLogger(__name__)
+
+from ..modeles.models import Utilisateur, Vehicule, Conducteur, Passager, Evaluation, PLACES_MAX_PAR_TYPE
+from django.db.models import Avg
 from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer, ChangePasswordSerializer
 from .tokens import KovoitRefreshToken
 
@@ -397,14 +408,188 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
     # ── Désactiver un véhicule ────────────────────────────────────────────
     @action(detail=True, methods=['post'], url_path='desactiver')
     def desactiver_vehicule(self, request, pk=None):
+        from django.db import transaction as db_transaction
         try:
             conducteur = request.user.profil_conducteur
-            vehicule   = Vehicule.objects.get(pk=pk, conducteur=conducteur)
-        except Vehicule.DoesNotExist:
-            return Response({"error": "Véhicule introuvable."}, status=404)
         except Exception:
             return Response({"error": "Non autorisé."}, status=403)
- 
-        vehicule.est_actif = False
-        vehicule.save()
+
+        with db_transaction.atomic():
+            try:
+                vehicule = Vehicule.objects.select_for_update().get(pk=pk, conducteur=conducteur)
+            except Vehicule.DoesNotExist:
+                return Response({"error": "Véhicule introuvable."}, status=404)
+
+            if not vehicule.est_actif:
+                return Response({"error": "Ce véhicule est déjà désactivé."}, status=400)
+
+            vehicule.est_actif = False
+            vehicule.save(update_fields=['est_actif'])
+
         return Response({"message": "Véhicule désactivé."})
+
+    # ── Bouton SOS ────────────────────────────────────────────────────────
+    @action(detail=False, methods=['post'], url_path='sos', throttle_classes=[SosThrottle])
+    def sos(self, request):
+        """
+        Déclenche un SOS : envoie un SMS au contact d'urgence via Africa's Talking.
+        Body: { latitude, longitude, trajet_id (optionnel) }
+        """
+        user = request.user
+
+        if not user.contact_urgence_telephone:
+            return Response(
+                {"error": "Aucun contact d'urgence configuré. Ajoutez-en un dans votre profil."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tid = str(request.data.get('trajet_id', '') or '')[:50]
+
+        # Valider que lat/lng sont bien des nombres flottants (évite l'injection dans l'URL)
+        try:
+            lat = float(request.data.get('latitude',  0))
+            lng = float(request.data.get('longitude', 0))
+            if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+                raise ValueError
+            maps_url = f"https://maps.google.com/?q={lat:.6f},{lng:.6f}"
+        except (TypeError, ValueError):
+            lat, lng  = None, None
+            maps_url  = "Position inconnue"
+        nom_user = user.get_full_name() or user.username
+
+        message_sms = (
+            f"URGENCE KoVoit\n"
+            f"{nom_user} a activé le bouton SOS.\n"
+            f"Position : {maps_url}\n"
+            f"Trajet : {tid or 'non précisé'}\n"
+            f"Appelez-le/la immédiatement."
+        )
+
+        at_api_key  = getattr(settings, 'AFRICASTALKING_API_KEY',  '')
+        at_username = getattr(settings, 'AFRICASTALKING_USERNAME', 'sandbox')
+        sms_envoye  = False
+
+        if at_api_key:
+            try:
+                resp = http_requests.post(
+                    "https://api.africastalking.com/version1/messaging",
+                    headers={
+                        "apiKey":       at_api_key,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Accept":       "application/json",
+                    },
+                    data={
+                        "username": at_username,
+                        "to":       user.contact_urgence_telephone,
+                        "message":  message_sms,
+                    },
+                    timeout=10,
+                )
+                sms_envoye = resp.status_code == 201
+            except Exception as exc:
+                logger.error("SOS SMS échec pour %s : %s", user.username, exc)
+
+        logger.warning(
+            "SOS déclenché — user=%s lat=%s lng=%s trajet=%s contact=%s sms=%s",
+            user.username, lat, lng, tid,
+            user.contact_urgence_telephone,
+            "OK" if sms_envoye else "ECHEC",
+        )
+
+        return Response({
+            "message":    "SOS envoyé avec succès." if sms_envoye
+                          else "SOS enregistré. SMS non envoyé (clé API Africa's Talking manquante).",
+            "contact_nom": user.contact_urgence_nom,
+            "sms_envoye":  sms_envoye,
+        })
+
+    # ── Mettre à jour le contact d'urgence ────────────────────────────────
+    @action(detail=False, methods=['post'], url_path='contact-urgence')
+    def contact_urgence(self, request):
+        """
+        Enregistre ou met à jour le contact d'urgence.
+        Body: { contact_urgence_nom, contact_urgence_telephone }
+        """
+        nom       = str(request.data.get('contact_urgence_nom', '')).strip()
+        telephone = str(request.data.get('contact_urgence_telephone', '')).strip()
+
+        if not nom or not telephone:
+            return Response(
+                {"error": "Le nom et le téléphone du contact d'urgence sont requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request.user.contact_urgence_nom       = nom
+        request.user.contact_urgence_telephone = telephone
+        request.user.save(update_fields=['contact_urgence_nom', 'contact_urgence_telephone'])
+
+        return Response({
+            "message":                  "Contact d'urgence mis à jour.",
+            "contact_urgence_nom":       nom,
+            "contact_urgence_telephone": telephone,
+        })
+
+
+class ProfilPublicViewSet(viewsets.GenericViewSet):
+    """
+    Profil public d'un conducteur — accessible sans authentification.
+    GET /api/utilisateurs/conducteur/{id}/
+    """
+    permission_classes = [AllowAny]
+
+    @action(detail=True, methods=['get'], url_path='profil')
+    def profil(self, request, pk=None):
+        try:
+            conducteur = Utilisateur.objects.get(pk=pk, role=Utilisateur.Role.CONDUCTEUR)
+        except Utilisateur.DoesNotExist:
+            return Response({"error": "Conducteur introuvable."}, status=404)
+
+        # Score de confiance : moyenne pondérée des 20 dernières évaluations
+        evaluations_recentes = Evaluation.objects.filter(
+            cible=conducteur, signale=False
+        ).order_by('-date_evaluation')[:20]
+
+        score_confiance = 0.0
+        if evaluations_recentes:
+            note_moy = sum(e.note for e in evaluations_recentes) / len(evaluations_recentes)
+            # Bonus si validé, note ramenée sur 100
+            score_confiance = round((note_moy / 5) * 90 + (10 if conducteur.statut_validation == 'valide' else 0), 1)
+
+        vehicules = []
+        try:
+            vehicules = [{
+                "type_vehicule": v.type_vehicule,
+                "marque":        v.marque,
+                "modele":        v.modele,
+                "couleur":       v.couleur,
+                "places_max":    v.places_max,
+            } for v in conducteur.profil_conducteur.vehicules.filter(est_actif=True)]
+        except Exception:
+            pass
+
+        evaluations_data = [{
+            "auteur":      f"{e.auteur.first_name} {e.auteur.last_name}".strip() or e.auteur.username,
+            "note":        e.note,
+            "commentaire": e.commentaire,
+            "date":        e.date_evaluation,
+        } for e in evaluations_recentes[:5]]
+
+        from django.conf import settings as dj_settings
+        from .serializers import UtilisateurSerializer
+
+        photo_url = None
+        if conducteur.photo_profil:
+            photo_url = request.build_absolute_uri(conducteur.photo_profil.url)
+
+        return Response({
+            "id":                 str(conducteur.id),
+            "nom":                f"{conducteur.first_name} {conducteur.last_name}".strip() or conducteur.username,
+            "photo_profil":       photo_url,
+            "note":               conducteur.note,
+            "score_confiance":    score_confiance,
+            "statut_validation":  conducteur.statut_validation,
+            "est_verifie":        conducteur.statut_validation == 'valide',
+            "vehicules":          vehicules,
+            "evaluations_recentes": evaluations_data,
+            "nb_evaluations":     Evaluation.objects.filter(cible=conducteur, signale=False).count(),
+        })

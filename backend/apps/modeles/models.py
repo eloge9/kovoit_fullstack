@@ -63,6 +63,10 @@ class Utilisateur(AbstractUser):
     # Permet à un passager de basculer en mode conducteur sans re-soumettre.
     peut_conduire = models.BooleanField(default=False)
 
+    # --- Contact d'urgence (obligatoire pour le bouton SOS) ---
+    contact_urgence_nom       = models.CharField(max_length=100, blank=True, default='')
+    contact_urgence_telephone = models.CharField(max_length=20,  blank=True, default='')
+
     REQUIRED_FIELDS = ['email', 'role']
 
     def __str__(self):
@@ -322,6 +326,10 @@ class Evaluation(models.Model):
     commentaire     = models.TextField(blank=True)
     date_evaluation = models.DateTimeField(auto_now_add=True)
 
+    signale            = models.BooleanField(default=False)
+    motif_signalement  = models.TextField(blank=True, default='')
+    date_signalement   = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         unique_together = [['trajet', 'auteur', 'cible']]
         indexes = [
@@ -330,6 +338,25 @@ class Evaluation(models.Model):
 
     def __str__(self):
         return f"{self.auteur} → {self.cible}: {self.note}/5"
+
+
+# ----------------- Blocage passager -----------------
+class BlocagePassager(models.Model):
+    """Un conducteur bloque un passager (il ne peut plus réserver ses trajets)."""
+    conducteur  = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='blocages_effectues')
+    passager    = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='blocages_recus')
+    motif       = models.TextField(blank=True, default='')
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [['conducteur', 'passager']]
+        indexes = [
+            models.Index(fields=['conducteur']),
+            models.Index(fields=['passager']),
+        ]
+
+    def __str__(self):
+        return f"{self.conducteur.username} bloque {self.passager.username}"
 
 
 # ----------------- Messagerie -----------------

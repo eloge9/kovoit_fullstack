@@ -162,6 +162,42 @@ export const ajouterVehicule = (data: {
 export const desactiverVehicule = (id: number) =>
   api(`/utilisateurs/ko/vehicules/${id}/desactiver/`, "POST");
 
+// ─── Backend-proxied : itinéraire, alertes, autocomplete ──────────────────
+
+export interface RouteStep {
+    instruction: string;
+    distance_m:  number;
+    duree_s:     number;
+    nom_rue:     string;
+}
+
+export interface ItineraireRoute {
+    distance_km: number;
+    duree_min:   number;
+    geometry:    { type: string; coordinates: number[][] };
+    steps:       RouteStep[];
+}
+
+export interface ItineraireResult {
+    trajet_id:   string;
+    depart:      string;
+    destination: string;
+    routes:      ItineraireRoute[];
+}
+
+export const getItineraire = (trajetId: number | string, alternatives = false): Promise<ItineraireResult> =>
+    api(`/trajets/${trajetId}/itineraire/?alternatives=${alternatives}`, "GET");
+
+export const getAlertesRoutes = (type?: 'bloquee' | 'inondable' | 'impraticable'): Promise<unknown> => {
+    const qs = type ? `?type=${type}` : '';
+    return api(`/trajets/alertes-routes/${qs}`, "GET");
+};
+
+export const autocompleteVille = (q: string): Promise<{ nom: string; display: string; lat: number; lng: number }[]> => {
+    if (q.length < 2) return Promise.resolve([]);
+    return api(`/trajets/autocomplete/?q=${encodeURIComponent(q)}`, "GET");
+};
+
 // ─── Nominatim (OpenStreetMap) — Autocomplete lieux ───────────────────────
 
 export interface NominatimResult {

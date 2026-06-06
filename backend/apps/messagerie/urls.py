@@ -1,6 +1,7 @@
-from django.urls import path
-from . import views
+from rest_framework.routers import DefaultRouter
+from .views import MessagerieViewSet
 
-urlpatterns = [
+router = DefaultRouter()
+router.register(r'', MessagerieViewSet, basename='messagerie')
 
-]
+urlpatterns = router.urls

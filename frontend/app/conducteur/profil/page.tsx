@@ -10,6 +10,7 @@ import {
     type Vehicule,
 } from "@/src/services/trajet.service";
 import { getMediaUrl } from "@/src/utils/imageUtils";
+import { mettreAJourContactUrgence } from "@/src/services/messagerie.service";
 
 const TYPES_VEHICULE = [
     { value: "moto", label: "Moto", places: 1, tarif: "30 FCFA/km" },
@@ -603,6 +604,64 @@ export default function ProfilConducteurPage() {
                 </div>
             )}
 
+            {/* Contact d'urgence */}
+            <ContactUrgenceForm user={user} />
+
+        </div>
+    );
+}
+
+function ContactUrgenceForm({ user }: { user: any }) {
+    const [nom,     setNom]     = useState(user?.contact_urgence_nom ?? "");
+    const [tel,     setTel]     = useState(user?.contact_urgence_telephone ?? "");
+    const [loading, setLoading] = useState(false);
+    const [msg,     setMsg]     = useState("");
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setMsg("");
+        try {
+            await mettreAJourContactUrgence({ contact_urgence_nom: nom, contact_urgence_telephone: tel });
+            setMsg("Contact d'urgence mis à jour.");
+        } catch {
+            setMsg("Erreur lors de la mise à jour.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-base-200">
+                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                    Contact d'urgence (bouton SOS)
+                </p>
+                <p className="text-xs text-base-content/40 mt-1">
+                    En cas d'urgence, un SMS sera envoyé à ce contact avec votre position GPS.
+                </p>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="form-control">
+                        <label className="label"><span className="label-text text-sm">Nom du contact</span></label>
+                        <input type="text" value={nom} onChange={(e) => setNom(e.target.value)}
+                            placeholder="Ex: Marie Dupont" className="input input-bordered rounded-xl" required />
+                    </div>
+                    <div className="form-control">
+                        <label className="label"><span className="label-text text-sm">Téléphone</span></label>
+                        <input type="tel" value={tel} onChange={(e) => setTel(e.target.value)}
+                            placeholder="+228 90 00 00 00" className="input input-bordered rounded-xl" required />
+                    </div>
+                </div>
+                {msg && (
+                    <p className={`text-sm ${msg.includes("Erreur") ? "text-error" : "text-success"}`}>{msg}</p>
+                )}
+                <button type="submit" disabled={loading || !nom || !tel}
+                    className="btn btn-sm btn-outline btn-primary rounded-full">
+                    {loading ? <span className="loading loading-spinner loading-xs" /> : "Enregistrer"}
+                </button>
+            </form>
         </div>
     );
 }

@@ -1,15 +1,16 @@
-from django.shortcuts import render
-
-# Create your views here.
-# ============================================================
-# apps/evaluations/views.py
-# ============================================================
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
+from django.db import transaction
 from django.db.models import Avg
-from ..modeles.models import Evaluation, Trajet, Reservation, Utilisateur
+from django.utils import timezone
+from ..modeles.models import Evaluation, Trajet, Reservation, Utilisateur, BlocagePassager
+
+
+class SignalementThrottle(UserRateThrottle):
+    scope = 'signalement'
 
 
 class EvaluationViewSet(viewsets.GenericViewSet):
@@ -101,38 +102,49 @@ class EvaluationViewSet(viewsets.GenericViewSet):
                 status=400
             )
 
-        # Calculer la note finale (moyenne note générale + critères)
+        # Valider les critères optionnels (must be 1-5 if provided)
         notes_criteres = []
-        if ponctualite: notes_criteres.append(int(ponctualite))
-        if conduite:    notes_criteres.append(int(conduite))
-        if proprete:    notes_criteres.append(int(proprete))
+        for label, val in [('ponctualite', ponctualite), ('conduite', conduite), ('proprete', proprete)]:
+            if val is not None and val != '':
+                try:
+                    v = int(val)
+                    if not 1 <= v <= 5:
+                        raise ValueError
+                    notes_criteres.append(v)
+                except (ValueError, TypeError):
+                    return Response({"error": f"Le critère '{label}' doit être entre 1 et 5."}, status=400)
 
         if notes_criteres:
             note_finale = round((note + sum(notes_criteres)) / (1 + len(notes_criteres)))
         else:
             note_finale = note
 
-        # Créer l'évaluation
-        evaluation = Evaluation.objects.create(
-            trajet=trajet,
-            auteur=auteur,
-            cible=cible,
-            note=note_finale,
-            commentaire=commentaire,
-        )
+        # Transaction atomique : création + mise à jour note sans race condition
+        with transaction.atomic():
+            if Evaluation.objects.filter(trajet=trajet, auteur=auteur, cible=cible).exists():
+                return Response(
+                    {"error": "Vous avez déjà évalué cet utilisateur pour ce trajet."},
+                    status=400
+                )
 
-        # Mettre à jour la note moyenne de la cible
-        note_moyenne = Evaluation.objects.filter(
-            cible=cible
-        ).aggregate(Avg('note'))['note__avg']
+            Evaluation.objects.create(
+                trajet=trajet,
+                auteur=auteur,
+                cible=cible,
+                note=note_finale,
+                commentaire=commentaire,
+            )
 
-        cible.note = round(note_moyenne, 2) if note_moyenne else 0
-        cible.save()
+            # select_for_update évite la race condition sur la moyenne
+            cible_locked = Utilisateur.objects.select_for_update().get(pk=cible.pk)
+            note_moyenne  = Evaluation.objects.filter(cible=cible).aggregate(Avg('note'))['note__avg']
+            cible_locked.note = round(note_moyenne, 2) if note_moyenne else 0
+            cible_locked.save(update_fields=['note'])
 
         return Response({
             "message":    "Évaluation enregistrée.",
             "note":       note_finale,
-            "note_cible": cible.note,
+            "note_cible": cible_locked.note,
         }, status=201)
 
     # ── Terminer un trajet (conducteur) ───────────────────────────────────
@@ -176,6 +188,89 @@ class EvaluationViewSet(viewsets.GenericViewSet):
             "date":           e.date_evaluation,
         } for e in evaluations]
 
+        return Response(data)
+
+    # ── Signaler une évaluation abusive ──────────────────────────────────
+    @action(detail=False, methods=['post'], throttle_classes=[SignalementThrottle])
+    def signaler(self, request):
+        """
+        Signale une évaluation reçue comme abusive.
+        Body: { evaluation_id, motif }
+        """
+        evaluation_id = request.data.get('evaluation_id')
+        motif         = request.data.get('motif', '').strip()
+
+        if not evaluation_id:
+            return Response({"error": "evaluation_id requis."}, status=400)
+
+        try:
+            evaluation = Evaluation.objects.get(pk=evaluation_id, cible=request.user)
+        except Evaluation.DoesNotExist:
+            return Response({"error": "Évaluation introuvable ou non accessible."}, status=404)
+
+        if evaluation.signale:
+            return Response({"error": "Cette évaluation est déjà signalée."}, status=400)
+
+        evaluation.signale           = True
+        evaluation.motif_signalement = motif
+        evaluation.date_signalement  = timezone.now()
+        evaluation.save(update_fields=['signale', 'motif_signalement', 'date_signalement'])
+
+        return Response({"message": "Évaluation signalée. Notre équipe va l'examiner."})
+
+    # ── Blocage passager (conducteur) ─────────────────────────────────────
+    @action(detail=False, methods=['post'])
+    def bloquer(self, request):
+        """
+        Conducteur bloque un passager.
+        Body: { passager_id, motif }
+        """
+        if request.user.role != Utilisateur.Role.CONDUCTEUR:
+            return Response({"error": "Seuls les conducteurs peuvent bloquer des passagers."}, status=403)
+
+        passager_id = request.data.get('passager_id')
+        motif       = request.data.get('motif', '').strip()
+
+        if not passager_id:
+            return Response({"error": "passager_id requis."}, status=400)
+
+        try:
+            passager = Utilisateur.objects.get(pk=passager_id)
+        except Utilisateur.DoesNotExist:
+            return Response({"error": "Passager introuvable."}, status=404)
+
+        _, created = BlocagePassager.objects.get_or_create(
+            conducteur=request.user,
+            passager=passager,
+            defaults={'motif': motif},
+        )
+        if not created:
+            return Response({"error": "Ce passager est déjà bloqué."}, status=400)
+
+        return Response({"message": f"{passager.username} a été bloqué."}, status=201)
+
+    @action(detail=False, methods=['delete'], url_path='debloquer/(?P<passager_id>[0-9a-f-]+)')
+    def debloquer(self, request, passager_id=None):
+        """Conducteur débloque un passager."""
+        deleted, _ = BlocagePassager.objects.filter(
+            conducteur=request.user, passager_id=passager_id
+        ).delete()
+        if not deleted:
+            return Response({"error": "Aucun blocage trouvé."}, status=404)
+        return Response({"message": "Passager débloqué."})
+
+    @action(detail=False, methods=['get'])
+    def mes_blocages(self, request):
+        """Liste les passagers bloqués par ce conducteur."""
+        blocages = BlocagePassager.objects.filter(
+            conducteur=request.user
+        ).select_related('passager')
+        data = [{
+            "passager_id":  str(b.passager.id),
+            "nom":          f"{b.passager.first_name} {b.passager.last_name}".strip() or b.passager.username,
+            "motif":        b.motif,
+            "bloque_le":    b.created_at,
+        } for b in blocages]
         return Response(data)
 
     # ── Trajets à évaluer (passager) ──────────────────────────────────────

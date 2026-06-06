@@ -4,6 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/src/services/api";
 
+async function signalerEvaluation(evaluationId: number, motif: string) {
+    return api("/evaluations/signaler/", "POST", { evaluation_id: evaluationId, motif });
+}
+
 interface TrajetAEvaluer {
     trajet_id: number;
     conducteur_id: string;
@@ -338,28 +342,89 @@ export default function EvaluationsPage() {
                         </div>
                     ) : (
                         recues.map((eval_) => (
-                            <div key={eval_.id} className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-3">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <p className="text-sm font-semibold text-base-content">{eval_.auteur}</p>
-                                        <p className="text-xs text-base-content/40 mt-0.5">{eval_.trajet}</p>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                        <Etoiles note={eval_.note} readonly />
-                                        <p className="text-xs text-base-content/30 mt-1">{formatDate(eval_.date)}</p>
-                                    </div>
-                                </div>
-                                {eval_.commentaire && (
-                                    <p className="text-sm text-base-content/60 bg-base-200/50 rounded-xl px-4 py-3 italic">
-                                        "{eval_.commentaire}"
-                                    </p>
-                                )}
-                            </div>
+                            <EvaluationRecueCard
+                                key={eval_.id}
+                                eval_={eval_}
+                                formatDate={formatDate}
+                            />
                         ))
                     )}
                 </div>
             )}
 
+        </div>
+    );
+}
+
+function EvaluationRecueCard({ eval_, formatDate }: {
+    eval_: { id: number; auteur: string; trajet: string; note: number; commentaire: string; date: string };
+    formatDate: (d: string) => string;
+}) {
+    const [signale,         setSignale]        = useState(false);
+    const [showSignalement, setShowSignalement] = useState(false);
+    const [motif,           setMotif]          = useState("");
+    const [loading,         setLoading]        = useState(false);
+    const [msg,             setMsg]            = useState("");
+
+    const handleSignaler = async () => {
+        setLoading(true);
+        try {
+            await signalerEvaluation(eval_.id, motif);
+            setSignale(true);
+            setShowSignalement(false);
+            setMsg("Évaluation signalée.");
+        } catch {
+            setMsg("Erreur lors du signalement.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <p className="text-sm font-semibold text-base-content">{eval_.auteur}</p>
+                    <p className="text-xs text-base-content/40 mt-0.5">{eval_.trajet}</p>
+                </div>
+                <div className="text-right shrink-0">
+                    <div className="flex justify-end">
+                        {[1,2,3,4,5].map((s) => (
+                            <span key={s} className={`text-sm ${s <= eval_.note ? "text-warning" : "text-base-300"}`}>★</span>
+                        ))}
+                    </div>
+                    <p className="text-xs text-base-content/30 mt-1">{formatDate(eval_.date)}</p>
+                </div>
+            </div>
+            {eval_.commentaire && (
+                <p className="text-sm text-base-content/60 bg-base-200/50 rounded-xl px-4 py-3 italic">
+                    "{eval_.commentaire}"
+                </p>
+            )}
+            {signale ? (
+                <p className="text-xs text-success">✓ Évaluation signalée — notre équipe va l'examiner.</p>
+            ) : !showSignalement ? (
+                <button onClick={() => setShowSignalement(true)}
+                    className="btn btn-ghost btn-xs rounded-full text-base-content/40 hover:text-error">
+                    Signaler comme abusive
+                </button>
+            ) : (
+                <div className="space-y-2">
+                    <textarea value={motif} onChange={(e) => setMotif(e.target.value)}
+                        placeholder="Motif du signalement (facultatif)…"
+                        className="textarea textarea-bordered textarea-xs w-full rounded-xl" rows={2} />
+                    {msg && <p className="text-xs text-error">{msg}</p>}
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowSignalement(false)} className="btn btn-ghost btn-xs rounded-full">
+                            Annuler
+                        </button>
+                        <button onClick={handleSignaler} disabled={loading}
+                            className="btn btn-error btn-xs rounded-full">
+                            {loading ? <span className="loading loading-spinner loading-xs" /> : "Confirmer"}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

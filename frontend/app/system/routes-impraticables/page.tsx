@@ -1,0 +1,104 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import CarteAlertes from "@/components/CarteAlertes";
+import { getAlertesRoutes } from "@/src/services/trajet.service";
+
+interface AlertesData {
+    type: "FeatureCollection";
+    features: { type: "Feature"; geometry: { type: string; coordinates: number[][] }; properties: { type_alerte: string; nom: string; ref: string } }[];
+    count?: number;
+}
+
+export default function RoutesImpraticables() {
+    const [data,    setData]    = useState<AlertesData | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        getAlertesRoutes("impraticable")
+            .then((d) => setData(d as unknown as AlertesData))
+            .catch(() => setData({ type: "FeatureCollection", features: [] }))
+            .finally(() => setLoading(false));
+    }, []);
+
+    return (
+        <div data-theme="winter" className="min-h-screen bg-base-200 p-6">
+            <div className="max-w-5xl mx-auto space-y-6">
+
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-warning/10 rounded-xl flex items-center justify-center">
+                        <svg className="w-5 h-5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold text-base-content">Routes impraticables</h1>
+                        <p className="text-sm text-base-content/50">Voies à revêtement dégradé ou non bitumées</p>
+                    </div>
+                </div>
+
+                {data && (
+                    <div className="stats shadow bg-base-100">
+                        <div className="stat">
+                            <div className="stat-figure text-warning">
+                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                </svg>
+                            </div>
+                            <div className="stat-title">Routes impraticables</div>
+                            <div className="stat-value text-warning">{data.count ?? data.features.length}</div>
+                            <div className="stat-desc">Surface non bitumée ou dégradée</div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="card bg-base-100 shadow-sm overflow-hidden">
+                    <div className="card-body p-0">
+                        {loading ? (
+                            <div className="h-96 flex items-center justify-center">
+                                <span className="loading loading-spinner loading-lg text-warning" />
+                            </div>
+                        ) : (
+                            <CarteAlertes data={data as any} className="h-[500px] w-full" />
+                        )}
+                    </div>
+                </div>
+
+                {data && data.features.length === 0 && !loading && (
+                    <div className="card bg-success/10 shadow-sm">
+                        <div className="card-body items-center text-center py-10">
+                            <svg className="w-12 h-12 text-success mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="font-medium text-success">Toutes les routes sont praticables</p>
+                            <p className="text-sm text-base-content/50">Aucune voie dégradée signalée dans la zone</p>
+                        </div>
+                    </div>
+                )}
+
+                {data && data.features.length > 0 && (
+                    <div className="card bg-base-100 shadow-sm">
+                        <div className="card-body">
+                            <h2 className="card-title text-base">Routes concernées</h2>
+                            <div className="divide-y divide-base-200">
+                                {data.features.map((f, i) => (
+                                    <div key={i} className="py-3 flex items-center gap-3">
+                                        <div className="w-3 h-3 rounded-full bg-warning shrink-0" />
+                                        <div>
+                                            <p className="text-sm font-medium">{f.properties.nom || "Route sans nom"}</p>
+                                            {f.properties.ref && (
+                                                <p className="text-xs text-base-content/50">Ref: {f.properties.ref}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/src/hooks/useAuth";
 import { api } from "@/src/services/api";
 import { getMediaUrl } from "@/src/utils/imageUtils";
+import { mettreAJourContactUrgence } from "@/src/services/messagerie.service";
 
 interface ProfilForm {
     first_name: string;
@@ -22,6 +23,29 @@ export default function ProfilPassagerPage() {
     const [success, setSuccess] = useState<string | null>(null);
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [suppression, setSuppression] = useState(false);
+
+    // Contact d'urgence
+    const [urgenceNom, setUrgenceNom]       = useState(user?.contact_urgence_nom ?? "");
+    const [urgenceTel, setUrgenceTel]       = useState(user?.contact_urgence_telephone ?? "");
+    const [urgenceLoading, setUrgenceLoading] = useState(false);
+    const [urgenceMsg, setUrgenceMsg]       = useState("");
+
+    const handleUrgence = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setUrgenceLoading(true);
+        setUrgenceMsg("");
+        try {
+            await mettreAJourContactUrgence({
+                contact_urgence_nom: urgenceNom,
+                contact_urgence_telephone: urgenceTel,
+            });
+            setUrgenceMsg("Contact d'urgence mis à jour.");
+        } catch {
+            setUrgenceMsg("Erreur lors de la mise à jour.");
+        } finally {
+            setUrgenceLoading(false);
+        }
+    };
 
     // Bascule conducteur
     const [modaleBascule, setModaleBascule] = useState(false);
@@ -443,6 +467,54 @@ export default function ProfilPassagerPage() {
                     </div>
                 </div>
             )}
+
+            {/* Contact d'urgence (SOS) */}
+            <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-4">
+                <div>
+                    <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                        Contact d'urgence (bouton SOS)
+                    </p>
+                    <p className="text-xs text-base-content/40 mt-1">
+                        En cas d'urgence, un SMS sera envoyé à ce contact avec votre position GPS.
+                    </p>
+                </div>
+                <form onSubmit={handleUrgence} className="space-y-3">
+                    <div className="form-control">
+                        <label className="label"><span className="label-text text-sm">Nom du contact</span></label>
+                        <input
+                            type="text"
+                            value={urgenceNom}
+                            onChange={(e) => setUrgenceNom(e.target.value)}
+                            placeholder="Ex: Jean Dupont"
+                            className="input input-bordered input-sm rounded-xl"
+                            required
+                        />
+                    </div>
+                    <div className="form-control">
+                        <label className="label"><span className="label-text text-sm">Téléphone du contact</span></label>
+                        <input
+                            type="tel"
+                            value={urgenceTel}
+                            onChange={(e) => setUrgenceTel(e.target.value)}
+                            placeholder="+228 90 00 00 00"
+                            className="input input-bordered input-sm rounded-xl"
+                            required
+                        />
+                    </div>
+                    {urgenceMsg && (
+                        <p className={`text-xs ${urgenceMsg.includes("Erreur") ? "text-error" : "text-success"}`}>
+                            {urgenceMsg}
+                        </p>
+                    )}
+                    <button
+                        type="submit"
+                        disabled={urgenceLoading || !urgenceNom || !urgenceTel}
+                        className="btn btn-sm btn-outline btn-primary rounded-full"
+                    >
+                        {urgenceLoading ? <span className="loading loading-spinner loading-xs" /> : "Enregistrer"}
+                    </button>
+                </form>
+            </div>
 
             {/* Zone danger */}
             <div className="bg-base-100 rounded-2xl border border-error/20 p-6 space-y-3">
