@@ -136,7 +136,9 @@ export default function InscriptionPage() {
 
                 setError(messages.join(" — ") || "Erreur lors de l'inscription.");
             } else {
-                setError("Erreur lors de l'inscription. Vérifiez votre connexion.");
+                setError(err.message === "Erreur API"
+                    ? "Erreur serveur. Réessayez."
+                    : "Impossible de contacter le serveur. Vérifiez que le backend est démarré.");
             }
         } finally {
             setLoading(false);

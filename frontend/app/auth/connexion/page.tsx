@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/src/hooks/useAuth";
 import { connexion } from "@/src/services/auth.service";
 
 export default function ConnexionPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { login } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -24,19 +25,40 @@ export default function ConnexionPage() {
         try {
             const data = await connexion({ email: form.email, password: form.password });
 
-            login(data);
+            await login(data);
 
-            const role = data.utilisateur?.role;
-            if (role === "conducteur") {
-                router.push("/conducteur/dashboard");
-            } else if (role === "passager") {
-                router.push("/passager/dashboard");
-            } else if (role === "admin") {
-                router.push("/admin/dashboard");
+            const redirect = searchParams.get("redirect");
+            if (redirect) {
+                router.push(redirect);
+            } else {
+                const role = data.utilisateur?.role;
+                if (role === "conducteur") {
+                    router.push("/conducteur/dashboard");
+                } else if (role === "passager") {
+                    router.push("/passager/dashboard");
+                } else if (role === "admin") {
+                    router.push("/admin/dashboard");
+                }
             }
 
         } catch (err: any) {
-            setError(err.response?.data?.error || "Email ou mot de passe incorrect.");
+            const data = err.response?.data;
+            if (data) {
+                // Erreur serveur explicite ({"error": "..."} ou {"detail": "..."})
+                if (data.error) { setError(data.error); }
+                else if (data.detail) { setError(data.detail); }
+                // Erreurs de validation par champ ({"email": [...], "password": [...]})
+                else if (typeof data === "object") {
+                    const msgs = Object.entries(data).map(([, v]) =>
+                        Array.isArray(v) ? v.join(", ") : String(v)
+                    );
+                    setError(msgs.join(" — ") || "Email ou mot de passe incorrect.");
+                } else {
+                    setError("Email ou mot de passe incorrect.");
+                }
+            } else {
+                setError("Impossible de contacter le serveur. Vérifiez que le backend est démarré.");
+            }
         } finally {
             setLoading(false);
         }

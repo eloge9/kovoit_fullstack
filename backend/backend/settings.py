@@ -130,7 +130,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon':        '30/minute',   # Visiteurs non connectés
         'user':        '200/minute',  # Utilisateurs connectés
-        'auth':        '5/minute',    # Endpoints login/inscription
+        'auth':        '30/minute' if DEBUG else '5/minute',  # Plus souple en dev
         'signalement': '10/hour',     # Signalement d'évaluations abusives
         'sos':         '5/hour',      # Bouton SOS (anti-spam)
     },
@@ -148,15 +148,22 @@ SIMPLE_JWT = {
 # ── Django Channels (WebSockets GPS temps réel) ───────────────────────────
 ASGI_APPLICATION = 'backend.asgi.application'
 
-# CORRECTION AUDIT : Remplacement de InMemoryChannelLayer par Redis pour la production
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), int(os.getenv('REDIS_PORT', 6379)))],
+_channel_layer_type = os.getenv('CHANNEL_LAYER_TYPE', 'redis' if not DEBUG else 'inmemory')
+if _channel_layer_type == 'inmemory':
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), int(os.getenv('REDIS_PORT', 6379)))],
+            },
+        },
+    }
 
 # ── CORS & Security ───────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')

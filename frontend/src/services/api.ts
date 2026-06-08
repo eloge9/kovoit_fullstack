@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 export const api = async (
   endpoint: string,
@@ -21,7 +21,12 @@ export const api = async (
     body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
   });
 
-  const data = await res.json();
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
 
   if (!res.ok) {
     const error: any = new Error("Erreur API");

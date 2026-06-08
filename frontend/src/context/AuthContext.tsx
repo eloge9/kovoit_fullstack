@@ -50,11 +50,15 @@ export const AuthProvider = ({ children }: any) => {
         localStorage.setItem("user_role", data.utilisateur.role);
 
         // Poser le cookie httpOnly (inaccessible depuis JS, protège contre XSS)
-        await fetch("/api/auth/set-cookie", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ access: data.tokens.access }),
-        });
+        try {
+            await fetch("/api/auth/set-cookie", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ access: data.tokens.access }),
+            });
+        } catch {
+            // Le cookie est optionnel — le token localStorage suffit pour l'auth
+        }
     };
 
     const logout = async () => {

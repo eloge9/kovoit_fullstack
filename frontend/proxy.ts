@@ -70,7 +70,12 @@ export async function proxy(request: NextRequest) {
         response.headers.set('x-user-role', role);
         return response;
 
-    } catch {
+    } catch (err) {
+        // Erreur de config serveur (JWT_SECRET absent) : ne pas supprimer le cookie
+        if (err instanceof Error && err.message === 'JWT_SECRET non configuré') {
+            console.error('[middleware] JWT_SECRET manquant dans .env.local — vérifiez la configuration.');
+            return NextResponse.next();
+        }
         // Token expiré, signature invalide ou claim manquant → déconnexion propre
         const response = NextResponse.redirect(new URL('/auth/connexion', request.url));
         response.cookies.delete('access_token');
