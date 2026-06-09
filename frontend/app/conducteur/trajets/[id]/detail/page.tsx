@@ -28,6 +28,7 @@ interface Reservation {
     date_depart: string;
     prix_par_place: number;
     conducteur: string;
+    passager: string;        // UUID du passager
     passager_nom: string;
     passager_telephone?: string;
     passager_note?: string;
@@ -361,10 +362,23 @@ export default function DetailTrajetPage() {
                                         )}
 
                                         <div className="flex gap-2">
-                                            <button className="btn btn-ghost btn-xs flex-1">
-                                                <Phone className="w-3 h-3" />
-                                            </button>
-                                            <button className="btn btn-ghost btn-xs flex-1">
+                                            {reservation.passager_telephone && (
+                                                <a
+                                                    href={`tel:${reservation.passager_telephone}`}
+                                                    className="btn btn-ghost btn-xs flex-1"
+                                                    title={`Appeler ${reservation.passager_nom}`}
+                                                >
+                                                    <Phone className="w-3 h-3" />
+                                                </a>
+                                            )}
+                                            <button
+                                                onClick={() => reservation.passager &&
+                                                    router.push(`/communication/messages?avec=${reservation.passager}`)
+                                                }
+                                                disabled={!reservation.passager}
+                                                className="btn btn-ghost btn-xs flex-1"
+                                                title={`Envoyer un message à ${reservation.passager_nom}`}
+                                            >
                                                 <MessageCircle className="w-3 h-3" />
                                             </button>
                                         </div>

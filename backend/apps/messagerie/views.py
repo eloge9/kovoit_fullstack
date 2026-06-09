@@ -157,3 +157,27 @@ class MessagerieViewSet(viewsets.GenericViewSet):
         """Retourne le nombre de messages non lus (pour le badge dans la navbar)."""
         count = Message.objects.filter(destinataire=request.user, lu=False).count()
         return Response({'count': count})
+
+    # ── Infos d'un utilisateur pour démarrer une conversation ────────────
+    @action(detail=False, methods=['get'], url_path='utilisateur/(?P<user_id>[0-9a-f-]+)')
+    def info_utilisateur(self, request, user_id=None):
+        """
+        Retourne les infos de base d'un utilisateur pour initier une nouvelle conversation.
+        Utilisé quand on navigue vers /communication/messages?avec=<uuid> sans conversation existante.
+        """
+        try:
+            autre = Utilisateur.objects.get(pk=user_id)
+        except Utilisateur.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Utilisateur introuvable.")
+
+        if str(autre.id) == str(request.user.id):
+            return Response({"error": "Impossible d'ouvrir une conversation avec vous-même."}, status=400)
+
+        return Response({
+            'id':          str(autre.id),
+            'username':    autre.username,
+            'nom':         f"{autre.first_name} {autre.last_name}".strip() or autre.username,
+            'photo_profil': autre.photo_profil.url if autre.photo_profil else None,
+            'role':        autre.role,
+        })

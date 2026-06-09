@@ -12,6 +12,14 @@ export const envoyerMessage = (userId: string, contenu: string) =>
 export const getNonLus = () =>
     api("/messagerie/non-lus/", "GET");
 
+export const getInfoUtilisateur = (userId: string): Promise<{
+    id: string;
+    username: string;
+    nom: string;
+    photo_profil: string | null;
+    role: string;
+}> => api(`/messagerie/utilisateur/${userId}/`, "GET");
+
 export const getQrCode = (reservationId: string) =>
     api(`/reservations/${reservationId}/qr-code/`, "GET");
 

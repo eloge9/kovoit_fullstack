@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/src/hooks/useAuth";
 import { useChat, ChatMessage } from "@/src/hooks/useChat";
-import { getConversations, getHistorique, envoyerMessage } from "@/src/services/messagerie.service";
+import { getConversations, getHistorique, envoyerMessage, getInfoUtilisateur } from "@/src/services/messagerie.service";
 import { getMediaUrl } from "@/src/utils/imageUtils";
 import { Send, MessageSquare, Wifi, WifiOff } from "lucide-react";
 
@@ -81,16 +81,29 @@ export default function MessagesPage() {
             .finally(() => setLoadingConvs(false));
     }, []);
 
+    // ── Mettre à jour l'interlocuteur sélectionné ──────────────────────
+    // Séparé de l'historique pour ne pas re-fetcher les messages quand
+    // la liste des conversations change (ex: chargement initial).
+
+    useEffect(() => {
+        if (!selectedUserId) return;
+        const conv = conversations.find(c => c.utilisateur.id === selectedUserId);
+        if (conv) {
+            setSelectedUser(conv.utilisateur);
+        } else if (!selectedUser || selectedUser.id !== selectedUserId) {
+            // Nouvelle conversation — récupérer les infos de l'interlocuteur
+            getInfoUtilisateur(selectedUserId)
+                .then(info => setSelectedUser(info))
+                .catch(() => {});
+        }
+    }, [selectedUserId, conversations]);
+
     // ── Charger l'historique quand on change de conversation ──────────
 
     useEffect(() => {
         if (!selectedUserId) return;
         setLoadingMessages(true);
         setMessages([]);
-
-        // Retrouver les infos de l'interlocuteur depuis les conversations chargées
-        const conv = conversations.find(c => c.utilisateur.id === selectedUserId);
-        if (conv) setSelectedUser(conv.utilisateur);
 
         getHistorique(selectedUserId)
             .then((data: ChatMessage[]) => setMessages(data))
@@ -136,7 +149,7 @@ export default function MessagesPage() {
     // ── Rendu ──────────────────────────────────────────────────────────
 
     return (
-        <div data-theme="winter" className="h-screen flex bg-base-200">
+        <div className="h-full flex bg-base-200">
 
             {/* ── Sidebar conversations ── */}
             <aside className="w-80 bg-base-100 border-r border-base-200 flex flex-col">

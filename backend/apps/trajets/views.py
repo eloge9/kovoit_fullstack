@@ -44,10 +44,13 @@ class TrajetViewSet(viewsets.ModelViewSet):
         # et aux conducteurs pour voir leurs propres trajets (quel que soit le statut)
         elif self.action == 'retrieve':
             if hasattr(self.request, 'user') and self.request.user.is_authenticated:
-                # Le conducteur peut voir tous ses trajets
+                # Le conducteur voit ses propres trajets, et les passagers voient
+                # les trajets sur lesquels ils ont une réservation (peu importe le statut)
                 return Trajet.objects.filter(
-                    Q(conducteur=self.request.user) | Q(statut='ouvert')
-                ).select_related('conducteur')
+                    Q(conducteur=self.request.user) |
+                    Q(statut='ouvert') |
+                    Q(reservations__passager=self.request.user)
+                ).select_related('conducteur').distinct()
             else:
                 # Les utilisateurs non connectés ne voient que les trajets ouverts
                 return Trajet.objects.filter(statut='ouvert').select_related('conducteur')
