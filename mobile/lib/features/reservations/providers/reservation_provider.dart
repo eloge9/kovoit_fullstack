@@ -1,0 +1,133 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/reservation_model.dart';
+import '../repositories/reservation_repository.dart';
+
+final reservationRepositoryProvider =
+    Provider<ReservationRepository>((ref) => ReservationRepository());
+
+class ReservationsState {
+  final List<ReservationModel> mesReservations;
+  final List<ReservationModel> reservationsRecues;
+  final bool isLoading;
+  final String? error;
+  final String? successMessage;
+
+  const ReservationsState({
+    this.mesReservations = const [],
+    this.reservationsRecues = const [],
+    this.isLoading = false,
+    this.error,
+    this.successMessage,
+  });
+
+  ReservationsState copyWith({
+    List<ReservationModel>? mesReservations,
+    List<ReservationModel>? reservationsRecues,
+    bool? isLoading,
+    String? error,
+    String? successMessage,
+  }) {
+    return ReservationsState(
+      mesReservations: mesReservations ?? this.mesReservations,
+      reservationsRecues: reservationsRecues ?? this.reservationsRecues,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+      successMessage: successMessage,
+    );
+  }
+}
+
+class ReservationsNotifier extends StateNotifier<ReservationsState> {
+  final ReservationRepository _repo;
+
+  ReservationsNotifier(this._repo) : super(const ReservationsState());
+
+  Future<void> loadMesReservations() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final reservations = await _repo.mesReservations();
+      state = state.copyWith(isLoading: false, mesReservations: reservations);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> loadReservationsRecues() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final reservations = await _repo.reservationsRecues();
+      state = state.copyWith(isLoading: false, reservationsRecues: reservations);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<bool> reserver(int trajetId) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final reservation = await _repo.reserver(trajetId);
+      state = state.copyWith(
+        isLoading: false,
+        mesReservations: [reservation, ...state.mesReservations],
+        successMessage: 'Réservation effectuée avec succès !',
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      return false;
+    }
+  }
+
+  Future<bool> confirmer(int id) async {
+    try {
+      final updated = await _repo.confirmerReservation(id);
+      _updateRecue(updated);
+      state = state.copyWith(successMessage: 'Réservation confirmée !');
+      return true;
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return false;
+    }
+  }
+
+  Future<bool> decliner(int id) async {
+    try {
+      final updated = await _repo.declinerReservation(id);
+      _updateRecue(updated);
+      return true;
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return false;
+    }
+  }
+
+  Future<bool> annuler(int id) async {
+    try {
+      await _repo.annulerReservation(id);
+      state = state.copyWith(
+        mesReservations: state.mesReservations
+            .where((r) => r.id != id)
+            .toList(),
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return false;
+    }
+  }
+
+  void _updateRecue(ReservationModel updated) {
+    state = state.copyWith(
+      reservationsRecues: state.reservationsRecues
+          .map((r) => r.id == updated.id ? updated : r)
+          .toList(),
+    );
+  }
+
+  void clearMessages() => state = state.copyWith(error: null, successMessage: null);
+}
+
+final reservationsProvider =
+    StateNotifierProvider<ReservationsNotifier, ReservationsState>(
+  (ref) => ReservationsNotifier(ref.watch(reservationRepositoryProvider)),
+);
