@@ -7,7 +7,6 @@ import {
     initierPaiement,
     verifierPaiement,
     initierPaiementEspeces,
-    soumettreReferenceMobile,
     getStatutPaiementReservation,
     type PaiementStatut,
     type PaiementReservationResponse,
@@ -22,14 +21,10 @@ export default function PaiementPage() {
     const [paying, setPaying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Formulaire paiement mobile manuel
-    const [network, setNetwork]   = useState<"FLOOZ" | "TMONEY">("TMONEY");
-    const [referenceUssd, setReferenceUssd] = useState("");
-    const [methode, setMethode]   = useState<"mobile_manuel" | "especes">("mobile_manuel");
-    const [mobileSuccess, setMobileSuccess] = useState(false);
-
-    // Formulaire paiement mobile PayGate (legacy)
+    // Formulaire paiement mobile
+    const [network, setNetwork] = useState<"FLOOZ" | "TMONEY">("FLOOZ");
     const [phone, setPhone] = useState("");
+    const [methode, setMethode] = useState<"mobile" | "especes">("mobile");
 
     // État du paiement espèces
     const [paiementEspeces, setPaiementEspeces] = useState<PaiementReservationResponse | null>(null);
@@ -45,29 +40,30 @@ export default function PaiementPage() {
     useEffect(() => {
         const fetch = async () => {
             try {
-                // Charger la réservation via l'endpoint retrieve standard
-                const data = await api(`/reservations/${id}/`, "GET");
+                const data = await api(`/reservations/${id}/detail/`, "GET");
                 setReservation(data);
-            } catch {
-                // Fallback — charger depuis mes_reservations si retrieve échoue
-                try {
-                    const all = await api("/reservations/mes_reservations/", "GET");
-                    const r = all.find((r: any) => r.id === Number(id));
-                    setReservation(r || null);
-                } catch {
-                    setReservation(null);
-                }
-            }
 
-            // Vérifier le statut de paiement existant
-            try {
-                const paiementStatut = await getStatutPaiementReservation(Number(id));
-                setPaiementEspeces(paiementStatut);
-            } catch (err: any) {
-                // Ne pas bloquer si pas de paiement ou erreur d'auth
-                if (err.response?.status !== 401 && err.response?.status !== 403) {
+                // Vérifier le statut de paiement
+                try {
+                    const paiementStatut = await getStatutPaiementReservation(Number(id));
+                    console.log("Statut paiement récupéré:", paiementStatut);
+                    setPaiementEspeces(paiementStatut);
+                } catch (err: any) {
+                    console.error("Erreur lors de la récupération du statut de paiement:", err);
+                    // Si erreur 401/403, on ne réinitialise pas le statut
+                    if (err.response?.status === 401 || err.response?.status === 403) {
+                        console.warn("Erreur d'authentification - statut non mis à jour");
+                        // On ne met pas à null pour éviter de permettre un double paiement
+                        return;
+                    }
+                    // Pour les autres erreurs (404), on considère qu'il n'y a pas de paiement
                     setPaiementEspeces(null);
                 }
+            } catch {
+                // Fallback — charger depuis mes_reservations
+                const all = await api("/reservations/mes_reservations/", "GET");
+                const r = all.find((r: any) => r.id === Number(id));
+                setReservation(r || null);
             } finally {
                 setLoading(false);
             }
@@ -132,25 +128,6 @@ export default function PaiementPage() {
             // Silencieux pour le polling automatique
         } finally {
             if (manuel) setVerifying(false);
-        }
-    };
-
-    const handleSoumettreReference = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!referenceUssd.trim()) return setError("Entrez la référence reçue.");
-        setPaying(true);
-        setError(null);
-        try {
-            await soumettreReferenceMobile({
-                reservation_id: Number(id),
-                reference_mobile: referenceUssd.trim(),
-                network,
-            });
-            setMobileSuccess(true);
-        } catch (err: any) {
-            setError(err.response?.data?.error || "Erreur lors de la soumission.");
-        } finally {
-            setPaying(false);
         }
     };
 
@@ -321,8 +298,8 @@ export default function PaiementPage() {
                 </div>
             )}
 
-            {/* ── Choix méthode + formulaires ── */}
-            {!identifier && !mobileSuccess && (
+            {/* ── Avant initiation — choix méthode ── */}
+            {!identifier && (
                 <div className="space-y-5">
 
                     {/* Choix méthode */}
@@ -332,10 +309,12 @@ export default function PaiementPage() {
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                             {[
-                                { value: "mobile_manuel", label: "📱 T-Money / Flooz" },
-                                { value: "especes",       label: "💵 Espèces" },
+                                { value: "mobile", label: "Mobile Money" },
+                                { value: "especes", label: "Espèces" },
                             ].map((m) => (
-                                <button key={m.value} type="button"
+                                <button
+                                    key={m.value}
+                                    type="button"
                                     onClick={() => setMethode(m.value as any)}
                                     className={`btn rounded-xl ${methode === m.value ? "btn-primary" : "btn-outline"}`}
                                 >
@@ -345,118 +324,96 @@ export default function PaiementPage() {
                         </div>
                     </div>
 
-                    {/* ── T-Money / Flooz (Manuel USSD) ── */}
-                    {methode === "mobile_manuel" && (
-                        <form onSubmit={handleSoumettreReference}
-                            className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-5">
-
+                    {/* Mobile Money */}
+                    {methode === "mobile" && (
+                        <form onSubmit={handleInitier} className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
                             <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                                Paiement T-Money / Flooz
+                                Paiement Mobile Money
                             </p>
 
-                            {/* Choix réseau */}
-                            <div className="grid grid-cols-2 gap-3">
-                                {[
-                                    { value: "TMONEY", label: "T-Money",    color: "border-orange-400 text-orange-600" },
-                                    { value: "FLOOZ",  label: "Flooz (Yas)", color: "border-green-500 text-green-600" },
-                                ].map((n) => (
-                                    <button key={n.value} type="button"
-                                        onClick={() => setNetwork(n.value as any)}
-                                        className={`btn btn-sm rounded-xl font-semibold border-2 transition-all ${
-                                            network === n.value
-                                                ? "btn-primary border-primary"
-                                                : `bg-base-100 ${n.color}`
-                                        }`}
-                                    >
-                                        {n.label}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* Code USSD à composer */}
-                            <div className="bg-base-200 rounded-2xl p-4 space-y-2">
-                                <p className="text-xs text-base-content/50 uppercase tracking-wide font-medium">
-                                    1. Composez ce code sur votre téléphone
-                                </p>
-                                <div className="bg-base-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3 border border-base-300">
-                                    <code className="text-lg font-bold tracking-wider text-primary">
-                                        {network === "TMONEY"
-                                            ? `*145*1*${montant}*${reservation?.conducteur_telephone || "XXXXXXXXX"}#`
-                                            : `*144*1*${montant}*${reservation?.conducteur_telephone || "XXXXXXXXX"}#`
-                                        }
-                                    </code>
-                                    <button type="button"
-                                        onClick={() => navigator.clipboard?.writeText(
-                                            network === "TMONEY"
-                                                ? `*145*1*${montant}*${reservation?.conducteur_telephone || ""}#`
-                                                : `*144*1*${montant}*${reservation?.conducteur_telephone || ""}#`
-                                        )}
-                                        className="btn btn-ghost btn-xs rounded-lg"
-                                        title="Copier"
-                                    >
-                                        📋
-                                    </button>
+                            {/* Réseau */}
+                            <div className="form-control">
+                                <label className="label py-1">
+                                    <span className="label-text text-sm font-medium">Réseau</span>
+                                </label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {[
+                                        { value: "FLOOZ", label: "Flooz (Yas)" },
+                                        { value: "TMONEY", label: "Mixx by Yas" },
+                                    ].map((n) => (
+                                        <button
+                                            key={n.value}
+                                            type="button"
+                                            onClick={() => setNetwork(n.value as any)}
+                                            className={`btn btn-sm rounded-xl ${network === n.value ? "btn-primary" : "btn-outline"}`}
+                                        >
+                                            {n.label}
+                                        </button>
+                                    ))}
                                 </div>
-                                <p className="text-xs text-base-content/40">
-                                    {network === "TMONEY" ? "T-Money (Moov Africa)" : "Flooz (Yas Mobile)"}
-                                    &nbsp;·&nbsp;Montant : <strong>{montant.toLocaleString("fr-FR")} FCFA</strong>
-                                    {reservation?.conducteur_telephone && (
-                                        <>&nbsp;·&nbsp;N° conducteur : <strong>{reservation.conducteur_telephone}</strong></>
-                                    )}
-                                </p>
                             </div>
 
-                            {/* Saisie référence */}
-                            <div className="space-y-2">
-                                <p className="text-xs text-base-content/50 uppercase tracking-wide font-medium">
-                                    2. Entrez la référence reçue par SMS
-                                </p>
+                            {/* Numéro */}
+                            <div className="form-control">
+                                <label className="label py-1">
+                                    <span className="label-text text-sm font-medium">Numéro de téléphone</span>
+                                </label>
                                 <input
-                                    type="text"
-                                    placeholder="ex : TM240605123456 ou FL240605987654"
-                                    className="input input-bordered rounded-xl w-full font-mono tracking-wide"
-                                    value={referenceUssd}
-                                    onChange={(e) => setReferenceUssd(e.target.value.toUpperCase())}
+                                    type="tel"
+                                    placeholder="ex: 90000000"
+                                    className="input input-bordered rounded-xl w-full"
+                                    value={phone}
+                                    onChange={(e) => setPhone(e.target.value)}
                                     required
                                 />
-                                <p className="text-xs text-base-content/30">
-                                    La référence est le code de confirmation envoyé par SMS après le virement.
+                                <p className="text-xs text-base-content/30 mt-1 ml-1">
+                                    Vous recevrez une notification pour confirmer le paiement
                                 </p>
                             </div>
 
-                            <button type="submit" disabled={paying || !referenceUssd.trim()}
-                                className="btn btn-primary w-full rounded-full">
+                            <button
+                                type="submit"
+                                disabled={paying}
+                                className="btn btn-primary w-full rounded-full"
+                            >
                                 {paying
                                     ? <span className="loading loading-spinner loading-sm" />
-                                    : "Confirmer mon paiement"
+                                    : `Payer ${montant.toLocaleString("fr-FR")} FCFA`
                                 }
                             </button>
                         </form>
                     )}
 
-                    {/* ── Espèces ── */}
+                    {/* Espèces */}
                     {methode === "especes" && (
                         <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
                             <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
                                 Paiement en espèces
                             </p>
 
+                            {/* Afficher le statut si paiement existe */}
                             {paiementEspeces && renderStatutEspeces()}
 
+                            {/* Afficher le bouton seulement si aucun paiement n'existe */}
                             {!paiementEspeces && (
                                 <>
                                     <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
                                         <p className="text-sm text-base-content/70">
-                                            Remettez l'argent directement au conducteur lors du trajet.
-                                            Il devra confirmer la réception.
+                                            Le paiement en espèces se fait directement au conducteur lors du trajet.
+                                            Le conducteur devra confirmer la réception du paiement.
                                         </p>
                                     </div>
-                                    <div className="flex justify-between py-2 border-b border-base-200">
-                                        <span className="text-xs text-base-content/40 uppercase tracking-wide">À remettre</span>
-                                        <span className="text-sm font-bold text-base-content">{montant.toLocaleString("fr-FR")} FCFA</span>
+                                    <div className="divide-y divide-base-200">
+                                        <div className="flex justify-between py-2">
+                                            <span className="text-xs text-base-content/40 uppercase tracking-wide">À remettre au conducteur</span>
+                                            <span className="text-sm font-bold text-base-content">{montant.toLocaleString("fr-FR")} FCFA</span>
+                                        </div>
                                     </div>
-                                    <button onClick={handleInitierEspeces} disabled={loadingEspeces}
-                                        className="btn btn-primary w-full rounded-full">
+                                    <button
+                                        onClick={handleInitierEspeces}
+                                        disabled={loadingEspeces}
+                                        className="btn btn-primary w-full rounded-full"
+                                    >
                                         {loadingEspeces
                                             ? <span className="loading loading-spinner loading-sm" />
                                             : "Payer en espèces"
@@ -466,28 +423,6 @@ export default function PaiementPage() {
                             )}
                         </div>
                     )}
-                </div>
-            )}
-
-            {/* ── Succès paiement mobile manuel ── */}
-            {mobileSuccess && (
-                <div className="bg-base-100 rounded-2xl border border-success/20 p-6 space-y-4 text-center">
-                    <div className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto">
-                        <span className="text-3xl">✅</span>
-                    </div>
-                    <div>
-                        <h2 className="font-bold text-lg text-base-content">Référence soumise !</h2>
-                        <p className="text-sm text-base-content/50 mt-1">
-                            Référence <strong className="font-mono">{referenceUssd}</strong> enregistrée.
-                        </p>
-                        <p className="text-sm text-base-content/50 mt-1">
-                            En attente de confirmation du conducteur.
-                        </p>
-                    </div>
-                    <button onClick={() => router.push("/passager/reservations")}
-                        className="btn btn-primary rounded-full w-full">
-                        Mes réservations
-                    </button>
                 </div>
             )}
 
