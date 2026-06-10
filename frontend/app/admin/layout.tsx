@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
     { href: "/admin/trajets",      label: "Trajets" },
     { href: "/admin/paiements",    label: "Paiements" },
     { href: "/admin/plaintes",     label: "Plaintes" },
+    { href: "/admin/evaluations",  label: "Évaluations" },
     { href: "/admin/profile",      label: "Profil" },
 ];
 

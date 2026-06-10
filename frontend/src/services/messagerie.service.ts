@@ -71,6 +71,14 @@ export const getNonLus = (): Promise<{ count: number }> =>
 export const getQrCode = (reservationId: string): Promise<{ token: string }> =>
   api(`/reservations/${reservationId}/qr-code/`, "GET");
 
+// ── SOS (utilisé dans NotificationSystem) ────────────────────────────────────
+
+export const declencherSos = (data: {
+  latitude?: number;
+  longitude?: number;
+}): Promise<{ message: string }> =>
+  api("/utilisateurs/ko/sos/", "POST", data);
+
 // ── Contact d'urgence (utilisé sur les pages de profil) ───────────────────────
 
 export const mettreAJourContactUrgence = (data: {

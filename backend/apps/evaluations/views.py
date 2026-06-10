@@ -1,16 +1,95 @@
+from datetime import timedelta
+
+from django.db import transaction
+from django.db.models import Avg, Count, Q
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
-from django.db import transaction
-from django.db.models import Avg
-from django.utils import timezone
-from ..modeles.models import Evaluation, Trajet, Reservation, Utilisateur, BlocagePassager
+
+from ..modeles.models import (
+    BlocagePassager, Evaluation, Reservation, Trajet, Utilisateur,
+)
+
+FENETRE_HEURES = 24
 
 
 class SignalementThrottle(UserRateThrottle):
     scope = 'signalement'
+
+
+def _verrouiller_expirees():
+    """Lock evaluations whose 24 h window has closed."""
+    Evaluation.objects.filter(
+        statut=Evaluation.PUBLIEE,
+        date_limite__lt=timezone.now(),
+    ).update(statut=Evaluation.VERROUILLEE)
+
+
+def _parse_critere(data, key):
+    val = data.get(key)
+    if val is None or val == '':
+        return None
+    try:
+        v = int(val)
+        if not 1 <= v <= 5:
+            raise ValueError
+        return v
+    except (ValueError, TypeError):
+        raise ValueError(f"Le critère '{key}' doit être entre 1 et 5.")
+
+
+def _note_finale(note, criteres_values):
+    valeurs = [v for v in criteres_values if v is not None]
+    if valeurs:
+        return round((note + sum(valeurs)) / (1 + len(valeurs)))
+    return note
+
+
+def _update_note_cible(cible):
+    note_moy = Evaluation.objects.filter(cible=cible).aggregate(Avg('note'))['note__avg']
+    cible.note = round(note_moy, 2) if note_moy else 0
+    cible.save(update_fields=['note'])
+
+
+def _eval_to_dict(e, *, viewer=None):
+    """Serialize an Evaluation for REST responses."""
+    d = {
+        "id":             e.id,
+        "auteur_id":      str(e.auteur_id),
+        "auteur":         f"{e.auteur.first_name} {e.auteur.last_name}".strip() or e.auteur.username,
+        "auteur_photo":   e.auteur.photo_profil.url if getattr(e.auteur, 'photo_profil', None) and e.auteur.photo_profil else None,
+        "cible_id":       str(e.cible_id),
+        "cible":          f"{e.cible.first_name} {e.cible.last_name}".strip() or e.cible.username,
+        "trajet":         f"{e.trajet.depart} → {e.trajet.destination}",
+        "trajet_id":      e.trajet_id,
+        "reservation_id": e.reservation_id,
+        "note":           e.note,
+        "commentaire":    e.commentaire,
+        "date":           e.date_evaluation,
+        "date_limite":    e.date_limite,
+        "statut":         e.statut,
+        "signale":        e.signale,
+        # critères passager→conducteur
+        "ponctualite":    e.ponctualite,
+        "courtoisie":     e.courtoisie,
+        "conduite":       e.conduite,
+        "respect_trajet": e.respect_trajet,
+        # critères conducteur→passager
+        "respect_conducteur": e.respect_conducteur,
+        "respect_vehicule":   e.respect_vehicule,
+        "communication":      e.communication,
+    }
+    if viewer:
+        d["modifiable"] = (
+            e.auteur_id == viewer.pk
+            and e.statut == Evaluation.PUBLIEE
+            and e.date_limite is not None
+            and e.date_limite > timezone.now()
+        )
+    return d
 
 
 class EvaluationViewSet(viewsets.GenericViewSet):
@@ -19,28 +98,13 @@ class EvaluationViewSet(viewsets.GenericViewSet):
     # ── Créer une évaluation ──────────────────────────────────────────────
     @action(detail=False, methods=['post'])
     def evaluer(self, request):
-        """
-        Passager évalue le conducteur OU conducteur évalue le passager.
-        Body: {
-            trajet_id, cible_id, note (1-5),
-            commentaire,
-            ponctualite (1-5), conduite (1-5), proprete (1-5)
-        }
-        """
-        trajet_id    = request.data.get('trajet_id')
-        cible_id     = request.data.get('cible_id')
-        note         = request.data.get('note')
-        commentaire  = request.data.get('commentaire', '')
-        ponctualite  = request.data.get('ponctualite')
-        conduite     = request.data.get('conduite')
-        proprete     = request.data.get('proprete')
+        trajet_id   = request.data.get('trajet_id')
+        cible_id    = request.data.get('cible_id')
+        note        = request.data.get('note')
+        commentaire = request.data.get('commentaire', '')
 
-        # Validations
         if not trajet_id or not cible_id or not note:
-            return Response(
-                {"error": "trajet_id, cible_id et note sont requis."},
-                status=400
-            )
+            return Response({"error": "trajet_id, cible_id et note sont requis."}, status=400)
 
         try:
             note = int(note)
@@ -49,112 +113,192 @@ class EvaluationViewSet(viewsets.GenericViewSet):
         except (ValueError, TypeError):
             return Response({"error": "La note doit être entre 1 et 5."}, status=400)
 
-        # Vérifier le trajet
         try:
             trajet = Trajet.objects.get(pk=trajet_id)
         except Trajet.DoesNotExist:
             return Response({"error": "Trajet introuvable."}, status=404)
 
-        # Le trajet doit être terminé
         if trajet.statut != 'termine':
-            return Response(
-                {"error": "Vous ne pouvez évaluer qu'après la fin du trajet."},
-                status=400
-            )
+            return Response({"error": "Vous ne pouvez évaluer qu'après la fin du trajet."}, status=400)
 
-        # Vérifier la cible
         try:
             cible = Utilisateur.objects.get(pk=cible_id)
         except Utilisateur.DoesNotExist:
             return Response({"error": "Utilisateur introuvable."}, status=404)
 
-        # Vérifier que l'auteur a participé au trajet
         auteur = request.user
-        if auteur == trajet.conducteur:
-            # Conducteur évalue un passager — vérifier que le passager a réservé
-            if not Reservation.objects.filter(
-                trajet=trajet, passager=cible, statut='confirmee'
-            ).exists():
-                return Response(
-                    {"error": "Ce passager n'a pas participé à ce trajet."},
-                    status=400
-                )
-        else:
-            # Passager évalue le conducteur — vérifier qu'il a réservé
-            if not Reservation.objects.filter(
-                trajet=trajet, passager=auteur, statut='confirmee'
-            ).exists():
-                return Response(
-                    {"error": "Vous n'avez pas participé à ce trajet."},
-                    status=400
-                )
-            # La cible doit être le conducteur
-            if cible != trajet.conducteur:
-                return Response(
-                    {"error": "Vous ne pouvez évaluer que le conducteur de ce trajet."},
-                    status=400
-                )
+        reservation = None
 
-        # Vérifier qu'il n'a pas déjà évalué
-        if Evaluation.objects.filter(trajet=trajet, auteur=auteur, cible=cible).exists():
-            return Response(
-                {"error": "Vous avez déjà évalué cet utilisateur pour ce trajet."},
-                status=400
+        if auteur == trajet.conducteur:
+            # Conducteur évalue un passager
+            try:
+                reservation = Reservation.objects.get(
+                    trajet=trajet, passager=cible, statut__in=['confirmee', 'terminee']
+                )
+            except Reservation.DoesNotExist:
+                return Response({"error": "Ce passager n'a pas participé à ce trajet."}, status=400)
+            # Critères conducteur→passager
+            try:
+                ponctualite        = _parse_critere(request.data, 'ponctualite')
+                respect_conducteur = _parse_critere(request.data, 'respect_conducteur')
+                respect_vehicule   = _parse_critere(request.data, 'respect_vehicule')
+                communication      = _parse_critere(request.data, 'communication')
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=400)
+            note_calc = _note_finale(note, [ponctualite, respect_conducteur, respect_vehicule, communication])
+            extra = dict(
+                ponctualite=ponctualite,
+                respect_conducteur=respect_conducteur,
+                respect_vehicule=respect_vehicule,
+                communication=communication,
+            )
+        else:
+            # Passager évalue le conducteur
+            try:
+                reservation = Reservation.objects.get(
+                    trajet=trajet, passager=auteur, statut__in=['confirmee', 'terminee']
+                )
+            except Reservation.DoesNotExist:
+                return Response({"error": "Vous n'avez pas participé à ce trajet."}, status=400)
+            if cible != trajet.conducteur:
+                return Response({"error": "Vous ne pouvez évaluer que le conducteur de ce trajet."}, status=400)
+            # Critères passager→conducteur
+            try:
+                ponctualite    = _parse_critere(request.data, 'ponctualite')
+                courtoisie     = _parse_critere(request.data, 'courtoisie')
+                conduite       = _parse_critere(request.data, 'conduite')
+                respect_trajet = _parse_critere(request.data, 'respect_trajet')
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=400)
+            note_calc = _note_finale(note, [ponctualite, courtoisie, conduite, respect_trajet])
+            extra = dict(
+                ponctualite=ponctualite,
+                courtoisie=courtoisie,
+                conduite=conduite,
+                respect_trajet=respect_trajet,
             )
 
-        # Valider les critères optionnels (must be 1-5 if provided)
-        notes_criteres = []
-        for label, val in [('ponctualite', ponctualite), ('conduite', conduite), ('proprete', proprete)]:
-            if val is not None and val != '':
-                try:
-                    v = int(val)
-                    if not 1 <= v <= 5:
-                        raise ValueError
-                    notes_criteres.append(v)
-                except (ValueError, TypeError):
-                    return Response({"error": f"Le critère '{label}' doit être entre 1 et 5."}, status=400)
-
-        if notes_criteres:
-            note_finale = round((note + sum(notes_criteres)) / (1 + len(notes_criteres)))
-        else:
-            note_finale = note
-
-        # Transaction atomique : création + mise à jour note sans race condition
         with transaction.atomic():
             if Evaluation.objects.filter(trajet=trajet, auteur=auteur, cible=cible).exists():
-                return Response(
-                    {"error": "Vous avez déjà évalué cet utilisateur pour ce trajet."},
-                    status=400
-                )
+                return Response({"error": "Vous avez déjà évalué cet utilisateur pour ce trajet."}, status=400)
 
-            Evaluation.objects.create(
+            date_limite = timezone.now() + timedelta(hours=FENETRE_HEURES)
+            evaluation = Evaluation.objects.create(
                 trajet=trajet,
+                reservation=reservation,
                 auteur=auteur,
                 cible=cible,
-                note=note_finale,
+                note=note_calc,
                 commentaire=commentaire,
+                date_limite=date_limite,
+                statut=Evaluation.PUBLIEE,
+                **extra,
             )
 
-            # select_for_update évite la race condition sur la moyenne
             cible_locked = Utilisateur.objects.select_for_update().get(pk=cible.pk)
-            note_moyenne  = Evaluation.objects.filter(cible=cible).aggregate(Avg('note'))['note__avg']
-            cible_locked.note = round(note_moyenne, 2) if note_moyenne else 0
-            cible_locked.save(update_fields=['note'])
+            _update_note_cible(cible_locked)
+
+        # Push notification via Django Channels
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"notif_{cible.pk}",
+                    {
+                        "type": "chat.notification",
+                        "data": {
+                            "type":    "nouvelle_evaluation",
+                            "message": f"{auteur.username} vous a évalué {note_calc}/5",
+                            "eval_id": evaluation.id,
+                        },
+                    },
+                )
+        except Exception:
+            pass
 
         return Response({
-            "message":    "Évaluation enregistrée.",
-            "note":       note_finale,
-            "note_cible": cible_locked.note,
+            "message":      "Évaluation enregistrée.",
+            "evaluation_id": evaluation.id,
+            "note":          note_calc,
+            "date_limite":   date_limite,
+            "note_cible":    cible_locked.note,
         }, status=201)
+
+    # ── Modifier une évaluation (dans la fenêtre de 24 h) ────────────────
+    @action(detail=False, methods=['put'], url_path='modifier/(?P<eval_id>[0-9]+)')
+    def modifier_evaluation(self, request, eval_id=None):
+        _verrouiller_expirees()
+        try:
+            evaluation = Evaluation.objects.select_related('cible').get(
+                pk=eval_id, auteur=request.user
+            )
+        except Evaluation.DoesNotExist:
+            return Response({"error": "Évaluation introuvable."}, status=404)
+
+        if evaluation.statut == Evaluation.VERROUILLEE:
+            return Response({"error": "La fenêtre de modification de 24 h est expirée."}, status=403)
+
+        note = request.data.get('note')
+        if note is not None:
+            try:
+                note = int(note)
+                if not 1 <= note <= 5:
+                    raise ValueError
+            except (ValueError, TypeError):
+                return Response({"error": "La note doit être entre 1 et 5."}, status=400)
+
+        commentaire = request.data.get('commentaire', evaluation.commentaire)
+
+        # Déterminer le type d'évaluation et parser les critères correspondants
+        if evaluation.auteur == evaluation.trajet.conducteur:
+            # conducteur→passager
+            try:
+                ponctualite        = _parse_critere(request.data, 'ponctualite') if 'ponctualite' in request.data else evaluation.ponctualite
+                respect_conducteur = _parse_critere(request.data, 'respect_conducteur') if 'respect_conducteur' in request.data else evaluation.respect_conducteur
+                respect_vehicule   = _parse_critere(request.data, 'respect_vehicule') if 'respect_vehicule' in request.data else evaluation.respect_vehicule
+                communication      = _parse_critere(request.data, 'communication') if 'communication' in request.data else evaluation.communication
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=400)
+            if note is not None:
+                note = _note_finale(note, [ponctualite, respect_conducteur, respect_vehicule, communication])
+            evaluation.ponctualite        = ponctualite
+            evaluation.respect_conducteur = respect_conducteur
+            evaluation.respect_vehicule   = respect_vehicule
+            evaluation.communication      = communication
+        else:
+            # passager→conducteur
+            try:
+                ponctualite    = _parse_critere(request.data, 'ponctualite') if 'ponctualite' in request.data else evaluation.ponctualite
+                courtoisie     = _parse_critere(request.data, 'courtoisie') if 'courtoisie' in request.data else evaluation.courtoisie
+                conduite       = _parse_critere(request.data, 'conduite') if 'conduite' in request.data else evaluation.conduite
+                respect_trajet = _parse_critere(request.data, 'respect_trajet') if 'respect_trajet' in request.data else evaluation.respect_trajet
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=400)
+            if note is not None:
+                note = _note_finale(note, [ponctualite, courtoisie, conduite, respect_trajet])
+            evaluation.ponctualite    = ponctualite
+            evaluation.courtoisie     = courtoisie
+            evaluation.conduite       = conduite
+            evaluation.respect_trajet = respect_trajet
+
+        if note is not None:
+            evaluation.note = note
+        evaluation.commentaire = commentaire
+        update_fields = ['note', 'commentaire', 'ponctualite', 'courtoisie', 'conduite',
+                         'respect_trajet', 'respect_conducteur', 'respect_vehicule', 'communication']
+        evaluation.save(update_fields=update_fields)
+
+        with transaction.atomic():
+            cible_locked = Utilisateur.objects.select_for_update().get(pk=evaluation.cible_id)
+            _update_note_cible(cible_locked)
+
+        return Response({"message": "Évaluation mise à jour.", "note_cible": cible_locked.note})
 
     # ── Terminer un trajet (conducteur) ───────────────────────────────────
     @action(detail=False, methods=['post'])
     def terminer_trajet(self, request):
-        """
-        Le conducteur marque le trajet comme terminé.
-        Cela débloque les évaluations pour tous les participants.
-        Body: { trajet_id }
-        """
         trajet_id = request.data.get('trajet_id')
         if not trajet_id:
             return Response({"error": "trajet_id requis."}, status=400)
@@ -170,33 +314,95 @@ class EvaluationViewSet(viewsets.GenericViewSet):
         trajet.statut = 'termine'
         trajet.save()
 
-        return Response({"message": "Trajet marqué comme terminé. Les évaluations sont maintenant disponibles."})
+        return Response({"message": "Trajet terminé. Les évaluations sont maintenant disponibles."})
 
     # ── Évaluations reçues ────────────────────────────────────────────────
     @action(detail=False, methods=['get'])
     def mes_evaluations(self, request):
-        evaluations = Evaluation.objects.filter(
-            cible=request.user
-        ).select_related('auteur', 'trajet').order_by('-date_evaluation')
+        _verrouiller_expirees()
+        evaluations = (
+            Evaluation.objects
+            .filter(cible=request.user)
+            .select_related('auteur', 'trajet')
+            .order_by('-date_evaluation')
+        )
+        return Response([_eval_to_dict(e, viewer=request.user) for e in evaluations])
 
-        data = [{
-            "id":             e.id,
-            "auteur":         f"{e.auteur.first_name} {e.auteur.last_name}".strip() or e.auteur.username,
-            "trajet":         f"{e.trajet.depart} → {e.trajet.destination}",
-            "note":           e.note,
-            "commentaire":    e.commentaire,
-            "date":           e.date_evaluation,
-        } for e in evaluations]
+    # ── Évaluations données ───────────────────────────────────────────────
+    @action(detail=False, methods=['get'])
+    def mes_evaluations_donnees(self, request):
+        _verrouiller_expirees()
+        evaluations = (
+            Evaluation.objects
+            .filter(auteur=request.user)
+            .select_related('cible', 'auteur', 'trajet')
+            .order_by('-date_evaluation')
+        )
+        return Response([_eval_to_dict(e, viewer=request.user) for e in evaluations])
 
+    # ── Trajets à évaluer — passager évalue le conducteur ────────────────
+    @action(detail=False, methods=['get'])
+    def a_evaluer(self, request):
+        reservations = Reservation.objects.filter(
+            passager=request.user,
+            statut__in=['confirmee', 'terminee'],
+            trajet__statut='termine',
+        ).select_related('trajet', 'trajet__conducteur').order_by('-trajet__date_heure_depart')
+
+        data = []
+        for r in reservations:
+            if Evaluation.objects.filter(
+                trajet=r.trajet, auteur=request.user, cible=r.trajet.conducteur
+            ).exists():
+                continue
+            data.append({
+                "trajet_id":      r.trajet.id,
+                "conducteur_id":  str(r.trajet.conducteur.id),
+                "conducteur_nom": f"{r.trajet.conducteur.first_name} {r.trajet.conducteur.last_name}".strip() or r.trajet.conducteur.username,
+                "depart":         r.trajet.depart,
+                "destination":    r.trajet.destination,
+                "date_trajet":    r.trajet.date_heure_depart,
+            })
+        return Response(data)
+
+    # ── Passagers à évaluer — conducteur évalue ses passagers ────────────
+    @action(detail=False, methods=['get'])
+    def passagers_a_evaluer(self, request):
+        if request.user.role != Utilisateur.Role.CONDUCTEUR:
+            return Response({"error": "Réservé aux conducteurs."}, status=403)
+
+        trajets_termines = Trajet.objects.filter(
+            conducteur=request.user, statut='termine'
+        ).prefetch_related(
+            'reservations__passager'
+        ).order_by('-date_heure_depart')
+
+        data = []
+        for trajet in trajets_termines:
+            passagers_restants = []
+            for r in trajet.reservations.filter(statut__in=['confirmee', 'terminee']).select_related('passager'):
+                if Evaluation.objects.filter(
+                    trajet=trajet, auteur=request.user, cible=r.passager
+                ).exists():
+                    continue
+                passagers_restants.append({
+                    "passager_id":  str(r.passager.id),
+                    "passager_nom": f"{r.passager.first_name} {r.passager.last_name}".strip() or r.passager.username,
+                    "reservation_id": r.id,
+                })
+            if passagers_restants:
+                data.append({
+                    "trajet_id":   trajet.id,
+                    "depart":      trajet.depart,
+                    "destination": trajet.destination,
+                    "date_trajet": trajet.date_heure_depart,
+                    "passagers":   passagers_restants,
+                })
         return Response(data)
 
     # ── Signaler une évaluation abusive ──────────────────────────────────
     @action(detail=False, methods=['post'], throttle_classes=[SignalementThrottle])
     def signaler(self, request):
-        """
-        Signale une évaluation reçue comme abusive.
-        Body: { evaluation_id, motif }
-        """
         evaluation_id = request.data.get('evaluation_id')
         motif         = request.data.get('motif', '').strip()
 
@@ -215,16 +421,11 @@ class EvaluationViewSet(viewsets.GenericViewSet):
         evaluation.motif_signalement = motif
         evaluation.date_signalement  = timezone.now()
         evaluation.save(update_fields=['signale', 'motif_signalement', 'date_signalement'])
-
         return Response({"message": "Évaluation signalée. Notre équipe va l'examiner."})
 
     # ── Blocage passager (conducteur) ─────────────────────────────────────
     @action(detail=False, methods=['post'])
     def bloquer(self, request):
-        """
-        Conducteur bloque un passager.
-        Body: { passager_id, motif }
-        """
         if request.user.role != Utilisateur.Role.CONDUCTEUR:
             return Response({"error": "Seuls les conducteurs peuvent bloquer des passagers."}, status=403)
 
@@ -240,18 +441,14 @@ class EvaluationViewSet(viewsets.GenericViewSet):
             return Response({"error": "Passager introuvable."}, status=404)
 
         _, created = BlocagePassager.objects.get_or_create(
-            conducteur=request.user,
-            passager=passager,
-            defaults={'motif': motif},
+            conducteur=request.user, passager=passager, defaults={'motif': motif},
         )
         if not created:
             return Response({"error": "Ce passager est déjà bloqué."}, status=400)
-
         return Response({"message": f"{passager.username} a été bloqué."}, status=201)
 
     @action(detail=False, methods=['delete'], url_path='debloquer/(?P<passager_id>[0-9a-f-]+)')
     def debloquer(self, request, passager_id=None):
-        """Conducteur débloque un passager."""
         deleted, _ = BlocagePassager.objects.filter(
             conducteur=request.user, passager_id=passager_id
         ).delete()
@@ -261,59 +458,57 @@ class EvaluationViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def mes_blocages(self, request):
-        """Liste les passagers bloqués par ce conducteur."""
         blocages = BlocagePassager.objects.filter(
             conducteur=request.user
         ).select_related('passager')
-        data = [{
-            "passager_id":  str(b.passager.id),
-            "nom":          f"{b.passager.first_name} {b.passager.last_name}".strip() or b.passager.username,
-            "motif":        b.motif,
-            "bloque_le":    b.created_at,
-        } for b in blocages]
-        return Response(data)
+        return Response([{
+            "passager_id": str(b.passager.id),
+            "nom":         f"{b.passager.first_name} {b.passager.last_name}".strip() or b.passager.username,
+            "motif":       b.motif,
+            "bloque_le":   b.created_at,
+        } for b in blocages])
 
-    # ── Trajets à évaluer (passager) ──────────────────────────────────────
+    # ── Admin : statistiques globales ─────────────────────────────────────
     @action(detail=False, methods=['get'])
-    def a_evaluer(self, request):
-        """
-        Retourne les trajets terminés où le passager n'a pas encore évalué.
-        """
-        # Trajets terminés où l'utilisateur a participé
-        reservations = Reservation.objects.filter(
-            passager=request.user,
-            statut='confirmee',
-            trajet__statut='termine'
-        ).select_related('trajet', 'trajet__conducteur')
+    def admin_stats(self, request):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"error": "Accès refusé."}, status=403)
 
-        # Filtrer ceux non encore évalués
-        data = []
-        for r in reservations:
-            deja_evalue = Evaluation.objects.filter(
-                trajet=r.trajet,
-                auteur=request.user,
-                cible=r.trajet.conducteur
-            ).exists()
+        _verrouiller_expirees()
 
-            if not deja_evalue:
-                data.append({
-                    "trajet_id":      r.trajet.id,
-                    "conducteur_id":  str(r.trajet.conducteur.id),
-                    "conducteur_nom": f"{r.trajet.conducteur.first_name} {r.trajet.conducteur.last_name}".strip() or r.trajet.conducteur.username,
-                    "depart":         r.trajet.depart,
-                    "destination":    r.trajet.destination,
-                    "date_trajet":    r.trajet.date_heure_depart,
-                })
+        qs = Evaluation.objects.select_related('auteur', 'cible', 'trajet')
+        signalees = request.query_params.get('signalees')
+        statut_filtre = request.query_params.get('statut')
+        if signalees == '1':
+            qs = qs.filter(signale=True)
+        if statut_filtre in (Evaluation.PUBLIEE, Evaluation.VERROUILLEE):
+            qs = qs.filter(statut=statut_filtre)
 
-        return Response(data)
+        total = qs.count()
+        note_moy = qs.aggregate(Avg('note'))['note__avg'] or 0
 
+        top_notes = (
+            Evaluation.objects.values('cible__id', 'cible__username', 'cible__first_name', 'cible__last_name')
+            .annotate(moy=Avg('note'), nb=Count('id'))
+            .filter(nb__gte=3)
+            .order_by('-moy')[:5]
+        )
+        pires_notes = (
+            Evaluation.objects.values('cible__id', 'cible__username', 'cible__first_name', 'cible__last_name')
+            .annotate(moy=Avg('note'), nb=Count('id'))
+            .filter(nb__gte=3)
+            .order_by('moy')[:5]
+        )
 
-# ============================================================
-# apps/evaluations/urls.py
-# ============================================================
-# from rest_framework.routers import DefaultRouter
-# from .views import EvaluationViewSet
-#
-# router = DefaultRouter()
-# router.register(r'', EvaluationViewSet, basename='evaluations')
-# urlpatterns = router.urls
+        evals_page = qs.order_by('-date_evaluation')[:50]
+        return Response({
+            "stats": {
+                "total":        total,
+                "note_moyenne": round(note_moy, 2),
+                "nb_signalees": Evaluation.objects.filter(signale=True).count(),
+                "nb_verrouillee": Evaluation.objects.filter(statut=Evaluation.VERROUILLEE).count(),
+                "top_utilisateurs": list(top_notes),
+                "pires_utilisateurs": list(pires_notes),
+            },
+            "evaluations": [_eval_to_dict(e) for e in evals_page],
+        })

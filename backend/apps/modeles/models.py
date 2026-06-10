@@ -417,12 +417,30 @@ class Paiement(models.Model):
 
 # ----------------- Évaluation -----------------
 class Evaluation(models.Model):
+    PUBLIEE     = 'publiee'
+    VERROUILLEE = 'verrouillee'
+    STATUT_CHOICES = [(PUBLIEE, 'Publiée'), (VERROUILLEE, 'Verrouillée')]
+
     trajet          = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='evaluations')
+    reservation     = models.ForeignKey('Reservation', on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluations')
     auteur          = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='evaluations_donnees')
     cible           = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name='evaluations_recues')
     note            = models.IntegerField(validators=[validate_rating])
     commentaire     = models.TextField(blank=True)
     date_evaluation = models.DateTimeField(auto_now_add=True)
+    date_limite     = models.DateTimeField(null=True, blank=True)
+    statut          = models.CharField(max_length=12, choices=STATUT_CHOICES, default=PUBLIEE, db_index=True)
+
+    # Critères détaillés passager → conducteur
+    ponctualite     = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+    courtoisie      = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+    conduite        = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+    respect_trajet  = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+
+    # Critères détaillés conducteur → passager
+    respect_conducteur = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+    respect_vehicule   = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
+    communication      = models.SmallIntegerField(null=True, blank=True, validators=[validate_rating])
 
     signale            = models.BooleanField(default=False)
     motif_signalement  = models.TextField(blank=True, default='')
@@ -432,6 +450,8 @@ class Evaluation(models.Model):
         unique_together = [['trajet', 'auteur', 'cible']]
         indexes = [
             models.Index(fields=['cible', '-date_evaluation']),
+            models.Index(fields=['auteur', '-date_evaluation']),
+            models.Index(fields=['statut', '-date_evaluation']),
         ]
 
     def __str__(self):

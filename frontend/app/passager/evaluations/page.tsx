@@ -1,12 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/src/services/api";
 
-async function signalerEvaluation(evaluationId: number, motif: string) {
-    return api("/evaluations/signaler/", "POST", { evaluation_id: evaluationId, motif });
-}
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface TrajetAEvaluer {
     trajet_id: number;
@@ -17,20 +14,53 @@ interface TrajetAEvaluer {
     date_trajet: string;
 }
 
-interface EvaluationRecue {
+interface EvaluationItem {
     id: number;
     auteur: string;
+    auteur_id: string;
+    cible: string;
+    cible_id: string;
     trajet: string;
+    trajet_id: number;
     note: number;
     commentaire: string;
     date: string;
+    date_limite: string | null;
+    statut: "publiee" | "verrouillee";
+    signale: boolean;
+    modifiable: boolean;
+    ponctualite: number | null;
+    courtoisie: number | null;
+    conduite: number | null;
+    respect_trajet: number | null;
 }
 
-const CRITERES = [
-    { key: "ponctualite", label: "Ponctualité" },
-    { key: "conduite", label: "Conduite" },
-    { key: "proprete", label: "Propreté" },
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const CRITERES_PASSAGER = [
+    { key: "ponctualite",    label: "Ponctualité" },
+    { key: "courtoisie",     label: "Courtoisie" },
+    { key: "conduite",       label: "Conduite" },
+    { key: "respect_trajet", label: "Respect du trajet" },
 ];
+
+function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString("fr-FR", {
+        day: "numeric", month: "short", year: "numeric",
+    });
+}
+
+function tempsRestant(dateLimite: string | null): string | null {
+    if (!dateLimite) return null;
+    const diff = new Date(dateLimite).getTime() - Date.now();
+    if (diff <= 0) return null;
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    if (h > 0) return `${h}h${m > 0 ? m + "min" : ""} restantes`;
+    return `${m} min restantes`;
+}
+
+// ── Composants ────────────────────────────────────────────────────────────────
 
 function Etoiles({ note, onChange, readonly = false }: {
     note: number;
@@ -48,122 +78,171 @@ function Etoiles({ note, onChange, readonly = false }: {
                     onClick={() => onChange?.(s)}
                     onMouseEnter={() => !readonly && setHover(s)}
                     onMouseLeave={() => !readonly && setHover(0)}
-                    className={`w-8 h-8 rounded-lg transition-all ${s <= (hover || note)
-                        ? "bg-warning text-warning-content"
-                        : "bg-base-200 text-base-content/20"
-                        } ${readonly ? "cursor-default" : "hover:scale-110"}`}
+                    className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                        s <= (hover || note)
+                            ? "bg-warning text-warning-content"
+                            : "bg-base-200 text-base-content/30"
+                    } ${readonly ? "cursor-default" : "hover:scale-110"}`}
                 >
-                    <span className="text-sm font-bold">{s}</span>
+                    {s}
                 </button>
             ))}
         </div>
     );
 }
 
-export default function EvaluationsPage() {
-    const router = useRouter();
+function CritereRow({ label, value, onChange }: {
+    label: string;
+    value: number;
+    onChange: (n: number) => void;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-base-content/60 w-36 shrink-0">{label}</span>
+            <Etoiles note={value} onChange={onChange} />
+        </div>
+    );
+}
 
-    const [onglet, setOnglet] = useState<"a_evaluer" | "recues">("a_evaluer");
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+type Onglet = "a_evaluer" | "donnees" | "recues";
+
+export default function EvaluationsPage() {
+    const [onglet, setOnglet] = useState<Onglet>("a_evaluer");
     const [trajets, setTrajets] = useState<TrajetAEvaluer[]>([]);
-    const [recues, setRecues] = useState<EvaluationRecue[]>([]);
+    const [donnees, setDonnees] = useState<EvaluationItem[]>([]);
+    const [recues, setRecues] = useState<EvaluationItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
 
-    // Formulaire évaluation
+    // Formulaire créer/modifier
     const [trajetEnCours, setTrajetEnCours] = useState<TrajetAEvaluer | null>(null);
+    const [evalEnModif, setEvalEnModif] = useState<EvaluationItem | null>(null);
     const [note, setNote] = useState(0);
     const [commentaire, setCommentaire] = useState("");
-    const [criteres, setCriteres] = useState({
-        ponctualite: 0,
-        conduite: 0,
-        proprete: 0,
-    });
+    const [criteres, setCriteres] = useState<Record<string, number>>({ ponctualite: 0, courtoisie: 0, conduite: 0, respect_trajet: 0 });
     const [submitting, setSubmitting] = useState(false);
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
-            const [aEvaluer, mesEvals] = await Promise.all([
+            const [aEvaluer, mesRecues, mesDonnees] = await Promise.all([
                 api("/evaluations/a_evaluer/", "GET"),
                 api("/evaluations/mes_evaluations/", "GET"),
+                api("/evaluations/mes_evaluations_donnees/", "GET"),
             ]);
             setTrajets(Array.isArray(aEvaluer) ? aEvaluer : []);
-            setRecues(Array.isArray(mesEvals) ? mesEvals : []);
+            setRecues(Array.isArray(mesRecues) ? mesRecues : []);
+            setDonnees(Array.isArray(mesDonnees) ? mesDonnees : []);
         } catch {
             setError("Impossible de charger les évaluations.");
         } finally {
             setLoading(false);
         }
+    }, []);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const ouvrirFormulaire = (trajet: TrajetAEvaluer) => {
+        setTrajetEnCours(trajet);
+        setEvalEnModif(null);
+        setNote(0);
+        setCommentaire("");
+        setCriteres({ ponctualite: 0, courtoisie: 0, conduite: 0, respect_trajet: 0 });
+        setError(null);
+        setSuccess(null);
+    };
+
+    const ouvrirModification = (eval_: EvaluationItem) => {
+        setEvalEnModif(eval_);
+        setTrajetEnCours(null);
+        setNote(eval_.note);
+        setCommentaire(eval_.commentaire);
+        setCriteres({
+            ponctualite:    eval_.ponctualite    ?? 0,
+            courtoisie:     eval_.courtoisie     ?? 0,
+            conduite:       eval_.conduite       ?? 0,
+            respect_trajet: eval_.respect_trajet ?? 0,
+        } as Record<string, number>);
+        setError(null);
+        setSuccess(null);
     };
 
     const handleSoumettre = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!trajetEnCours) return;
-        if (note === 0) return setError("Sélectionnez une note.");
-
+        if (note === 0) { setError("Sélectionnez une note globale."); return; }
         setSubmitting(true);
         setError(null);
-        try {
-            await api("/evaluations/evaluer/", "POST", {
-                trajet_id: trajetEnCours.trajet_id,
-                cible_id: trajetEnCours.conducteur_id,
-                note,
-                commentaire,
-                ponctualite: criteres.ponctualite || undefined,
-                conduite: criteres.conduite || undefined,
-                proprete: criteres.proprete || undefined,
-            });
 
-            setSuccess("Évaluation envoyée avec succès.");
+        const payload = {
+            note,
+            commentaire,
+            ponctualite:    criteres.ponctualite    || undefined,
+            courtoisie:     criteres.courtoisie     || undefined,
+            conduite:       criteres.conduite       || undefined,
+            respect_trajet: criteres.respect_trajet || undefined,
+        };
+
+        try {
+            if (evalEnModif) {
+                await api(`/evaluations/modifier/${evalEnModif.id}/`, "PUT", payload);
+                setSuccess("Évaluation mise à jour.");
+            } else if (trajetEnCours) {
+                await api("/evaluations/evaluer/", "POST", {
+                    trajet_id: trajetEnCours.trajet_id,
+                    cible_id:  trajetEnCours.conducteur_id,
+                    ...payload,
+                });
+                setSuccess("Évaluation envoyée.");
+                setTrajets((prev) => prev.filter((t) => t.trajet_id !== trajetEnCours.trajet_id));
+            }
             setTrajetEnCours(null);
+            setEvalEnModif(null);
             setNote(0);
             setCommentaire("");
-            setCriteres({ ponctualite: 0, conduite: 0, proprete: 0 });
-
-            // Retirer le trajet de la liste
-            setTrajets((prev) => prev.filter((t) => t.trajet_id !== trajetEnCours.trajet_id));
+            setCriteres({ ponctualite: 0, courtoisie: 0, conduite: 0, respect_trajet: 0 });
             fetchData();
-        } catch (err: any) {
-            setError(err.response?.data?.error || "Erreur lors de l'envoi.");
+        } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+            setError(msg || "Erreur lors de l'envoi.");
         } finally {
             setSubmitting(false);
         }
     };
 
-    const formatDate = (iso: string) =>
-        new Date(iso).toLocaleDateString("fr-FR", {
-            day: "numeric", month: "short", year: "numeric",
-        });
+    const fermerFormulaire = () => {
+        setTrajetEnCours(null);
+        setEvalEnModif(null);
+        setError(null);
+    };
+
+    const tabs: { value: Onglet; label: string }[] = [
+        { value: "a_evaluer", label: `À évaluer (${trajets.length})` },
+        { value: "donnees",   label: `Données (${donnees.length})` },
+        { value: "recues",    label: `Reçues (${recues.length})` },
+    ];
 
     return (
         <div className="space-y-8">
 
-            {/* EN-TÊTE */}
+            {/* En-tête */}
             <div className="pb-6 border-b border-base-300">
-                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">
-                    Passager
-                </p>
-                <h1 className="text-2xl font-bold text-base-content tracking-tight">
-                    Évaluations
-                </h1>
+                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">Passager</p>
+                <h1 className="text-2xl font-bold text-base-content tracking-tight">Évaluations</h1>
             </div>
 
-            {/* ONGLETS */}
+            {/* Onglets */}
             <div className="flex gap-1 bg-base-200 rounded-xl p-1">
-                {([
-                    { value: "a_evaluer", label: `À évaluer (${trajets.length})` },
-                    { value: "recues", label: `Reçues (${recues.length})` },
-                ] as const).map((tab) => (
+                {tabs.map((tab) => (
                     <button
                         key={tab.value}
-                        onClick={() => { setOnglet(tab.value); setTrajetEnCours(null); setError(null); setSuccess(null); }}
-                        className={`flex-1 btn btn-sm rounded-lg transition-all ${onglet === tab.value ? "btn-primary shadow-sm" : "btn-ghost"
-                            }`}
+                        onClick={() => { setOnglet(tab.value); fermerFormulaire(); setSuccess(null); }}
+                        className={`flex-1 btn btn-sm rounded-lg transition-all ${
+                            onglet === tab.value ? "btn-primary shadow-sm" : "btn-ghost"
+                        }`}
                     >
                         {tab.label}
                     </button>
@@ -185,196 +264,238 @@ export default function EvaluationsPage() {
             {/* ── À ÉVALUER ── */}
             {onglet === "a_evaluer" && (
                 <div className="space-y-4">
-                    {loading ? (
-                        <div className="flex flex-col gap-3">
-                            {[1, 2].map((i) => (
-                                <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-5 animate-pulse">
-                                    <div className="h-4 bg-base-300 rounded w-1/2 mb-3" />
-                                    <div className="h-3 bg-base-300 rounded w-1/3" />
-                                </div>
-                            ))}
-                        </div>
-                    ) : trajets.length === 0 ? (
-                        <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
-                            <p className="text-base-content/40 text-sm">
-                                Aucun trajet à évaluer pour le moment.
-                            </p>
-                            <p className="text-base-content/30 text-xs mt-1">
-                                Les évaluations sont disponibles après la fin du trajet.
-                            </p>
-                        </div>
-                    ) : (
-                        trajets.map((trajet) => (
-                            <div key={trajet.trajet_id}>
-                                {/* Carte trajet */}
-                                {trajetEnCours?.trajet_id !== trajet.trajet_id && (
-                                    <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
-                                        <div className="flex items-center justify-between px-5 py-4">
-                                            <div>
-                                                <p className="font-semibold text-base-content">
-                                                    {trajet.depart}
-                                                    <span className="text-base-content/25 mx-2 font-light">→</span>
-                                                    {trajet.destination}
-                                                </p>
-                                                <p className="text-xs text-base-content/40 mt-0.5">
-                                                    Conducteur : {trajet.conducteur_nom} · {formatDate(trajet.date_trajet)}
-                                                </p>
-                                            </div>
-                                            <button
-                                                onClick={() => { setTrajetEnCours(trajet); setError(null); setSuccess(null); }}
-                                                className="btn btn-primary btn-sm rounded-full px-4"
-                                            >
-                                                Évaluer
-                                            </button>
-                                        </div>
+                    {loading ? <Squelette /> : trajets.length === 0 ? (
+                        <Vide message="Aucun trajet à évaluer pour le moment." sous="Les évaluations sont disponibles après la fin du trajet." />
+                    ) : trajets.map((trajet) => (
+                        <div key={trajet.trajet_id}>
+                            {trajetEnCours?.trajet_id !== trajet.trajet_id && (
+                                <div className="bg-base-100 rounded-2xl border border-base-200 flex items-center justify-between px-5 py-4">
+                                    <div>
+                                        <p className="font-semibold text-base-content text-sm">
+                                            {trajet.depart} <span className="text-base-content/25 mx-1">→</span> {trajet.destination}
+                                        </p>
+                                        <p className="text-xs text-base-content/40 mt-0.5">
+                                            Conducteur : {trajet.conducteur_nom} · {formatDate(trajet.date_trajet)}
+                                        </p>
                                     </div>
-                                )}
-
-                                {/* Formulaire évaluation */}
-                                {trajetEnCours?.trajet_id === trajet.trajet_id && (
-                                    <form onSubmit={handleSoumettre}
-                                        className="bg-base-100 rounded-2xl border border-primary/20 overflow-hidden">
-
-                                        <div className="px-5 py-4 border-b border-base-200 flex items-center justify-between">
-                                            <div>
-                                                <p className="font-semibold text-base-content text-sm">
-                                                    {trajet.depart} → {trajet.destination}
-                                                </p>
-                                                <p className="text-xs text-base-content/40">
-                                                    Évaluer {trajet.conducteur_nom}
-                                                </p>
-                                            </div>
-                                            <button type="button"
-                                                onClick={() => setTrajetEnCours(null)}
-                                                className="btn btn-ghost btn-xs btn-square rounded-lg">
-                                                ×
-                                            </button>
-                                        </div>
-
-                                        <div className="p-5 space-y-5">
-
-                                            {/* Note générale */}
-                                            <div className="space-y-2">
-                                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                                                    Note générale
-                                                </p>
-                                                <Etoiles note={note} onChange={setNote} />
-                                                {note > 0 && (
-                                                    <p className="text-xs text-base-content/40">
-                                                        {["", "Très mauvais", "Mauvais", "Correct", "Bien", "Excellent"][note]}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            {/* Critères */}
-                                            <div className="space-y-3">
-                                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                                                    Critères détaillés
-                                                </p>
-                                                {CRITERES.map((c) => (
-                                                    <div key={c.key} className="flex items-center justify-between">
-                                                        <span className="text-sm text-base-content/60">{c.label}</span>
-                                                        <Etoiles
-                                                            note={criteres[c.key as keyof typeof criteres]}
-                                                            onChange={(n) => setCriteres((prev) => ({ ...prev, [c.key]: n }))}
-                                                        />
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            {/* Commentaire */}
-                                            <div className="form-control">
-                                                <label className="label py-1">
-                                                    <span className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                                                        Commentaire
-                                                        <span className="ml-1 normal-case font-normal">(optionnel)</span>
-                                                    </span>
-                                                </label>
-                                                <textarea
-                                                    className="textarea textarea-bordered rounded-xl resize-none"
-                                                    rows={3}
-                                                    placeholder="Partagez votre expérience..."
-                                                    value={commentaire}
-                                                    onChange={(e) => setCommentaire(e.target.value)}
-                                                />
-                                            </div>
-
-                                            <div className="flex gap-3">
-                                                <button type="button"
-                                                    onClick={() => setTrajetEnCours(null)}
-                                                    className="btn btn-ghost btn-sm rounded-full flex-1 border border-base-300">
-                                                    Annuler
-                                                </button>
-                                                <button type="submit" disabled={submitting || note === 0}
-                                                    className="btn btn-primary btn-sm rounded-full flex-1">
-                                                    {submitting
-                                                        ? <span className="loading loading-spinner loading-xs" />
-                                                        : "Envoyer l'évaluation"
-                                                    }
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </form>
-                                )}
-                            </div>
-                        ))
-                    )}
+                                    <button
+                                        onClick={() => ouvrirFormulaire(trajet)}
+                                        className="btn btn-primary btn-sm rounded-full px-4"
+                                    >
+                                        Évaluer
+                                    </button>
+                                </div>
+                            )}
+                            {trajetEnCours?.trajet_id === trajet.trajet_id && (
+                                <FormulaireEval
+                                    titre={`${trajet.depart} → ${trajet.destination}`}
+                                    sous={`Évaluer ${trajet.conducteur_nom}`}
+                                    note={note}
+                                    setNote={setNote}
+                                    commentaire={commentaire}
+                                    setCommentaire={setCommentaire}
+                                    criteres={criteres}
+                                    setCriteres={setCriteres}
+                                    submitting={submitting}
+                                    onSubmit={handleSoumettre}
+                                    onCancel={fermerFormulaire}
+                                />
+                            )}
+                        </div>
+                    ))}
                 </div>
             )}
 
-            {/* ── ÉVALUATIONS REÇUES ── */}
+            {/* ── DONNÉES ── */}
+            {onglet === "donnees" && (
+                <div className="space-y-3">
+                    {loading ? <Squelette /> : donnees.length === 0 ? (
+                        <Vide message="Vous n'avez pas encore donné d'évaluation." />
+                    ) : donnees.map((eval_) => (
+                        <div key={eval_.id}>
+                            {evalEnModif?.id === eval_.id ? (
+                                <FormulaireEval
+                                    titre={eval_.trajet}
+                                    sous={`Modifier l'évaluation de ${eval_.cible}`}
+                                    note={note}
+                                    setNote={setNote}
+                                    commentaire={commentaire}
+                                    setCommentaire={setCommentaire}
+                                    criteres={criteres}
+                                    setCriteres={setCriteres}
+                                    submitting={submitting}
+                                    onSubmit={handleSoumettre}
+                                    onCancel={fermerFormulaire}
+                                    isEdit
+                                />
+                            ) : (
+                                <CarteDonnee eval_={eval_} onModifier={() => ouvrirModification(eval_)} />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ── REÇUES ── */}
             {onglet === "recues" && (
                 <div className="space-y-3">
-                    {loading ? (
-                        <div className="flex flex-col gap-3">
-                            {[1, 2, 3].map((i) => (
-                                <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-5 animate-pulse">
-                                    <div className="h-4 bg-base-300 rounded w-1/3 mb-3" />
-                                    <div className="h-3 bg-base-300 rounded w-1/2" />
-                                </div>
-                            ))}
-                        </div>
-                    ) : recues.length === 0 ? (
-                        <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
-                            <p className="text-base-content/40 text-sm">
-                                Vous n'avez pas encore reçu d'évaluation.
-                            </p>
-                        </div>
-                    ) : (
-                        recues.map((eval_) => (
-                            <EvaluationRecueCard
-                                key={eval_.id}
-                                eval_={eval_}
-                                formatDate={formatDate}
-                            />
-                        ))
-                    )}
+                    {loading ? <Squelette /> : recues.length === 0 ? (
+                        <Vide message="Vous n'avez pas encore reçu d'évaluation." />
+                    ) : recues.map((eval_) => (
+                        <CarteRecue key={eval_.id} eval_={eval_} onSignalOk={() => fetchData()} />
+                    ))}
                 </div>
             )}
-
         </div>
     );
 }
 
-function EvaluationRecueCard({ eval_, formatDate }: {
-    eval_: { id: number; auteur: string; trajet: string; note: number; commentaire: string; date: string };
-    formatDate: (d: string) => string;
+// ── Formulaire réutilisable ───────────────────────────────────────────────────
+
+function FormulaireEval({ titre, sous, note, setNote, commentaire, setCommentaire, criteres, setCriteres, submitting, onSubmit, onCancel, isEdit }: {
+    titre: string;
+    sous: string;
+    note: number;
+    setNote: (n: number) => void;
+    commentaire: string;
+    setCommentaire: (s: string) => void;
+    criteres: Record<string, number>;
+    setCriteres: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+    submitting: boolean;
+    onSubmit: (e: React.FormEvent) => void;
+    onCancel: () => void;
+    isEdit?: boolean;
 }) {
-    const [signale,         setSignale]        = useState(false);
-    const [showSignalement, setShowSignalement] = useState(false);
-    const [motif,           setMotif]          = useState("");
-    const [loading,         setLoading]        = useState(false);
-    const [msg,             setMsg]            = useState("");
+    return (
+        <form onSubmit={onSubmit} className="bg-base-100 rounded-2xl border border-primary/20 overflow-hidden">
+            <div className="px-5 py-4 border-b border-base-200 flex items-center justify-between">
+                <div>
+                    <p className="font-semibold text-base-content text-sm">{titre}</p>
+                    <p className="text-xs text-base-content/40">{sous}</p>
+                </div>
+                <button type="button" onClick={onCancel} className="btn btn-ghost btn-xs btn-square rounded-lg">×</button>
+            </div>
+            <div className="p-5 space-y-5">
+                {/* Note globale */}
+                <div className="space-y-2">
+                    <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">Note générale</p>
+                    <Etoiles note={note} onChange={setNote} />
+                    {note > 0 && (
+                        <p className="text-xs text-base-content/40">
+                            {["", "Très mauvais", "Mauvais", "Correct", "Bien", "Excellent"][note]}
+                        </p>
+                    )}
+                </div>
+
+                {/* Critères */}
+                <div className="space-y-3">
+                    <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                        Critères détaillés <span className="normal-case font-normal">(optionnel)</span>
+                    </p>
+                    {CRITERES_PASSAGER.map((c) => (
+                        <CritereRow
+                            key={c.key}
+                            label={c.label}
+                            value={criteres[c.key] ?? 0}
+                            onChange={(n) => setCriteres((prev) => ({ ...prev, [c.key]: n }))}
+                        />
+                    ))}
+                </div>
+
+                {/* Commentaire */}
+                <div className="form-control">
+                    <label className="label py-1">
+                        <span className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                            Commentaire <span className="normal-case font-normal">(optionnel)</span>
+                        </span>
+                    </label>
+                    <textarea
+                        className="textarea textarea-bordered rounded-xl resize-none"
+                        rows={3}
+                        placeholder="Partagez votre expérience…"
+                        value={commentaire}
+                        onChange={(e) => setCommentaire(e.target.value)}
+                    />
+                </div>
+
+                <div className="flex gap-3">
+                    <button type="button" onClick={onCancel} className="btn btn-ghost btn-sm rounded-full flex-1 border border-base-300">
+                        Annuler
+                    </button>
+                    <button type="submit" disabled={submitting || note === 0} className="btn btn-primary btn-sm rounded-full flex-1">
+                        {submitting
+                            ? <span className="loading loading-spinner loading-xs" />
+                            : isEdit ? "Enregistrer les modifications" : "Envoyer l'évaluation"
+                        }
+                    </button>
+                </div>
+            </div>
+        </form>
+    );
+}
+
+// ── Carte évaluation donnée ───────────────────────────────────────────────────
+
+function CarteDonnee({ eval_, onModifier }: { eval_: EvaluationItem; onModifier: () => void }) {
+    const restant = tempsRestant(eval_.date_limite);
+    const bientotVerrouillee = restant && eval_.date_limite
+        ? new Date(eval_.date_limite).getTime() - Date.now() < 6 * 3600000
+        : false;
+
+    return (
+        <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <p className="font-semibold text-base-content text-sm">{eval_.cible}</p>
+                    <p className="text-xs text-base-content/40 mt-0.5">{eval_.trajet} · {formatDate(eval_.date)}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                        <span key={s} className={`text-sm ${s <= eval_.note ? "text-warning" : "text-base-300"}`}>★</span>
+                    ))}
+                </div>
+            </div>
+
+            {eval_.commentaire && (
+                <p className="text-sm text-base-content/60 italic">"{eval_.commentaire}"</p>
+            )}
+
+            {/* Indicateur temps restant */}
+            {eval_.statut === "publiee" && restant && (
+                <p className={`text-xs font-medium ${bientotVerrouillee ? "text-warning" : "text-info"}`}>
+                    {bientotVerrouillee ? "⚠ " : ""}Modifiable encore {restant}
+                </p>
+            )}
+            {eval_.statut === "verrouillee" && (
+                <span className="badge badge-sm badge-ghost rounded-full">Verrouillée</span>
+            )}
+
+            {eval_.modifiable && (
+                <button onClick={onModifier} className="btn btn-ghost btn-xs rounded-full text-base-content/40 hover:text-primary">
+                    Modifier
+                </button>
+            )}
+        </div>
+    );
+}
+
+// ── Carte évaluation reçue ────────────────────────────────────────────────────
+
+function CarteRecue({ eval_, onSignalOk }: { eval_: EvaluationItem; onSignalOk: () => void }) {
+    const [showSignal, setShowSignal] = useState(false);
+    const [motif, setMotif] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [signale, setSignale] = useState(eval_.signale);
 
     const handleSignaler = async () => {
         setLoading(true);
         try {
-            await signalerEvaluation(eval_.id, motif);
+            await api("/evaluations/signaler/", "POST", { evaluation_id: eval_.id, motif });
             setSignale(true);
-            setShowSignalement(false);
-            setMsg("Évaluation signalée.");
+            setShowSignal(false);
+            onSignalOk();
         } catch {
-            setMsg("Erreur lors du signalement.");
+            // silencieux
         } finally {
             setLoading(false);
         }
@@ -385,27 +506,25 @@ function EvaluationRecueCard({ eval_, formatDate }: {
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <p className="text-sm font-semibold text-base-content">{eval_.auteur}</p>
-                    <p className="text-xs text-base-content/40 mt-0.5">{eval_.trajet}</p>
+                    <p className="text-xs text-base-content/40 mt-0.5">{eval_.trajet} · {formatDate(eval_.date)}</p>
                 </div>
-                <div className="text-right shrink-0">
-                    <div className="flex justify-end">
-                        {[1,2,3,4,5].map((s) => (
-                            <span key={s} className={`text-sm ${s <= eval_.note ? "text-warning" : "text-base-300"}`}>★</span>
-                        ))}
-                    </div>
-                    <p className="text-xs text-base-content/30 mt-1">{formatDate(eval_.date)}</p>
+                <div className="flex gap-0.5 shrink-0">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                        <span key={s} className={`text-sm ${s <= eval_.note ? "text-warning" : "text-base-300"}`}>★</span>
+                    ))}
                 </div>
             </div>
+
             {eval_.commentaire && (
                 <p className="text-sm text-base-content/60 bg-base-200/50 rounded-xl px-4 py-3 italic">
                     "{eval_.commentaire}"
                 </p>
             )}
+
             {signale ? (
-                <p className="text-xs text-success">✓ Évaluation signalée — notre équipe va l'examiner.</p>
-            ) : !showSignalement ? (
-                <button onClick={() => setShowSignalement(true)}
-                    className="btn btn-ghost btn-xs rounded-full text-base-content/40 hover:text-error">
+                <p className="text-xs text-success">✓ Signalée — notre équipe va l'examiner.</p>
+            ) : !showSignal ? (
+                <button onClick={() => setShowSignal(true)} className="btn btn-ghost btn-xs rounded-full text-base-content/40 hover:text-error">
                     Signaler comme abusive
                 </button>
             ) : (
@@ -413,18 +532,33 @@ function EvaluationRecueCard({ eval_, formatDate }: {
                     <textarea value={motif} onChange={(e) => setMotif(e.target.value)}
                         placeholder="Motif du signalement (facultatif)…"
                         className="textarea textarea-bordered textarea-xs w-full rounded-xl" rows={2} />
-                    {msg && <p className="text-xs text-error">{msg}</p>}
                     <div className="flex gap-2">
-                        <button onClick={() => setShowSignalement(false)} className="btn btn-ghost btn-xs rounded-full">
-                            Annuler
-                        </button>
-                        <button onClick={handleSignaler} disabled={loading}
-                            className="btn btn-error btn-xs rounded-full">
+                        <button onClick={() => setShowSignal(false)} className="btn btn-ghost btn-xs rounded-full">Annuler</button>
+                        <button onClick={handleSignaler} disabled={loading} className="btn btn-error btn-xs rounded-full">
                             {loading ? <span className="loading loading-spinner loading-xs" /> : "Confirmer"}
                         </button>
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ── Utilitaires ───────────────────────────────────────────────────────────────
+
+function Squelette() {
+    return (
+        <div className="space-y-3 animate-pulse">
+            {[1, 2, 3].map((i) => <div key={i} className="h-20 bg-base-200 rounded-2xl" />)}
+        </div>
+    );
+}
+
+function Vide({ message, sous }: { message: string; sous?: string }) {
+    return (
+        <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
+            <p className="text-base-content/40 text-sm">{message}</p>
+            {sous && <p className="text-base-content/30 text-xs mt-1">{sous}</p>}
         </div>
     );
 }
