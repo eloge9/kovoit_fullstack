@@ -78,19 +78,24 @@ class ReservationViewSet(viewsets.GenericViewSet):
             dropoff_lat = vd.get('depose_lat')
             dropoff_lng = vd.get('depose_lng')
 
-            # Calcul du prix proportionnel si coordonnées fournies
+            # Calcul du prix par km selon le type de véhicule
             prix_passager = None
             distance_passager = None
             if all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
                 try:
-                    from apps.trajets.matching import calculer_score_matching, calculer_prix_passager
-                    match = calculer_score_matching(trajet, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
-                    distance_passager = match['distance_passager_km']
-                    prix_passager = calculer_prix_passager(
-                        distance_passager,
-                        trajet.distance_km or match['distance_passager_km'],
-                        float(trajet.cout_total or trajet.prix_par_place or 0),
+                    from apps.trajets.matching import (
+                        calculer_score_matching_v2, calculer_prix_par_km,
                     )
+                    match = calculer_score_matching_v2(
+                        trajet, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+                    )
+                    distance_passager = match['distance_passager_km']
+                    type_vehicule = ''
+                    try:
+                        type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
+                    except AttributeError:
+                        pass
+                    prix_passager = calculer_prix_par_km(distance_passager, type_vehicule)
                 except Exception:
                     pass
 

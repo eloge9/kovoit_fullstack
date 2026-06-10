@@ -413,7 +413,29 @@ def calculer_score_matching(
     }
 
 
-# ── Tarification proportionnelle ──────────────────────────────────────────────
+# ── Tarification au km par type de véhicule ──────────────────────────────────
+
+TARIF_PAR_VEHICULE: dict[str, int] = {
+    'moto':    30,
+    'voiture': 65,
+    'minibus': 120,
+    'camion':  200,
+}
+
+# Taux par défaut si le type de véhicule est inconnu
+_TARIF_DEFAUT = 65
+
+
+def calculer_prix_par_km(distance_km: float, type_vehicule: str) -> int:
+    """
+    Prix = distance_passager_km × tarif_par_km(type_vehicule).
+    Arrondi au multiple de 25 FCFA supérieur, minimum 25 FCFA.
+    """
+    tarif = TARIF_PAR_VEHICULE.get(str(type_vehicule).lower().strip(), _TARIF_DEFAUT)
+    return max(25, int(math.ceil(distance_km * tarif / 25) * 25))
+
+
+# ── Tarification proportionnelle (legacy — garde pour rétrocompatibilité) ─────
 
 COMMISSION_KOVOIT = 0.10
 
@@ -424,10 +446,7 @@ def calculer_prix_passager(
     prix_total: float,
     commission: float = COMMISSION_KOVOIT,
 ) -> int:
-    """
-    Prix = (distance_passager / distance_totale) × prix_total × (1 + commission).
-    Arrondi au multiple de 25 FCFA supérieur.
-    """
+    """Legacy — utilise calculer_prix_par_km() de préférence."""
     if distance_totale_km <= 0:
         return int(prix_total)
     ratio      = min(1.0, distance_passager_km / distance_totale_km)
@@ -473,15 +492,11 @@ def rechercher_trajets_compatibles_v2(
         if not match["compatible"] or match["score"] < score_minimum:
             continue
 
-        dist_total = trajet.distance_km or _haversine(
-            trajet.depart_lat, trajet.depart_lng,
-            trajet.destination_lat, trajet.destination_lng,
-        )
-        prix = calculer_prix_passager(
-            match["distance_passager_km"],
-            dist_total,
-            float(trajet.cout_total or trajet.prix_par_place or 0),
-        )
+        try:
+            type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
+        except AttributeError:
+            type_vehicule = ''
+        prix = calculer_prix_par_km(match["distance_passager_km"], type_vehicule)
         note = getattr(getattr(trajet, 'conducteur', None), 'note', 0) or 0
 
         results.append({
