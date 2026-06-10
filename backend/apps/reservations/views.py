@@ -95,7 +95,8 @@ class ReservationViewSet(viewsets.GenericViewSet):
                         type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
                     except AttributeError:
                         pass
-                    prix_passager = calculer_prix_par_km(distance_passager, type_vehicule)
+                    places = max(1, int(trajet.places_disponibles or 1))
+                    prix_passager = calculer_prix_par_km(distance_passager, type_vehicule, places)
                 except Exception:
                     pass
 

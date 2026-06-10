@@ -426,13 +426,28 @@ TARIF_PAR_VEHICULE: dict[str, int] = {
 _TARIF_DEFAUT = 65
 
 
-def calculer_prix_par_km(distance_km: float, type_vehicule: str) -> int:
+def calculer_prix_par_km(
+    distance_km: float,
+    type_vehicule: str,
+    places: int = 1,
+) -> int:
     """
-    Prix = distance_passager_km × tarif_par_km(type_vehicule).
-    Arrondi au multiple de 25 FCFA supérieur, minimum 25 FCFA.
+    Prix passager = (distance × tarif_km × (1 + commission)) ÷ places_disponibles.
+    Arrondi à l'entier le plus proche, minimum 25 FCFA.
+
+    Exemples (120 km, Lomé → Kpalimé) :
+        moto    1pl  → 120×30×1.10/1  = 3 960 FCFA
+        voiture 4pl  → 120×65×1.10/4  = 2 145 FCFA
+        minibus 12pl → 120×120×1.10/12 = 1 320 FCFA
+        camion  2pl  → 120×200×1.10/2 = 13 200 FCFA
     """
-    tarif = TARIF_PAR_VEHICULE.get(str(type_vehicule).lower().strip(), _TARIF_DEFAUT)
-    return max(25, int(math.ceil(distance_km * tarif / 25) * 25))
+    tarif           = TARIF_PAR_VEHICULE.get(str(type_vehicule).lower().strip(), _TARIF_DEFAUT)
+    cout_carburant  = distance_km * tarif
+    avec_commission = cout_carburant * (1 + COMMISSION_KOVOIT)
+    places          = max(1, int(places))
+    # round(..., 4) élimine les artefacts flottants avant l'arrondi final
+    prix_unitaire   = round(avec_commission / places, 4)
+    return max(25, round(prix_unitaire))
 
 
 # ── Tarification proportionnelle (legacy — garde pour rétrocompatibilité) ─────
@@ -496,7 +511,8 @@ def rechercher_trajets_compatibles_v2(
             type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
         except AttributeError:
             type_vehicule = ''
-        prix = calculer_prix_par_km(match["distance_passager_km"], type_vehicule)
+        places = max(1, int(trajet.places_disponibles or 1))
+        prix = calculer_prix_par_km(match["distance_passager_km"], type_vehicule, places)
         note = getattr(getattr(trajet, 'conducteur', None), 'note', 0) or 0
 
         results.append({
