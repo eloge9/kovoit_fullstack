@@ -16,7 +16,6 @@ function ActivationCard({ driverStatus }: { driverStatus: string }) {
         DOCUMENTS_MISSING: {
             bg: "bg-gradient-to-br from-warning/10 to-warning/5",
             border: "border-warning/30",
-            icon: "🚀",
             title: "Activez votre compte conducteur",
             desc: "Pour proposer des trajets, accepter des réservations et recevoir des paiements, vous devez d'abord faire vérifier votre identité et vos documents de véhicule.",
             cta: "Commencer la vérification",
@@ -163,15 +162,15 @@ export default function ConducteurDashboard() {
     const driverStatus = verifStatus?.status ?? user?.driver_status ?? "DOCUMENTS_MISSING";
 
     const statsData = [
-        { label: "Trajets proposés",     value: stats.trajetsProposes.toString(),                       sub: "total" },
-        { label: "Réservations reçues",  value: stats.reservationsEnAttente.toString(),                 sub: "en attente" },
-        { label: "Revenus",              value: `${stats.revenusMensuels.toLocaleString("fr-FR")} FCFA`, sub: "ce mois" },
-        { label: "Note",                 value: `${(user?.note ?? 0).toFixed(1)} / 5`,                  sub: "moyenne" },
+        { label: "Trajets proposés", value: stats.trajetsProposes.toString(), sub: "total" },
+        { label: "Réservations reçues", value: stats.reservationsEnAttente.toString(), sub: "en attente" },
+        { label: "Revenus", value: `${stats.revenusMensuels.toLocaleString("fr-FR")} FCFA`, sub: "ce mois" },
+        { label: "Note", value: `${(user?.note ?? 0).toFixed(1)} / 5`, sub: "moyenne" },
     ];
 
     const formatTrajetDate = (dateString: string) => {
-        const date     = new Date(dateString);
-        const today    = new Date();
+        const date = new Date(dateString);
+        const today = new Date();
         const tomorrow = new Date(today);
         tomorrow.setDate(today.getDate() + 1);
         if (date.toDateString() === today.toDateString())
@@ -185,12 +184,12 @@ export default function ConducteurDashboard() {
         .sort((a, b) => new Date(b.date_heure_depart).getTime() - new Date(a.date_heure_depart).getTime())
         .slice(0, 5)
         .map(trajet => ({
-            id:      trajet.id,
-            depart:  trajet.depart,
+            id: trajet.id,
+            depart: trajet.depart,
             arrivee: trajet.destination,
-            date:    formatTrajetDate(trajet.date_heure_depart),
-            places:  trajet.places_restantes,
-            statut:  trajet.statut === "ouvert" ? "actif" : trajet.statut === "en_cours" ? "en cours" : trajet.statut,
+            date: formatTrajetDate(trajet.date_heure_depart),
+            places: trajet.places_restantes,
+            statut: trajet.statut === "ouvert" ? "actif" : trajet.statut === "en_cours" ? "en cours" : trajet.statut,
         }));
 
     return (
@@ -356,9 +355,9 @@ export default function ConducteurDashboard() {
                                 <div className="space-y-3">
                                     {[
                                         { label: "Véhicule", value: `${vehiculePrincipal.marque} ${vehiculePrincipal.modele}` },
-                                        { label: "Type",     value: vehiculePrincipal.type_vehicule },
-                                        { label: "Couleur",  value: vehiculePrincipal.couleur },
-                                        { label: "Plaque",   value: vehiculePrincipal.plaque },
+                                        { label: "Type", value: vehiculePrincipal.type_vehicule },
+                                        { label: "Couleur", value: vehiculePrincipal.couleur },
+                                        { label: "Plaque", value: vehiculePrincipal.plaque },
                                     ].map((item) => (
                                         <div key={item.label} className="flex justify-between items-center">
                                             <span className="text-xs text-base-content/40 uppercase tracking-wide">{item.label}</span>
@@ -391,12 +390,12 @@ export default function ConducteurDashboard() {
                         </div>
                         <div className="divide-y divide-base-200">
                             {[
-                                { href: "/conducteur/verification", label: "Vérification du compte",   highlight: !isActive },
-                                { href: "/conducteur/documents",    label: "Mes documents",             highlight: !isActive },
-                                { href: "/conducteur/reservations", label: "Réservations reçues",       highlight: false },
-                                { href: "/conducteur/historique",   label: "Historique",                highlight: false },
-                                { href: "/conducteur/evaluations",  label: "Évaluations",               highlight: false },
-                                { href: "/conducteur/profil",       label: "Profil & Paramètres",       highlight: false },
+                                { href: "/conducteur/verification", label: "Vérification du compte", highlight: !isActive },
+                                { href: "/conducteur/documents", label: "Mes documents", highlight: !isActive },
+                                { href: "/conducteur/reservations", label: "Réservations reçues", highlight: false },
+                                { href: "/conducteur/historique", label: "Historique", highlight: false },
+                                { href: "/conducteur/evaluations", label: "Évaluations", highlight: false },
+                                { href: "/conducteur/profil", label: "Profil & Paramètres", highlight: false },
                             ].map((item) => (
                                 <Link
                                     key={item.href}

@@ -680,3 +680,99 @@ class Plainte(models.Model):
     
     def __str__(self):
         return f"Plainte {self.titre} - {self.statut}"
+
+
+# ── Journal d'audit administrateur ──────────────────────────────────────────
+class AuditLog(models.Model):
+    ACTION_CHOICES = (
+        # Utilisateurs
+        ('user_suspend',    'Suspension utilisateur'),
+        ('user_activate',   'Activation utilisateur'),
+        ('user_ban',        'Bannissement utilisateur'),
+        ('user_delete',     'Suppression utilisateur'),
+        ('user_role',       'Changement de rôle'),
+        ('doc_validate',    'Validation documents'),
+        ('doc_reject',      'Rejet documents'),
+        # Trajets
+        ('trip_cancel',     'Annulation trajet'),
+        ('trip_delete',     'Suppression trajet'),
+        ('trip_modify',     'Modification trajet'),
+        # Réservations
+        ('resa_cancel',     'Annulation réservation'),
+        ('resa_force',      'Forçage réservation'),
+        # Paiements
+        ('payment_refund',  'Remboursement'),
+        # Évaluations
+        ('eval_hide',       'Masquage évaluation'),
+        ('eval_restore',    'Restauration évaluation'),
+        # Plaintes
+        ('complaint_assign','Assignation plainte'),
+        ('complaint_close', 'Fermeture plainte'),
+        ('complaint_reject','Rejet plainte'),
+        # Messagerie
+        ('msg_read',        'Lecture messages admin'),
+        # Config
+        ('config_update',   'Mise à jour configuration'),
+        # Notifications
+        ('notif_send',      'Envoi notification'),
+        # Connexion
+        ('admin_login',     'Connexion admin'),
+    )
+
+    admin       = models.ForeignKey(
+        Utilisateur, on_delete=models.SET_NULL, null=True,
+        related_name='audit_logs', limit_choices_to={'role': 'admin'}
+    )
+    action      = models.CharField(max_length=30, choices=ACTION_CHOICES, db_index=True)
+    cible_type  = models.CharField(max_length=30, blank=True)
+    cible_id    = models.CharField(max_length=50, blank=True)
+    description = models.TextField()
+    ip_adresse  = models.GenericIPAddressField(null=True, blank=True)
+    user_agent  = models.CharField(max_length=255, blank=True)
+    date_action = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-date_action']
+        indexes = [
+            models.Index(fields=['admin', '-date_action']),
+            models.Index(fields=['action', '-date_action']),
+            models.Index(fields=['cible_type', 'cible_id']),
+        ]
+
+    def __str__(self):
+        return f"[{self.date_action.strftime('%d/%m/%Y %H:%M')}] {self.admin} — {self.action}"
+
+
+# ── Configuration système ────────────────────────────────────────────────────
+class SysConfig(models.Model):
+    cle              = models.CharField(max_length=60, unique=True, db_index=True)
+    valeur           = models.TextField()
+    description      = models.CharField(max_length=255, blank=True)
+    modifie_par      = models.ForeignKey(
+        Utilisateur, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='configs_modifiees'
+    )
+    date_modification = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['cle']
+        verbose_name        = "Configuration système"
+        verbose_name_plural = "Configurations système"
+
+    def __str__(self):
+        return f"{self.cle} = {self.valeur}"
+
+    @classmethod
+    def get(cls, cle: str, default=None):
+        try:
+            return cls.objects.get(cle=cle).valeur
+        except cls.DoesNotExist:
+            return default
+
+    @classmethod
+    def set(cls, cle: str, valeur, description: str = '', admin=None):
+        obj, _ = cls.objects.update_or_create(
+            cle=cle,
+            defaults={'valeur': str(valeur), 'description': description, 'modifie_par': admin}
+        )
+        return obj

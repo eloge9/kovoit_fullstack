@@ -7,11 +7,14 @@ import { getApiUrl } from "@/src/utils/apiUtils";
 interface Paiement {
     id: number;
     montant: number;
-    moyen_paiement: string;
+    commission: number;
+    net: number;
+    moyen: string;
     statut: string;
-    date_creation: string;
-    passager_details: { username: string };
-    conducteur_details: { username: string };
+    date: string;
+    passager: string;
+    conducteur: string;
+    trajet: string;
 }
 
 export default function AdminPaiements() {
@@ -37,7 +40,7 @@ export default function AdminPaiements() {
 
                 if (!response.ok) throw new Error("Erreur");
                 const data = await response.json();
-                setPaiements(Array.isArray(data) ? data : []);
+                setPaiements(Array.isArray(data.resultats) ? data.resultats : []);
 
                 // Stats
                 const statsResponse = await fetch(
@@ -86,27 +89,27 @@ export default function AdminPaiements() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-3">
-                            💳 Total paiements
+                            Total paiements
                         </p>
-                        <p className="text-2xl font-bold">{stats.nombre_transactions || 0}</p>
+                        <p className="text-2xl font-bold">{stats.nb_transactions || 0}</p>
                     </div>
                     <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-3">
-                            💰 Revenus totaux
+                            Revenus totaux
                         </p>
-                        <p className="text-2xl font-bold">{Math.round(stats.total_revenus || 0).toLocaleString("fr-FR")} FCFA</p>
+                        <p className="text-2xl font-bold">{Math.round(stats.ca_total || 0).toLocaleString("fr-FR")} FCFA</p>
                     </div>
                     <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-3">
-                            🎯 Commission KoVoit (10%)
+                            Commission KoVoit (10%)
                         </p>
-                        <p className="text-2xl font-bold text-success">{Math.round(stats.commission_kovoit_10percent || 0).toLocaleString("fr-FR")} FCFA</p>
+                        <p className="text-2xl font-bold text-success">{Math.round(stats.commission || 0).toLocaleString("fr-FR")} FCFA</p>
                     </div>
                     <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-3">
-                            🚗 Conducteurs (90%)
+                            Conducteurs (90%)
                         </p>
-                        <p className="text-2xl font-bold text-primary">{Math.round(stats.montant_aux_conducteurs || 0).toLocaleString("fr-FR")} FCFA</p>
+                        <p className="text-2xl font-bold text-primary">{Math.round(stats.net_conducteurs || 0).toLocaleString("fr-FR")} FCFA</p>
                     </div>
                 </div>
             )}
@@ -136,7 +139,9 @@ export default function AdminPaiements() {
                             <tr>
                                 <th className="text-xs uppercase">Passager</th>
                                 <th className="text-xs uppercase">Conducteur</th>
+                                <th className="text-xs uppercase">Trajet</th>
                                 <th className="text-xs uppercase">Montant</th>
+                                <th className="text-xs uppercase">Commission</th>
                                 <th className="text-xs uppercase">Moyen</th>
                                 <th className="text-xs uppercase">Date</th>
                                 <th className="text-xs uppercase">Statut</th>
@@ -145,24 +150,32 @@ export default function AdminPaiements() {
                         <tbody>
                             {paiements.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="text-center py-8 text-base-content/40">
+                                    <td colSpan={8} className="text-center py-8 text-base-content/40">
                                         Aucun paiement trouvé
                                     </td>
                                 </tr>
                             ) : (
                                 paiements.map((p) => (
                                     <tr key={p.id} className="hover:bg-base-200/50">
-                                        <td>{p.passager_details?.username}</td>
-                                        <td>{p.conducteur_details?.username}</td>
-                                        <td className="font-medium">{Math.round(p.montant).toLocaleString("fr-FR")} FCFA</td>
-                                        <td>
-                                            <div className="badge badge-sm">{p.moyen_paiement}</div>
+                                        <td className="text-sm">{p.passager}</td>
+                                        <td className="text-sm">{p.conducteur}</td>
+                                        <td className="text-xs text-base-content/60">{p.trajet}</td>
+                                        <td className="font-medium text-sm">
+                                            {Math.round(p.montant).toLocaleString("fr-FR")} FCFA
                                         </td>
-                                        <td className="text-xs">{formatDate(p.date_creation)}</td>
+                                        <td className="text-xs text-success">
+                                            {Math.round(p.commission).toLocaleString("fr-FR")} FCFA
+                                        </td>
                                         <td>
-                                            <div className={`badge badge-sm ${p.statut === "CONFIRME" || p.statut === "PAYEE" ? "badge-success" :
-                                                p.statut === "EN_ATTENTE_CONFIRMATION" || p.statut === "EN_ATTENTE" ? "badge-warning" :
-                                                    "badge-error"
+                                            <div className="badge badge-sm badge-ghost">{p.moyen}</div>
+                                        </td>
+                                        <td className="text-xs">{p.date ? formatDate(p.date) : "—"}</td>
+                                        <td>
+                                            <div className={`badge badge-sm ${p.statut === "CONFIRME" || p.statut === "PAYEE"
+                                                    ? "badge-success"
+                                                    : p.statut === "EN_ATTENTE_CONFIRMATION" || p.statut === "EN_ATTENTE"
+                                                        ? "badge-warning"
+                                                        : "badge-error"
                                                 }`}>
                                                 {p.statut}
                                             </div>

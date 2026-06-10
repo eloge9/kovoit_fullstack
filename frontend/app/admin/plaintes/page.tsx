@@ -120,7 +120,7 @@ export default function AdminPlaintes() {
                 <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">
                     Gestion
                 </p>
-                <h1 className="text-3xl font-bold text-base-content tracking-tight">⚠️ Plaintes & Signalements</h1>
+                <h1 className="text-3xl font-bold text-base-content tracking-tight">Plaintes & Signalements</h1>
             </div>
 
             {/* FILTRES */}
@@ -169,14 +169,14 @@ export default function AdminPlaintes() {
                                 <div className="flex-1">
                                     <div className="flex items-start gap-3 mb-3">
                                         <div className={`badge badge-sm ${p.type_plainte === "comportement" ? "badge-warning" :
-                                                p.type_plainte === "vehicule" ? "badge-error" :
-                                                    "badge-info"
+                                            p.type_plainte === "vehicule" ? "badge-error" :
+                                                "badge-info"
                                             }`}>
                                             {p.type_plainte}
                                         </div>
                                         <div className={`badge badge-sm ${p.statut === "en_attente" ? "badge-error" :
-                                                p.statut === "en_cours" ? "badge-warning" :
-                                                    "badge-success"
+                                            p.statut === "en_cours" ? "badge-warning" :
+                                                "badge-success"
                                             }`}>
                                             {p.statut}
                                         </div>

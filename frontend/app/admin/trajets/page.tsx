@@ -8,15 +8,13 @@ interface Trajet {
     id: number;
     depart: string;
     destination: string;
-    conducteur_details: { username: string };
+    conducteur: string;
     distance_km: number;
-    cout_total: number;
     prix_par_place: number;
-    date_heure_depart: string;
+    date_depart: string;
     statut: string;
-    reservations_count: number;
-    revenus_total: number;
-    commission_kovoit: number;
+    nb_reservations: number;
+    vehicule: string | null;
 }
 
 export default function AdminTrajets() {
@@ -41,7 +39,7 @@ export default function AdminTrajets() {
 
                 if (!response.ok) throw new Error("Erreur");
                 const data = await response.json();
-                setTrajets(Array.isArray(data) ? data : []);
+                setTrajets(Array.isArray(data.resultats) ? data.resultats : []);
             } catch (err: any) {
                 setError(err.message);
             } finally {
@@ -96,16 +94,17 @@ export default function AdminTrajets() {
                             <tr>
                                 <th className="text-xs uppercase">Trajet</th>
                                 <th className="text-xs uppercase">Conducteur</th>
-                                <th className="text-xs uppercase">Date</th>
+                                <th className="text-xs uppercase">Véhicule</th>
+                                <th className="text-xs uppercase">Date départ</th>
                                 <th className="text-xs uppercase">Réservations</th>
-                                <th className="text-xs uppercase">Revenus</th>
+                                <th className="text-xs uppercase">Prix/place</th>
                                 <th className="text-xs uppercase">Statut</th>
                             </tr>
                         </thead>
                         <tbody>
                             {trajets.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="text-center py-8 text-base-content/40">
+                                    <td colSpan={7} className="text-center py-8 text-base-content/40">
                                         Aucun trajet trouvé
                                     </td>
                                 </tr>
@@ -115,28 +114,29 @@ export default function AdminTrajets() {
                                         <td>
                                             <div>
                                                 <p className="font-medium">{t.depart} → {t.destination}</p>
-                                                <p className="text-xs text-base-content/60">{t.distance_km} km</p>
+                                                {t.distance_km && (
+                                                    <p className="text-xs text-base-content/60">{t.distance_km} km</p>
+                                                )}
                                             </div>
                                         </td>
-                                        <td>{t.conducteur_details?.username}</td>
-                                        <td className="text-xs">{formatDate(t.date_heure_depart)}</td>
+                                        <td className="text-sm">{t.conducteur}</td>
+                                        <td className="text-xs text-base-content/60">{t.vehicule || "—"}</td>
+                                        <td className="text-xs">{formatDate(t.date_depart)}</td>
                                         <td>
                                             <div className="badge badge-sm badge-primary">
-                                                {t.reservations_count}
+                                                {t.nb_reservations}
                                             </div>
                                         </td>
-                                        <td>
-                                            <div className="text-xs">
-                                                <p className="font-medium">{Math.round(t.revenus_total).toLocaleString("fr-FR")} FCFA</p>
-                                                <p className="text-base-content/60">KoVoit: {Math.round(t.commission_kovoit).toLocaleString("fr-FR")} FCFA</p>
-                                            </div>
+                                        <td className="text-sm font-medium">
+                                            {Math.round(t.prix_par_place).toLocaleString("fr-FR")} FCFA
                                         </td>
                                         <td>
-                                            <div className={`badge badge-sm ${t.statut === "termine" ? "badge-success" :
-                                                t.statut === "annule" ? "badge-error" :
-                                                    t.statut === "en_cours" ? "badge-warning" :
-                                                        "badge-info"
-                                                }`}>
+                                            <div className={`badge badge-sm ${
+                                                t.statut === "termine" ? "badge-success" :
+                                                t.statut === "annule"  ? "badge-error"   :
+                                                t.statut === "en_cours"? "badge-warning"  :
+                                                "badge-info"
+                                            }`}>
                                                 {t.statut}
                                             </div>
                                         </td>

@@ -27,6 +27,7 @@ export default function AdminUtilisateurs() {
     const [users, setUsers] = useState<Utilisateur[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [search, setSearch] = useState<string>("");
     const [filterRole, setFilterRole] = useState<string>("");
     const [filterActif, setFilterActif] = useState<string>("");
     const [filterValidation, setFilterValidation] = useState<string>("");
@@ -36,6 +37,7 @@ export default function AdminUtilisateurs() {
             try {
                 let url = `${getApiUrl()}/utilisateurs/admin/utilisateurs/`;
                 const params = new URLSearchParams();
+                if (search)           params.append("q",                 search);
                 if (filterRole)       params.append("role",              filterRole);
                 if (filterActif)      params.append("actif",             filterActif);
                 if (filterValidation) params.append("statut_validation", filterValidation);
@@ -50,7 +52,7 @@ export default function AdminUtilisateurs() {
 
                 if (!response.ok) throw new Error("Erreur lors du chargement");
                 const data = await response.json();
-                setUsers(Array.isArray(data) ? data : []);
+                setUsers(Array.isArray(data.resultats) ? data.resultats : []);
             } catch (err: unknown) {
                 setError(err instanceof Error ? err.message : String(err));
             } finally {
@@ -59,7 +61,7 @@ export default function AdminUtilisateurs() {
         };
 
         if (token) fetchUsers();
-    }, [token, filterRole, filterActif, filterValidation]);
+    }, [token, search, filterRole, filterActif, filterValidation]);
 
     const handleSuspendre = async (userId: string) => {
         if (!confirm("Êtes-vous sûr ?")) return;
@@ -171,6 +173,13 @@ export default function AdminUtilisateurs() {
                 <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
                     Filtres
                 </p>
+                <input
+                    type="text"
+                    placeholder="Rechercher par nom, prénom, nom d'utilisateur ou email..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="input input-bordered input-sm rounded-xl w-full"
+                />
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <select
                         value={filterRole}
@@ -267,54 +276,56 @@ export default function AdminUtilisateurs() {
                                             <span className="text-sm">{u.note?.toFixed(1) || "—"}</span>
                                         </td>
                                         <td>
-                                            <div className="dropdown dropdown-end">
-                                                <button className="btn btn-ghost btn-xs">⋮</button>
-                                                <ul className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-56">
-                                                    {/* Valider / Rejeter documents */}
-                                                    {u.statut_validation === "en_attente" && (
-                                                        <>
-                                                            <li>
-                                                                <a onClick={() => handleValiderDocuments(u.id)} className="text-success">
-                                                                    ✅ Valider documents
-                                                                </a>
-                                                            </li>
-                                                            <li>
-                                                                <a onClick={() => handleRejeterDocuments(u.id)} className="text-error">
-                                                                    ❌ Rejeter documents
-                                                                </a>
-                                                            </li>
-                                                        </>
-                                                    )}
-                                                    {u.statut_validation === "rejete" && (
-                                                        <li>
-                                                            <a onClick={() => handleValiderDocuments(u.id)} className="text-success">
-                                                                ✅ Valider quand même
-                                                            </a>
-                                                        </li>
-                                                    )}
-                                                    {/* Ancien bouton conducteur */}
-                                                    {u.role === "conducteur" && !u.is_active && u.statut_validation !== "en_attente" && (
-                                                        <li>
-                                                            <a onClick={() => handleValiderConducteur(u.id)}>
-                                                                ✓ Activer conducteur
-                                                            </a>
-                                                        </li>
-                                                    )}
-                                                    <li className="divider my-0" />
-                                                    {u.is_active ? (
-                                                        <li>
-                                                            <a onClick={() => handleSuspendre(u.id)} className="text-warning">
-                                                                ⚠️ Suspendre
-                                                            </a>
-                                                        </li>
-                                                    ) : (
-                                                        <li>
-                                                            <a onClick={() => handleActiver(u.id)} className="text-success">
-                                                                ✓ Activer
-                                                            </a>
-                                                        </li>
-                                                    )}
-                                                </ul>
+                                            <div className="flex flex-wrap gap-1">
+                                                {/* Valider / Rejeter documents */}
+                                                {u.statut_validation === "en_attente" && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleValiderDocuments(u.id)}
+                                                            className="btn btn-success btn-xs rounded-lg"
+                                                        >
+                                                            ✅ Valider
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleRejeterDocuments(u.id)}
+                                                            className="btn btn-error btn-xs rounded-lg"
+                                                        >
+                                                            ❌ Rejeter
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {u.statut_validation === "rejete" && (
+                                                    <button
+                                                        onClick={() => handleValiderDocuments(u.id)}
+                                                        className="btn btn-success btn-xs rounded-lg"
+                                                    >
+                                                        ✅ Valider
+                                                    </button>
+                                                )}
+                                                {u.role === "conducteur" && !u.is_active && u.statut_validation !== "en_attente" && (
+                                                    <button
+                                                        onClick={() => handleValiderConducteur(u.id)}
+                                                        className="btn btn-info btn-xs rounded-lg"
+                                                    >
+                                                        ✓ Activer
+                                                    </button>
+                                                )}
+                                                {/* Suspendre / Activer */}
+                                                {u.is_active ? (
+                                                    <button
+                                                        onClick={() => handleSuspendre(u.id)}
+                                                        className="btn btn-warning btn-xs rounded-lg"
+                                                    >
+                                                        Suspendre
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleActiver(u.id)}
+                                                        className="btn btn-success btn-xs rounded-lg"
+                                                    >
+                                                        Activer
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
