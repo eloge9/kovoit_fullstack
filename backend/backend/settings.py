@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.messagerie',
     'apps.statistiques',
     'apps.modeles',
+    'apps.verification',
 
     # DRF et CORS
     'rest_framework',
@@ -182,6 +183,33 @@ PAYGATE_WEBHOOK_SECRET = os.getenv('PAYGATE_WEBHOOK_SECRET')
 # ── Africa's Talking (SMS SOS) ────────────────────────────────────────────
 AFRICASTALKING_API_KEY  = os.getenv('AFRICASTALKING_API_KEY', '')
 AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
+
+# ── IA / Anthropic ────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+
+# ── Celery ────────────────────────────────────────────────────────────────────
+CELERY_BROKER_URL         = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+CELERY_RESULT_BACKEND     = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/2')
+CELERY_ACCEPT_CONTENT     = ['json']
+CELERY_TASK_SERIALIZER    = 'json'
+CELERY_RESULT_SERIALIZER  = 'json'
+CELERY_TIMEZONE           = TIME_ZONE
+
+# Tâche cron quotidienne pour vérifier les expirations
+CELERY_BEAT_SCHEDULE = {
+    'check-document-expirations': {
+        'task':     'apps.verification.tasks.check_document_expirations',
+        'schedule': 86400,  # Toutes les 24h
+    },
+    'auto-process-signals': {
+        'task':     'apps.verification.tasks.auto_process_signals',
+        'schedule': 3600,  # Toutes les heures
+    },
+}
+
+# ── Sécurité fichiers ────────────────────────────────────────────────────────
+VERIFICATION_MAX_FILE_SIZE_MB = 10
+VERIFICATION_ALLOWED_TYPES    = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'

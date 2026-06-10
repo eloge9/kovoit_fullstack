@@ -5,28 +5,120 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/src/hooks/useAuth";
+import { useDriverVerification } from "@/src/hooks/useDriverVerification";
 import { deconnexion } from "@/src/services/auth.service";
 import { getMediaUrl } from "@/src/utils/imageUtils";
+import { DRIVER_STATUS_LABELS } from "@/src/services/verification.service";
 
 const navItems = [
-    { href: "/conducteur/dashboard", label: "Tableau de bord" },
-    { href: "/conducteur/trajets", label: "Mes trajets" },
-    { href: "/conducteur/trajets/create", label: "Proposer" },
-    { href: "/conducteur/reservations", label: "Réservations" },
-    { href: "/conducteur/historique", label: "Historique" },
+    { href: "/conducteur/dashboard",       label: "Tableau de bord" },
+    { href: "/conducteur/trajets",         label: "Mes trajets" },
+    { href: "/conducteur/reservations",    label: "Réservations" },
+    { href: "/conducteur/historique",      label: "Historique" },
 ];
 
 const moreItems = [
-    { href: "/communication/messages", label: "Messages" },
-    { href: "/conducteur/economie", label: "Économies" },
-    { href: "/conducteur/evaluations", label: "Évaluations" },
-    { href: "/conducteur/profil", label: "Profil & Paramètres" },
+    { href: "/communication/messages",     label: "Messages" },
+    { href: "/conducteur/economie",        label: "Économies" },
+    { href: "/conducteur/evaluations",     label: "Évaluations" },
+    { href: "/conducteur/profil",          label: "Profil & Paramètres" },
+    { href: "/conducteur/verification",    label: "Mon compte" },
+];
+
+const STATUS_BANNER: Record<string, {
+    bg: string;
+    icon: string;
+    text: string;
+    cta: string;
+    ctaHref: string;
+    ctaCls: string;
+}> = {
+    DOCUMENTS_MISSING: {
+        bg:      "bg-warning/10 border-b border-warning/30",
+        icon:    "⚠️",
+        text:    "Votre compte conducteur n'est pas encore activé. Envoyez vos documents pour commencer.",
+        cta:     "Activer mon compte",
+        ctaHref: "/conducteur/verification",
+        ctaCls:  "btn-warning",
+    },
+    DRAFT: {
+        bg:      "bg-warning/10 border-b border-warning/30",
+        icon:    "📋",
+        text:    "Votre dossier est en brouillon. Complétez vos documents pour activer votre compte.",
+        cta:     "Compléter le dossier",
+        ctaHref: "/conducteur/documents",
+        ctaCls:  "btn-warning",
+    },
+    PENDING_AI_REVIEW: {
+        bg:      "bg-info/10 border-b border-info/30",
+        icon:    "🤖",
+        text:    "Vos documents sont en cours de vérification par notre IA. Cela prend quelques minutes.",
+        cta:     "Voir le statut",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-info",
+    },
+    AI_APPROVED: {
+        bg:      "bg-info/10 border-b border-info/30",
+        icon:    "✅",
+        text:    "Vérification IA réussie ! Votre dossier est en attente de validation par un administrateur.",
+        cta:     "Voir le statut",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-info",
+    },
+    AI_REJECTED: {
+        bg:      "bg-error/10 border-b border-error/30",
+        icon:    "❌",
+        text:    "Votre dossier a été rejeté par la vérification IA. Vérifiez vos documents et recommencez.",
+        cta:     "Corriger mes documents",
+        ctaHref: "/conducteur/documents",
+        ctaCls:  "btn-error",
+    },
+    PENDING_ADMIN_REVIEW: {
+        bg:      "bg-info/10 border-b border-info/30",
+        icon:    "⏳",
+        text:    "Votre dossier est en attente de validation par un administrateur. Vous serez notifié.",
+        cta:     "Voir le statut",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-ghost",
+    },
+    SUSPENDED: {
+        bg:      "bg-warning/10 border-b border-warning/30",
+        icon:    "🚫",
+        text:    "Votre compte est suspendu. Contactez le support ou consultez le motif.",
+        cta:     "Voir le motif",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-warning",
+    },
+    BLOCKED: {
+        bg:      "bg-error/10 border-b border-error/30",
+        icon:    "🔒",
+        text:    "Votre compte est bloqué. Contactez le support.",
+        cta:     "Contacter le support",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-error",
+    },
+    REJECTED: {
+        bg:      "bg-error/10 border-b border-error/30",
+        icon:    "❌",
+        text:    "Votre dossier a été rejeté. Vérifiez le motif et soumettez un nouveau dossier.",
+        cta:     "Voir le motif",
+        ctaHref: "/conducteur/statut",
+        ctaCls:  "btn-error",
+    },
+};
+
+// Pages où la bannière ne s'affiche pas (déjà dans le bon contexte)
+const BANNER_HIDDEN_ON = [
+    "/conducteur/verification",
+    "/conducteur/documents",
+    "/conducteur/statut",
 ];
 
 export default function ConducteurLayout({ children }: { children: React.ReactNode }) {
-    const pathname = usePathname();
-    const router = useRouter();
+    const pathname  = usePathname();
+    const router    = useRouter();
     const { user, logout } = useAuth();
+    const { isActive, loading: verifLoading, status: verifStatus } = useDriverVerification();
     const [menuOpen, setMenuOpen] = useState(false);
 
     const handleLogout = async () => {
@@ -38,7 +130,12 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
         router.push("/auth/connexion");
     };
 
-    const isActive = (href: string) => pathname === href;
+    const isActive_ = (href: string) => pathname === href;
+
+    // Bannière à afficher ?
+    const driverSt      = verifStatus?.status ?? user?.driver_status ?? "DOCUMENTS_MISSING";
+    const showBanner    = !verifLoading && !isActive && !BANNER_HIDDEN_ON.includes(pathname);
+    const bannerConfig  = STATUS_BANNER[driverSt];
 
     return (
         <div data-theme="winter" className="min-h-screen bg-base-200">
@@ -65,7 +162,7 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                 <Link
                                     key={item.href}
                                     href={item.href}
-                                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${isActive(item.href)
+                                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${isActive_(item.href)
                                         ? "bg-primary text-primary-content font-medium"
                                         : "text-base-content/60 hover:text-base-content hover:bg-base-200"
                                         }`}
@@ -74,13 +171,30 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                 </Link>
                             ))}
 
+                            {/* Proposer — masqué si pas actif */}
+                            {isActive ? (
+                                <Link
+                                    href="/conducteur/trajets/create"
+                                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${isActive_("/conducteur/trajets/create")
+                                        ? "bg-primary text-primary-content font-medium"
+                                        : "text-base-content/60 hover:text-base-content hover:bg-base-200"
+                                        }`}
+                                >
+                                    Proposer
+                                </Link>
+                            ) : (
+                                <Link
+                                    href="/conducteur/verification"
+                                    className="px-3 py-1.5 rounded-lg text-sm text-warning font-medium hover:bg-warning/10 transition-all flex items-center gap-1"
+                                >
+                                    <span className="text-xs">⚠️</span>
+                                    Activer le compte
+                                </Link>
+                            )}
+
                             {/* Plus */}
                             <div className="dropdown">
-                                <div
-                                    tabIndex={0}
-                                    role="button"
-                                    className="px-3 py-1.5 rounded-lg text-sm text-base-content/60 hover:text-base-content hover:bg-base-200 cursor-pointer transition-all"
-                                >
+                                <div tabIndex={0} role="button" className="px-3 py-1.5 rounded-lg text-sm text-base-content/60 hover:text-base-content hover:bg-base-200 cursor-pointer transition-all">
                                     Plus
                                 </div>
                                 <ul tabIndex={0} className="dropdown-content bg-base-100 border border-base-200 rounded-xl shadow-lg w-48 p-1 mt-1 z-50">
@@ -88,7 +202,7 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                         <li key={item.href}>
                                             <Link
                                                 href={item.href}
-                                                className={`block px-3 py-2 rounded-lg text-sm transition-colors ${isActive(item.href)
+                                                className={`block px-3 py-2 rounded-lg text-sm transition-colors ${isActive_(item.href)
                                                     ? "bg-primary/10 text-primary font-medium"
                                                     : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
                                                     }`}
@@ -103,8 +217,6 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
 
                         {/* Droite */}
                         <div className="flex items-center gap-2">
-
-                            {/* Avatar dropdown */}
                             <div className="dropdown dropdown-end">
                                 <div tabIndex={0} role="button" className="flex items-center gap-2 cursor-pointer px-2 py-1 rounded-xl hover:bg-base-200 transition-colors">
                                     <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -126,28 +238,29 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                             {user?.first_name} {user?.last_name}
                                         </p>
                                         <p className="text-xs text-base-content/40">{user?.email}</p>
+                                        {!isActive && (
+                                            <p className="text-xs text-warning font-medium mt-0.5">
+                                                ⚠️ Compte non activé
+                                            </p>
+                                        )}
                                     </li>
                                     <li>
-                                        <Link
-                                            href="/conducteur/profil"
-                                            className="block px-3 py-2 rounded-lg text-sm text-base-content/70 hover:bg-base-200 hover:text-base-content transition-colors"
-                                        >
+                                        <Link href="/conducteur/profil" className="block px-3 py-2 rounded-lg text-sm text-base-content/70 hover:bg-base-200 hover:text-base-content transition-colors">
                                             Profil & Paramètres
                                         </Link>
                                     </li>
                                     <li>
-                                        <Link
-                                            href="/passager/dashboard"
-                                            className="block px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors"
-                                        >
+                                        <Link href="/conducteur/verification" className="block px-3 py-2 rounded-lg text-sm text-base-content/70 hover:bg-base-200 hover:text-base-content transition-colors">
+                                            Vérification du compte
+                                        </Link>
+                                    </li>
+                                    <li>
+                                        <Link href="/passager/dashboard" className="block px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors">
                                             Passer en mode Passager
                                         </Link>
                                     </li>
                                     <li className="border-t border-base-200 mt-1 pt-1">
-                                        <button
-                                            onClick={handleLogout}
-                                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-error hover:bg-error/5 transition-colors"
-                                        >
+                                        <button onClick={handleLogout} className="w-full text-left px-3 py-2 rounded-lg text-sm text-error hover:bg-error/5 transition-colors">
                                             Déconnexion
                                         </button>
                                     </li>
@@ -155,11 +268,7 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                             </div>
 
                             {/* Burger mobile */}
-                            <button
-                                className="btn btn-ghost btn-sm btn-square lg:hidden"
-                                onClick={() => setMenuOpen(!menuOpen)}
-                                aria-label="Menu"
-                            >
+                            <button className="btn btn-ghost btn-sm btn-square lg:hidden" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     {menuOpen
                                         ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
@@ -180,7 +289,7 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                     key={item.href}
                                     href={item.href}
                                     onClick={() => setMenuOpen(false)}
-                                    className={`px-3 py-2.5 rounded-xl text-sm transition-colors ${isActive(item.href)
+                                    className={`px-3 py-2.5 rounded-xl text-sm transition-colors ${isActive_(item.href)
                                         ? "bg-primary text-primary-content font-medium"
                                         : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
                                         }`}
@@ -188,18 +297,20 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                     {item.label}
                                 </Link>
                             ))}
-                            <div className="border-t border-base-200 mt-2 pt-2 space-y-1">
+                            {!isActive && (
                                 <Link
-                                    href="/passager/dashboard"
+                                    href="/conducteur/verification"
                                     onClick={() => setMenuOpen(false)}
-                                    className="block px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5"
+                                    className="px-3 py-2.5 rounded-xl text-sm text-warning font-semibold hover:bg-warning/10"
                                 >
+                                    ⚠️ Activer mon compte conducteur
+                                </Link>
+                            )}
+                            <div className="border-t border-base-200 mt-2 pt-2 space-y-1">
+                                <Link href="/passager/dashboard" onClick={() => setMenuOpen(false)} className="block px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5">
                                     Passer en mode Passager
                                 </Link>
-                                <button
-                                    onClick={handleLogout}
-                                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-error hover:bg-error/5"
-                                >
+                                <button onClick={handleLogout} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-error hover:bg-error/5">
                                     Déconnexion
                                 </button>
                             </div>
@@ -207,6 +318,24 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                     </div>
                 )}
             </header>
+
+            {/* BANNIÈRE D'ACTIVATION — persistante si compte non actif */}
+            {showBanner && bannerConfig && (
+                <div className={`${bannerConfig.bg}`}>
+                    <div className="max-w-7xl mx-auto px-4 lg:px-8 py-3 flex items-center justify-between gap-4 flex-wrap">
+                        <p className="text-sm text-base-content/80 flex items-center gap-2">
+                            <span>{bannerConfig.icon}</span>
+                            {bannerConfig.text}
+                        </p>
+                        <Link
+                            href={bannerConfig.ctaHref}
+                            className={`btn btn-sm rounded-full shrink-0 ${bannerConfig.ctaCls}`}
+                        >
+                            {bannerConfig.cta}
+                        </Link>
+                    </div>
+                </div>
+            )}
 
             {/* CONTENU */}
             <main className="max-w-7xl mx-auto px-4 lg:px-8 py-8">

@@ -18,7 +18,13 @@ interface ReservationDetail {
     conducteur: string;
     conducteur_note: number;
     prix_par_place: number;
-    statut: "en_attente" | "confirmee" | "declinee" | "terminee";
+    prix_passager?: number;
+    code_embarquement?: string;
+    statut_embarquement?: "en_attente" | "embarque" | "depose";
+    heure_embarquement?: string;
+    heure_depose?: string;
+    penalite_annulation?: number;
+    statut: "en_attente" | "confirmee" | "declinee" | "terminee" | "annulee";
     date_reservation: string;
     trajet_info?: Trajet;
 }
@@ -82,11 +88,20 @@ export default function DetailReservationPage() {
     };
 
     const handleAnnuler = async () => {
-        if (!confirm("Confirmer l'annulation de cette réservation ?")) return;
+        // Avertir si annulation tardive (<2h avant départ)
+        const trajetDate = reservation?.date_depart ? new Date(reservation.date_depart) : null;
+        const tardive = trajetDate && (trajetDate.getTime() - Date.now()) < 2 * 3600 * 1000;
+        const msg = tardive
+            ? "Ce trajet part dans moins de 2 heures. Une pénalité de 20% s'applique. Confirmer l'annulation ?"
+            : "Confirmer l'annulation de cette réservation ?";
+        if (!confirm(msg)) return;
         setAnnulation(true);
         setError(null);
         try {
-            await api(`/reservations/${id}/annuler/`, "POST");
+            const res = await api(`/reservations/${id}/annuler/`, "POST");
+            if (res?.penalite_fcfa > 0) {
+                alert(`Annulation enregistrée. Pénalité appliquée : ${res.penalite_fcfa.toLocaleString("fr-FR")} FCFA.`);
+            }
             router.push("/passager/reservations");
         } catch (err: any) {
             setError(err.response?.data?.error || "Erreur lors de l'annulation.");
@@ -317,47 +332,61 @@ export default function DetailReservationPage() {
                 </div>
             </div>
 
-            {/* QR CODE — visible si confirmée */}
+            {/* CODE D'EMBARQUEMENT KVT-XXXX — visible si confirmée */}
             {reservation.statut === "confirmee" && (
                 <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                     <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-4">
                         Code d'embarquement
                     </p>
-                    {qrToken ? (
+
+                    {/* Statut d'embarquement */}
+                    {reservation.statut_embarquement && reservation.statut_embarquement !== "en_attente" && (
+                        <div className={`mb-4 rounded-xl px-4 py-3 ${reservation.statut_embarquement === "embarque" ? "bg-success/10 border border-success/20" : "bg-info/10 border border-info/20"}`}>
+                            <p className={`text-sm font-medium ${reservation.statut_embarquement === "embarque" ? "text-success" : "text-info"}`}>
+                                {reservation.statut_embarquement === "embarque"
+                                    ? `Embarqué${reservation.heure_embarquement ? " — " + new Date(reservation.heure_embarquement).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""}`
+                                    : `Déposé${reservation.heure_depose ? " — " + new Date(reservation.heure_depose).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""}`
+                                }
+                            </p>
+                        </div>
+                    )}
+
+                    {/* PIN KVT-XXXX */}
+                    {reservation.code_embarquement ? (
                         <div className="text-center space-y-3">
-                            <div className="inline-block bg-base-200 rounded-2xl p-6">
-                                <p className="font-mono text-4xl font-bold tracking-[0.3em] text-primary select-all">
-                                    {qrToken}
+                            <p className="text-xs text-base-content/50 mb-2">
+                                Montrez ce code au conducteur
+                            </p>
+                            <div className="inline-block bg-primary/5 border-2 border-primary/20 rounded-2xl px-8 py-5">
+                                <p className="font-mono text-4xl font-black tracking-[0.25em] text-primary select-all">
+                                    {reservation.code_embarquement}
                                 </p>
                             </div>
                             <p className="text-xs text-base-content/40">
-                                Présentez ce code au conducteur pour valider votre embarquement.
-                                Valide 1 heure.
+                                Code unique de ce trajet — ne change pas.
                             </p>
-                            <button
-                                onClick={() => setQrToken(null)}
-                                className="btn btn-ghost btn-xs rounded-full"
-                            >
-                                Masquer
-                            </button>
                         </div>
                     ) : (
-                        <button
-                            onClick={handleQrCode}
-                            disabled={qrLoading}
-                            className="btn btn-outline btn-primary rounded-full w-full gap-2"
-                        >
-                            {qrLoading
-                                ? <span className="loading loading-spinner loading-sm" />
-                                : (
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                            d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5a.5.5 0 11-1 0 .5.5 0 011 0zM6.5 8.5a.5.5 0 11-1 0 .5.5 0 011 0z" />
-                                    </svg>
-                                )
-                            }
-                            Afficher mon code d'embarquement
-                        </button>
+                        /* Fallback : ancien token HMAC */
+                        <>
+                            {qrToken ? (
+                                <div className="text-center space-y-3">
+                                    <div className="inline-block bg-base-200 rounded-2xl p-6">
+                                        <p className="font-mono text-4xl font-bold tracking-[0.3em] text-primary select-all">
+                                            {qrToken}
+                                        </p>
+                                    </div>
+                                    <p className="text-xs text-base-content/40">
+                                        Code valide 1 heure.
+                                    </p>
+                                    <button onClick={() => setQrToken(null)} className="btn btn-ghost btn-xs rounded-full">Masquer</button>
+                                </div>
+                            ) : (
+                                <button onClick={handleQrCode} disabled={qrLoading} className="btn btn-outline btn-primary rounded-full w-full">
+                                    {qrLoading ? <span className="loading loading-spinner loading-sm" /> : "Afficher mon code"}
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
             )}

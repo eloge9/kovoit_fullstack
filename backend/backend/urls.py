@@ -19,4 +19,5 @@ urlpatterns = [
     path('api/messagerie/',    include('apps.messagerie.urls')),
     path('api/statistiques/',  include('apps.statistiques.urls')),
     path('api/economie/',      include('apps.modeles.urls')),
+    path('api/verification/',  include('apps.verification.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

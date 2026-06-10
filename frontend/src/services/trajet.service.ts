@@ -265,3 +265,75 @@ export const calculerDistance = async (
     duration_min: Math.round(data.routes[0].duration / 60),
   };
 };
+
+// ─── Recherche par itinéraire (OSRM matching) ─────────────────────────────
+
+export interface MatchingInfo {
+  score: number;
+  distance_passager_km: number;
+  detour_km: number;
+  prix_passager: number;
+  raison: string;
+}
+
+export interface TrajetAvecMatching extends Trajet {
+  matching?: MatchingInfo;
+}
+
+export const rechercherParItineraire = (params: {
+  pickup_lat: number;
+  pickup_lng: number;
+  dropoff_lat: number;
+  dropoff_lng: number;
+  date?: string;
+  places?: number;
+  score_minimum?: number;
+}): Promise<{ count: number; resultats: TrajetAvecMatching[] }> =>
+  api("/trajets/rechercher-itineraire/", "POST", params);
+
+// ─── Escales (TripStop) ────────────────────────────────────────────────────
+
+export interface Escale {
+  id?: number;
+  nom: string;
+  lat: number;
+  lng: number;
+  ordre: number;
+  heure_prevue?: string;
+  heure_reelle?: string;
+  statut?: string;
+}
+
+export const getEscales = (trajetId: number): Promise<Escale[]> =>
+  api(`/trajets/${trajetId}/escales/`, "GET");
+
+export const ajouterEscale = (trajetId: number, escale: Omit<Escale, "id">): Promise<Escale> =>
+  api(`/trajets/${trajetId}/escales/`, "POST", escale);
+
+export const supprimerEscale = (trajetId: number, escaleId: number): Promise<void> =>
+  api(`/trajets/${trajetId}/escales/${escaleId}/`, "DELETE");
+
+export const mettreAJourEscale = (trajetId: number, escaleId: number, data: Partial<Escale>): Promise<Escale> =>
+  api(`/trajets/${trajetId}/escales/${escaleId}/`, "PATCH", data);
+
+// ─── Code d'embarquement (passager) ──────────────────────────────────────
+
+export const getCodeEmbarquement = (reservationId: string): Promise<{
+  code_embarquement: string;
+  trajet: string;
+  date_depart: string;
+  statut_embarquement: string;
+  prix_passager: number | null;
+}> => api(`/reservations/${reservationId}/code-embarquement/`, "GET");
+
+export const embarquerPassager = (code: string): Promise<{
+  message: string;
+  passager: string;
+  heure_embarquement: string;
+}> => api("/reservations/embarquer/", "POST", { code_embarquement: code });
+
+export const debarquerPassager = (reservationId: string): Promise<{
+  message: string;
+  passager: string;
+  heure_depose: string;
+}> => api(`/reservations/${reservationId}/debarquer/`, "POST");

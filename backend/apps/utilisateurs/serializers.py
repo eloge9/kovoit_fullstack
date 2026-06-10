@@ -107,6 +107,24 @@ class InscriptionSerializer(serializers.ModelSerializer):
                 plaque=plaque,
                 places_max=places_max,
             )
+            # Créer le profil de vérification dès l'inscription
+            try:
+                from apps.verification.models import DriverProfile, VerificationHistory, DriverStatus
+                profile = DriverProfile.objects.create(
+                    user=utilisateur,
+                    numero_permis=numero_permis,
+                    experience_annees=experience_annees,
+                    status=DriverStatus.DOCUMENTS_MISSING,
+                )
+                VerificationHistory.objects.create(
+                    driver_profile=profile,
+                    old_status="",
+                    new_status=DriverStatus.DOCUMENTS_MISSING,
+                    reason="Création du compte conducteur",
+                    is_automatic=True,
+                )
+            except Exception:
+                pass  # Ne pas bloquer l'inscription si le module vérification échoue
 
         elif utilisateur.role == Role.PASSAGER:
             Passager.objects.create(utilisateur=utilisateur)
@@ -138,9 +156,12 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 # ---------- Utilisateur (lecture) ----------
 class UtilisateurSerializer(serializers.ModelSerializer):
-    profil_conducteur = ConducteurSerializer(read_only=True)
-    profil_passager   = PassagerSerializer(read_only=True)
-    profil_admin      = AdminSerializer(read_only=True)
+    profil_conducteur   = ConducteurSerializer(read_only=True)
+    profil_passager     = PassagerSerializer(read_only=True)
+    profil_admin        = AdminSerializer(read_only=True)
+    driver_status       = serializers.SerializerMethodField()
+    is_driver_verified  = serializers.SerializerMethodField()
+    driver_profile_id   = serializers.SerializerMethodField()
 
     class Meta:
         model  = Utilisateur
@@ -152,6 +173,8 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire',
             'contact_urgence_nom', 'contact_urgence_telephone',
             'profil_conducteur', 'profil_passager', 'profil_admin',
+            # Champs vérification conducteur
+            'driver_status', 'is_driver_verified', 'driver_profile_id',
         ]
         extra_kwargs = {
             'photo_profil': {'required': False, 'allow_null': True},
@@ -161,3 +184,21 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'email':    {'required': False},
             'role':     {'required': False},
         }
+
+    def get_driver_status(self, obj):
+        try:
+            return obj.driver_profile.status
+        except Exception:
+            return 'DOCUMENTS_MISSING' if obj.role == 'conducteur' else None
+
+    def get_is_driver_verified(self, obj):
+        try:
+            return obj.driver_profile.is_verified
+        except Exception:
+            return False
+
+    def get_driver_profile_id(self, obj):
+        try:
+            return str(obj.driver_profile.id)
+        except Exception:
+            return None

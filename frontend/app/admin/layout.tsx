@@ -17,12 +17,13 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-    { href: "/admin/dashboard", label: "Tableau de bord" },
+    { href: "/admin/dashboard",    label: "Tableau de bord" },
     { href: "/admin/utilisateurs", label: "Utilisateurs" },
-    { href: "/admin/trajets", label: "Trajets" },
-    { href: "/admin/paiements", label: "Paiements" },
-    { href: "/admin/plaintes", label: "Plaintes" },
-    { href: "/admin/profile", label: "Profil" },
+    { href: "/admin/conducteurs",  label: "Conducteurs" },
+    { href: "/admin/trajets",      label: "Trajets" },
+    { href: "/admin/paiements",    label: "Paiements" },
+    { href: "/admin/plaintes",     label: "Plaintes" },
+    { href: "/admin/profile",      label: "Profil" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

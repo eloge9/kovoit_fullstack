@@ -1,0 +1,22 @@
+# Dépendances supplémentaires pour le module de vérification conducteurs
+# Installer avec: pip install -r requirements-verification.txt
+
+# IA Vision — fournisseur configurable via VISION_PROVIDER
+# Gemini (gratuit, défaut) : VISION_PROVIDER=gemini + GEMINI_API_KEY
+google-generativeai>=0.8.0
+# Claude (payant, optionnel) : VISION_PROVIDER=anthropic + ANTHROPIC_API_KEY
+anthropic>=0.40.0
+
+# Celery pour les tâches asynchrones (vérification IA + expirations)
+celery>=5.3.6
+celery[redis]>=5.3.6
+django-celery-beat>=2.6.0
+django-celery-results>=2.5.1
+
+# OCR optionnel (fallback si Claude API non disponible)
+# Pillow est déjà dans requirements.txt
+# pytesseract>=0.3.10   # nécessite Tesseract installé sur le système
+# easyocr>=1.7.1        # nécessite torch (lourd)
+
+# Sécurité fichiers
+python-magic>=0.4.27   # détection MIME type réel (Windows: python-magic-bin)

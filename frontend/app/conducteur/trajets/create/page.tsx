@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
+import { useDriverVerification } from "@/src/hooks/useDriverVerification";
 import {
     searchLieu,
     formatNominatimLabel,
@@ -11,8 +13,10 @@ import {
     calculerPrixParPlace,
     mesVehicules,
     creerTrajet,
+    ajouterEscale,
     type NominatimResult,
     type Vehicule,
+    type Escale,
 } from "@/src/services/trajet.service";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -145,6 +149,7 @@ function AutocompleteInput({ label, placeholder, value, onSelect, onClear }: {
 // ─── Page principale ───────────────────────────────────────────────────────
 export default function ProposerTrajetPage() {
     const router = useRouter();
+    const { isActive, loading: verifLoading, status: verifStatus } = useDriverVerification();
 
     const [step, setStep] = useState<1 | 2 | 3>(1);
     const [loading, setLoading] = useState(false);
@@ -152,6 +157,8 @@ export default function ProposerTrajetPage() {
     const [error, setError] = useState<string | null>(null);
     const [vehicules, setVehicules] = useState<Vehicule[]>([]);
     const [loadingVehicules, setLoadingVehicules] = useState(true);
+    const [escales, setEscales] = useState<Omit<Escale, "id">[]>([]);
+    const [nouvelleEscale, setNouvelleEscale] = useState<{ nom: string; lat: number | null; lng: number | null } | null>(null);
 
     const [form, setForm] = useState<FormData>({
         vehicule_id: null,
@@ -247,7 +254,7 @@ export default function ProposerTrajetPage() {
         setLoading(true);
         setError(null);
         try {
-            await creerTrajet({
+            const trajet = await creerTrajet({
                 vehicule_id: form.vehicule_id!,
                 depart: form.depart!.nom,
                 depart_lat: form.depart!.lat,
@@ -264,6 +271,10 @@ export default function ProposerTrajetPage() {
                 est_regulier: form.est_regulier,
                 jours_semaine: form.est_regulier ? form.jours_semaine : null,
             });
+            // Créer les escales si définies
+            if (trajet?.id && escales.length > 0) {
+                await Promise.all(escales.map((e) => ajouterEscale(trajet.id, e)));
+            }
             router.push("/conducteur/trajets");
         } catch (err: any) {
             const errors = err.response?.data;
@@ -276,6 +287,34 @@ export default function ProposerTrajetPage() {
             setLoading(false);
         }
     };
+
+    // Garde — retourné après tous les hooks
+    if (!verifLoading && !isActive) {
+        const driverStatus = verifStatus?.status ?? "DOCUMENTS_MISSING";
+        const isPending = driverStatus === "PENDING_AI_REVIEW" || driverStatus === "PENDING_ADMIN_REVIEW" || driverStatus === "AI_APPROVED";
+
+        return (
+            <div className="max-w-lg mx-auto py-16 text-center space-y-6">
+                <div className="text-6xl">{isPending ? "⏳" : "🔒"}</div>
+                <h1 className="text-2xl font-bold text-base-content">
+                    {isPending ? "Vérification en cours" : "Compte non activé"}
+                </h1>
+                <p className="text-base-content/60 text-sm leading-relaxed">
+                    {isPending
+                        ? "Votre dossier est en cours de vérification. Vous pourrez proposer des trajets dès que votre compte sera validé."
+                        : "Vous devez activer votre compte conducteur avant de pouvoir proposer des trajets. Envoyez vos documents pour commencer."}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <Link href="/conducteur/verification" className="btn btn-warning rounded-full px-8">
+                        {isPending ? "Voir le statut" : "Activer mon compte"}
+                    </Link>
+                    <Link href="/conducteur/dashboard" className="btn btn-ghost rounded-full border border-base-200">
+                        Retour au tableau de bord
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
     const steps = ["Itinéraire", "Détails", "Confirmation"];
 
@@ -555,6 +594,90 @@ export default function ProposerTrajetPage() {
                         </div>
                     </div>
 
+                    {/* Escales optionnelles */}
+                    <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
+                                    Escales
+                                    <span className="ml-2 text-base-content/30 normal-case font-normal">(optionnel)</span>
+                                </p>
+                                <p className="text-xs text-base-content/30 mt-0.5">
+                                    Arrêts intermédiaires où vous pouvez prendre des passagers
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setNouvelleEscale({ nom: "", lat: null, lng: null })}
+                                className="btn btn-sm btn-outline rounded-full"
+                            >
+                                + Ajouter
+                            </button>
+                        </div>
+
+                        {/* Liste des escales ajoutées */}
+                        {escales.length > 0 && (
+                            <div className="space-y-2">
+                                {escales.map((e, i) => (
+                                    <div key={i} className="flex items-center justify-between bg-base-200/50 rounded-xl px-4 py-2.5 gap-3">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+                                                <span className="text-xs font-bold text-primary">{i + 1}</span>
+                                            </div>
+                                            <p className="text-sm font-medium text-base-content truncate">{e.nom}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEscales((prev) => prev.filter((_, idx) => idx !== i))}
+                                            className="btn btn-ghost btn-xs text-error hover:text-error"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Formulaire ajout escale */}
+                        {nouvelleEscale !== null && (
+                            <div className="bg-base-200/40 rounded-xl p-4 space-y-3">
+                                <AutocompleteInput
+                                    label="Nom de l'escale"
+                                    placeholder="Ville, carrefour, point de repère..."
+                                    value={nouvelleEscale.lat ? { nom: nouvelleEscale.nom, lat: nouvelleEscale.lat, lng: nouvelleEscale.lng! } : null}
+                                    onSelect={(lieu) => setNouvelleEscale({ nom: lieu.nom, lat: lieu.lat, lng: lieu.lng })}
+                                    onClear={() => setNouvelleEscale({ nom: "", lat: null, lng: null })}
+                                />
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setNouvelleEscale(null)}
+                                        className="btn btn-ghost btn-sm rounded-full"
+                                    >
+                                        Annuler
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!nouvelleEscale.lat}
+                                        onClick={() => {
+                                            if (!nouvelleEscale.lat) return;
+                                            setEscales((prev) => [...prev, {
+                                                nom: nouvelleEscale.nom,
+                                                lat: nouvelleEscale.lat!,
+                                                lng: nouvelleEscale.lng!,
+                                                ordre: prev.length,
+                                            }]);
+                                            setNouvelleEscale(null);
+                                        }}
+                                        className="btn btn-primary btn-sm rounded-full flex-1"
+                                    >
+                                        Ajouter cette escale
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <div className="flex gap-3">
                         <button type="button" onClick={() => setStep(1)} className="btn btn-outline rounded-full flex-1">Retour</button>
                         <button type="button" onClick={validerEtape2} className="btn btn-primary rounded-full flex-1">Continuer</button>
@@ -585,6 +708,7 @@ export default function ProposerTrajetPage() {
                                 },
                                 { label: "Fréquence", value: form.est_regulier ? `Régulier — ${form.jours_semaine.join(", ")}` : "Trajet unique" },
                                 form.description ? { label: "Description", value: form.description } : null,
+                                escales.length > 0 ? { label: "Escales", value: escales.map((e) => e.nom).join(" → ") } : null,
                             ].filter(Boolean).map((item: any) => (
                                 <div key={item.label} className="flex justify-between items-start px-6 py-3 gap-4">
                                     <span className="text-xs text-base-content/40 uppercase tracking-wide shrink-0">{item.label}</span>

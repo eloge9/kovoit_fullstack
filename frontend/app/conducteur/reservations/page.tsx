@@ -23,6 +23,11 @@ interface Reservation {
     passager_note: number;
     passager_telephone: string;
     prix_par_place: number;
+    prix_passager?: number;
+    code_embarquement?: string;
+    statut_embarquement?: "en_attente" | "embarque" | "depose";
+    heure_embarquement?: string;
+    heure_depose?: string;
     statut: "en_attente" | "confirmee" | "declinee";
     date_reservation: string;
     paiement_statut: string | null;
@@ -267,6 +272,16 @@ export default function ReservationsRecuesPage() {
                                     </div>
                                 )}
 
+                                {/* Embarquement — visible si confirmée */}
+                                {resa.statut === "confirmee" && (
+                                    <EmbarquementRow
+                                        resa={resa}
+                                        onUpdate={(updated) => setReservations((prev) =>
+                                            prev.map((r) => r.id === resa.id ? { ...r, ...updated } : r)
+                                        )}
+                                    />
+                                )}
+
                                 {/* Bloc paiement — visible si confirmée */}
                                 {resa.statut === "confirmee" && resa.paiement_statut && (
                                     <div className={`mt-3 rounded-xl px-4 py-3 border ${
@@ -320,6 +335,90 @@ export default function ReservationsRecuesPage() {
                 </div>
             )}
 
+        </div>
+    );
+}
+
+function EmbarquementRow({ resa, onUpdate }: {
+    resa: Reservation;
+    onUpdate: (data: Partial<Reservation>) => void;
+}) {
+    const [code, setCode] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+    const handleEmbarquer = async () => {
+        if (!code.trim()) return;
+        setLoading(true);
+        setMsg(null);
+        try {
+            const res = await api("/reservations/embarquer/", "POST", { code_embarquement: code.trim().toUpperCase() });
+            setMsg({ type: "success", text: `Embarquement confirmé — ${res.passager}` });
+            setCode("");
+            onUpdate({ statut_embarquement: "embarque", heure_embarquement: res.heure_embarquement });
+        } catch (err: any) {
+            setMsg({ type: "error", text: err.response?.data?.error || "Code invalide." });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDebarquer = async () => {
+        setLoading(true);
+        setMsg(null);
+        try {
+            const res = await api(`/reservations/${resa.id}/debarquer/`, "POST");
+            setMsg({ type: "success", text: `Dépose confirmée — ${res.passager}` });
+            onUpdate({ statut_embarquement: "depose", heure_depose: res.heure_depose });
+        } catch (err: any) {
+            setMsg({ type: "error", text: err.response?.data?.error || "Erreur lors de la dépose." });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const se = resa.statut_embarquement;
+
+    return (
+        <div className="mt-3 pt-3 border-t border-base-200">
+            <p className="text-xs text-base-content/40 uppercase tracking-wide mb-2">Embarquement</p>
+
+            {/* Statut actuel */}
+            {se === "embarque" && (
+                <div className="flex items-center justify-between gap-3">
+                    <span className="badge badge-success badge-outline badge-sm">Embarqué{resa.heure_embarquement ? ` — ${new Date(resa.heure_embarquement).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
+                    <button onClick={handleDebarquer} disabled={loading} className="btn btn-xs btn-outline rounded-full">
+                        {loading ? <span className="loading loading-spinner loading-xs" /> : "Confirmer dépose"}
+                    </button>
+                </div>
+            )}
+            {se === "depose" && (
+                <span className="badge badge-info badge-outline badge-sm">
+                    Déposé{resa.heure_depose ? ` — ${new Date(resa.heure_depose).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                </span>
+            )}
+            {(!se || se === "en_attente") && (
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => e.key === "Enter" && handleEmbarquer()}
+                        placeholder="Code passager (KVT-XXXX)"
+                        maxLength={8}
+                        className="input input-sm input-bordered rounded-xl flex-1 font-mono tracking-wider uppercase"
+                    />
+                    <button onClick={handleEmbarquer} disabled={loading || !code.trim()} className="btn btn-sm btn-primary rounded-xl">
+                        {loading ? <span className="loading loading-spinner loading-xs" /> : "Valider"}
+                    </button>
+                </div>
+            )}
+
+            {msg && (
+                <p className={`text-xs mt-1.5 ${msg.type === "success" ? "text-success" : "text-error"}`}>
+                    {msg.text}
+                </p>
+            )}
         </div>
     );
 }

@@ -1,6 +1,8 @@
 import hmac as hmac_lib
 import hashlib
 import time
+import math
+from datetime import timedelta
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -10,8 +12,11 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from django.conf import settings
+from django.utils import timezone
 from ..modeles.models import Reservation, Trajet, BlocagePassager
 from .serializers import ReservationSerializer, ReservationCreateSerializer
+
+PENALITE_ANNULATION_TARDIVE = 0.20  # 20% du prix si annulation < 2h avant départ
 
 
 class ReservationViewSet(viewsets.GenericViewSet):
@@ -67,16 +72,48 @@ class ReservationViewSet(viewsets.GenericViewSet):
             if nb_confirmees >= trajet.places_disponibles:
                 return Response({"error": "Plus de places disponibles."}, status=400)
 
+            vd = serializer.validated_data
+            pickup_lat = vd.get('prise_en_charge_lat')
+            pickup_lng = vd.get('prise_en_charge_lng')
+            dropoff_lat = vd.get('depose_lat')
+            dropoff_lng = vd.get('depose_lng')
+
+            # Calcul du prix proportionnel si coordonnées fournies
+            prix_passager = None
+            distance_passager = None
+            if all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
+                try:
+                    from apps.trajets.matching import calculer_score_matching, calculer_prix_passager
+                    match = calculer_score_matching(trajet, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
+                    distance_passager = match['distance_passager_km']
+                    prix_passager = calculer_prix_passager(
+                        distance_passager,
+                        trajet.distance_km or match['distance_passager_km'],
+                        float(trajet.cout_total or trajet.prix_par_place or 0),
+                    )
+                except Exception:
+                    pass
+
             reservation = Reservation.objects.create(
-                trajet=trajet, passager=request.user, statut='en_attente'
+                trajet=trajet,
+                passager=request.user,
+                statut='en_attente',
+                point_prise_en_charge=vd.get('point_prise_en_charge', ''),
+                prise_en_charge_lat=pickup_lat,
+                prise_en_charge_lng=pickup_lng,
+                point_depose=vd.get('point_depose', ''),
+                depose_lat=dropoff_lat,
+                depose_lng=dropoff_lng,
+                distance_passager=distance_passager,
+                prix_passager=prix_passager,
             )
 
-            # CORRECTION TYPEERROR : Gestion sécurisée si prix_par_place est None
-            prix_prevu = float(trajet.prix_par_place) if trajet.prix_par_place is not None else 0.0
+            prix_prevu = float(prix_passager or trajet.prix_par_place or 0)
 
             return Response({
                 "message": "Réservation envoyée. En attente de confirmation.",
                 "reservation_id": reservation.id,
+                "code_embarquement": reservation.code_embarquement,
                 "prix_prevu": str(prix_prevu),
             }, status=201)
 
@@ -152,20 +189,33 @@ class ReservationViewSet(viewsets.GenericViewSet):
     
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):
-        # CORRECTION IDOR : Filtrage direct par passager
         try:
             reservation = Reservation.objects.select_related('trajet').get(pk=pk, passager=request.user)
         except Reservation.DoesNotExist:
             raise PermissionDenied("Réservation introuvable ou accès non autorisé.")
- 
-        if reservation.statut != 'en_attente':
+
+        if reservation.statut not in ('en_attente', 'confirmee'):
             return Response(
-                {"error": "Seules les réservations en attente peuvent être annulées."},
-                status=400
+                {"error": "Cette réservation ne peut plus être annulée."},
+                status=400,
             )
- 
-        reservation.delete()
-        return Response({"message": "Réservation annulée avec succès."})
+
+        penalite = 0
+        message = "Réservation annulée avec succès."
+
+        # Pénalité si annulation < 2h avant le départ
+        depart = reservation.trajet.date_heure_depart
+        if depart and timezone.now() >= depart - timedelta(hours=2):
+            prix = float(reservation.prix_passager or reservation.trajet.prix_par_place or 0)
+            penalite = math.ceil(prix * PENALITE_ANNULATION_TARDIVE / 25) * 25
+            message = f"Réservation annulée avec une pénalité de {penalite} FCFA (annulation tardive)."
+
+        Reservation.objects.filter(pk=reservation.pk).update(
+            statut='annulee',
+            penalite_annulation=penalite,
+        )
+
+        return Response({"message": message, "penalite_fcfa": penalite})
     
     @action(detail=False, methods=['get'])
     def historique(self, request):
@@ -257,4 +307,91 @@ class ReservationViewSet(viewsets.GenericViewSet):
             "passager": reservation.passager.get_full_name() or reservation.passager.username,
             "places":   reservation.places_reservees,
             "trajet":   f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+        })
+
+    # ── Code PIN embarquement (passager) ─────────────────────────────────────
+
+    @action(detail=True, methods=['get'], url_path='code-embarquement')
+    def code_embarquement(self, request, pk=None):
+        """
+        Passager récupère son code PIN KVT-XXXX à présenter au conducteur.
+        Disponible uniquement sur une réservation confirmée.
+        """
+        try:
+            reservation = Reservation.objects.select_related('trajet').get(
+                pk=pk, passager=request.user, statut='confirmee'
+            )
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable ou non confirmée.")
+
+        return Response({
+            "code_embarquement": reservation.code_embarquement,
+            "trajet": f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            "date_depart": reservation.trajet.date_heure_depart,
+            "statut_embarquement": reservation.statut_embarquement,
+            "prix_passager": reservation.prix_passager or reservation.trajet.prix_par_place,
+        })
+
+    # ── Embarquement passager (conducteur valide le code PIN) ─────────────────
+
+    @action(detail=False, methods=['post'], url_path='embarquer')
+    def embarquer(self, request):
+        """
+        Conducteur saisit le code KVT-XXXX du passager → valide la montée.
+        Body: { code_embarquement: "KVT-1234" }
+        """
+        code = str(request.data.get('code_embarquement', '')).strip().upper()
+        if not code:
+            return Response({"error": "code_embarquement requis."}, status=400)
+
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'passager'
+            ).get(
+                code_embarquement=code,
+                trajet__conducteur=request.user,
+                statut='confirmee',
+            )
+        except Reservation.DoesNotExist:
+            return Response({"error": "Code invalide ou réservation introuvable."}, status=404)
+
+        if reservation.statut_embarquement == 'embarque':
+            return Response({"error": "Ce passager est déjà enregistré comme embarqué."}, status=400)
+
+        reservation.statut_embarquement = 'embarque'
+        reservation.heure_embarquement = timezone.now()
+        reservation.save(update_fields=['statut_embarquement', 'heure_embarquement'])
+
+        return Response({
+            "message": "Embarquement validé.",
+            "passager": reservation.passager.get_full_name() or reservation.passager.username,
+            "heure_embarquement": reservation.heure_embarquement,
+            "trajet": f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+        })
+
+    # ── Débarquement passager (conducteur confirme la dépose) ─────────────────
+
+    @action(detail=True, methods=['post'], url_path='debarquer')
+    def debarquer(self, request, pk=None):
+        """
+        Conducteur confirme que le passager a été déposé.
+        """
+        try:
+            reservation = Reservation.objects.select_related(
+                'trajet', 'passager'
+            ).get(pk=pk, trajet__conducteur=request.user)
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable.")
+
+        if reservation.statut_embarquement != 'embarque':
+            return Response({"error": "Le passager n'est pas encore enregistré comme embarqué."}, status=400)
+
+        reservation.statut_embarquement = 'depose'
+        reservation.heure_depose = timezone.now()
+        reservation.save(update_fields=['statut_embarquement', 'heure_depose'])
+
+        return Response({
+            "message": "Dépose confirmée.",
+            "passager": reservation.passager.get_full_name() or reservation.passager.username,
+            "heure_depose": reservation.heure_depose,
         })

@@ -10,6 +10,9 @@ const PUBLIC_ROUTES = [
     '/',
 ];
 
+// Routes conducteur dont l'accès est limité selon le statut (géré côté page)
+// La vérification, les documents et le statut sont accessibles même sans être ACTIVE
+
 // Rôles autorisés par préfixe de route
 const ROLE_ROUTES: Record<string, string[]> = {
     '/admin':      ['admin'],

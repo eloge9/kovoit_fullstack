@@ -34,10 +34,16 @@ class ReservationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'trajet_id',
             'depart', 'destination', 'date_depart',
-            'prix_par_place',
+            'prix_par_place', 'prix_passager',
             'conducteur', 'conducteur_note', 'conducteur_telephone',
             'passager_id', 'passager_nom', 'passager_telephone', 'passager_note',
             'statut', 'date_reservation',
+            # Embarquement
+            'code_embarquement', 'statut_embarquement',
+            'heure_embarquement', 'heure_depose',
+            'point_prise_en_charge', 'point_depose',
+            'distance_passager', 'penalite_annulation',
+            # Paiement
             'paiement_statut', 'paiement_moyen', 'paiement_reference_mobile',
         ]
 
@@ -81,5 +87,12 @@ class ReservationSerializer(serializers.ModelSerializer):
 
 
 class ReservationCreateSerializer(serializers.Serializer):
-    """Création — reçoit juste le trajet_id."""
-    trajet_id = serializers.IntegerField()
+    """Création d'une réservation, avec coordonnées de prise en charge optionnelles."""
+    trajet_id           = serializers.IntegerField()
+    # Prise en charge passager (optionnel — pour tarification proportionnelle)
+    point_prise_en_charge = serializers.CharField(required=False, allow_blank=True, default='')
+    prise_en_charge_lat   = serializers.FloatField(required=False, allow_null=True, default=None)
+    prise_en_charge_lng   = serializers.FloatField(required=False, allow_null=True, default=None)
+    point_depose          = serializers.CharField(required=False, allow_blank=True, default='')
+    depose_lat            = serializers.FloatField(required=False, allow_null=True, default=None)
+    depose_lng            = serializers.FloatField(required=False, allow_null=True, default=None)

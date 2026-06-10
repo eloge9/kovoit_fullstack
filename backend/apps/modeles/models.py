@@ -1,9 +1,16 @@
 """Models centralisés pour les utilisateurs"""
 import uuid
+import random
+import string
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+
+
+def _generer_code_embarquement():
+    """Génère un code PIN unique de type KVT-XXXX."""
+    return "KVT-" + "".join(random.choices(string.digits, k=4))
 from .validators import (
     validate_positive_number, validate_rating,
     validate_gps_latitude, validate_gps_coordinate,
@@ -62,6 +69,27 @@ class Utilisateur(AbstractUser):
     # True quand l'admin a validé les documents conducteur.
     # Permet à un passager de basculer en mode conducteur sans re-soumettre.
     peut_conduire = models.BooleanField(default=False)
+
+    # --- Système de vérification conducteur ---
+    is_driver          = models.BooleanField(default=False)
+    is_driver_verified = models.BooleanField(default=False)
+    driver_status      = models.CharField(
+        max_length=30,
+        choices=(
+            ('DRAFT',                'Brouillon'),
+            ('DOCUMENTS_MISSING',    'Documents manquants'),
+            ('PENDING_AI_REVIEW',    'En cours de vérification IA'),
+            ('AI_APPROVED',          'Approuvé par IA'),
+            ('AI_REJECTED',          'Rejeté par IA'),
+            ('PENDING_ADMIN_REVIEW', 'En attente validation admin'),
+            ('ACTIVE',               'Actif'),
+            ('SUSPENDED',            'Suspendu'),
+            ('BLOCKED',              'Bloqué'),
+            ('REJECTED',             'Rejeté'),
+        ),
+        default='DOCUMENTS_MISSING',
+        blank=True,
+    )
 
     # --- Contact d'urgence (obligatoire pour le bouton SOS) ---
     contact_urgence_nom       = models.CharField(max_length=100, blank=True, default='')
@@ -174,6 +202,11 @@ class Trajet(models.Model):
     est_regulier  = models.BooleanField(default=False)
     jours_semaine = models.JSONField(null=True, blank=True)
 
+    # Itinéraire encodé (polyline OSRM) pour le matching géographique
+    polyline            = models.TextField(blank=True, default='')
+    # Détour maximum accepté pour embarquer un passager hors route (km)
+    tolerance_detour_km = models.FloatField(default=2.0)
+
     statut = models.CharField(max_length=20, choices=(
         ('ouvert',   'Ouvert'),
         ('en_cours', 'En cours'),
@@ -222,6 +255,32 @@ class Trajet(models.Model):
         return f"{self.depart} → {self.destination} ({self.conducteur.username})"
 
 
+# ----------------- Escale (TripStop) -----------------
+class TripStop(models.Model):
+    """Escale intermédiaire d'un trajet (ex: Lomé → Tsévié → Kpalimé)."""
+    STATUT_CHOICES = [
+        ('en_attente', 'En attente'),
+        ('arrive',     'Arrivé'),
+        ('parti',      'Parti'),
+    ]
+
+    trajet       = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='escales')
+    nom          = models.CharField(max_length=200)
+    lat          = models.FloatField()
+    lng          = models.FloatField()
+    ordre        = models.IntegerField(help_text="0=départ, 1,2…=escales, dernier=destination")
+    heure_prevue = models.DateTimeField(null=True, blank=True)
+    heure_reelle = models.DateTimeField(null=True, blank=True)
+    statut       = models.CharField(max_length=20, choices=STATUT_CHOICES, default='en_attente')
+
+    class Meta:
+        ordering = ['ordre']
+        unique_together = [['trajet', 'ordre']]
+
+    def __str__(self):
+        return f"{self.nom} — étape {self.ordre} de {self.trajet}"
+
+
 # ----------------- Réservation -----------------
 class Reservation(models.Model):
     trajet           = models.ForeignKey(Trajet, on_delete=models.CASCADE, related_name='reservations')
@@ -235,6 +294,36 @@ class Reservation(models.Model):
     ), default='en_attente')
     date_reservation = models.DateTimeField(auto_now_add=True)
 
+    # ── Boarding intermédiaire ────────────────────────────────────────────────
+    # Le passager peut monter/descendre à des points différents du départ/destination du trajet
+    point_prise_en_charge = models.CharField(max_length=200, blank=True, default='')
+    prise_en_charge_lat   = models.FloatField(null=True, blank=True)
+    prise_en_charge_lng   = models.FloatField(null=True, blank=True)
+
+    point_depose = models.CharField(max_length=200, blank=True, default='')
+    depose_lat   = models.FloatField(null=True, blank=True)
+    depose_lng   = models.FloatField(null=True, blank=True)
+
+    # ── Tarification proportionnelle ─────────────────────────────────────────
+    distance_passager = models.FloatField(null=True, blank=True)            # km réels du passager
+    prix_passager     = models.DecimalField(max_digits=10, decimal_places=0, null=True, blank=True)
+
+    # ── Code d'embarquement (QR + PIN) ───────────────────────────────────────
+    code_embarquement = models.CharField(max_length=10, unique=True, null=True, blank=True)
+    qr_token          = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
+
+    # ── Suivi embarquement ───────────────────────────────────────────────────
+    statut_embarquement = models.CharField(max_length=20, choices=[
+        ('en_attente', 'En attente'),
+        ('embarque',   'Embarqué'),
+        ('depose',     'Déposé'),
+    ], default='en_attente')
+    heure_embarquement = models.DateTimeField(null=True, blank=True)
+    heure_depose       = models.DateTimeField(null=True, blank=True)
+
+    # ── Pénalité annulation tardive (<2h avant départ) ───────────────────────
+    penalite_annulation = models.DecimalField(max_digits=10, decimal_places=0, default=0)
+
     def clean(self):
         """Valider que le passager ne réserve pas 2x le même trajet"""
         if Reservation.objects.filter(
@@ -247,6 +336,12 @@ class Reservation(models.Model):
             raise ValidationError(f"Seulement {self.trajet.places_disponibles} places disponibles.")
 
     def save(self, *args, **kwargs):
+        # Générer le code d'embarquement unique à la première sauvegarde
+        if not self.code_embarquement:
+            code = _generer_code_embarquement()
+            while Reservation.objects.filter(code_embarquement=code).exists():
+                code = _generer_code_embarquement()
+            self.code_embarquement = code
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -293,12 +388,13 @@ class Paiement(models.Model):
 
     def clean(self):
         """Valider le paiement"""
-        from django.db import transaction
-        # Vérifier que montant correspond à la réservation
         if self.reservation:
-            prix_total = self.reservation.places_reservees * self.reservation.trajet.prix_par_place
+            res = self.reservation
+            # Utilise prix_passager si défini (boarding intermédiaire), sinon prix_par_place
+            prix_unitaire = res.prix_passager if res.prix_passager else res.trajet.prix_par_place
+            prix_total = res.places_reservees * prix_unitaire
             if self.montant != prix_total:
-                raise ValidationError(f"Montant doit être {prix_total} FCFA pour {self.reservation.places_reservees} place(s)")
+                raise ValidationError(f"Montant doit être {prix_total} FCFA pour {res.places_reservees} place(s)")
 
     def save(self, *args, **kwargs):
         from django.db import transaction

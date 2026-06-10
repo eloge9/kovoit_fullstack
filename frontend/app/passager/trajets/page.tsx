@@ -7,8 +7,11 @@ import {
     searchLieu,
     formatNominatimLabel,
     rechercherTrajets,
+    rechercherParItineraire,
     type NominatimResult,
     type Trajet,
+    type TrajetAvecMatching,
+    type MatchingInfo,
 } from "@/src/services/trajet.service";
 
 const MapRecherche = dynamic(() => import("@/components/MapRecherche"), { ssr: false });
@@ -19,7 +22,8 @@ interface LieuSelectionne {
     lng: number;
 }
 
-type TriOption = "pertinence" | "prix_asc" | "prix_desc" | "date" | "places";
+type TriOption = "pertinence" | "prix_asc" | "prix_desc" | "date" | "places" | "score";
+type ModeRecherche = "classique" | "itineraire";
 
 // ─── Autocomplete lieu ────────────────────────────────────────────────────
 function AutocompleteInput({
@@ -142,6 +146,9 @@ export default function RechercherTrajetPage() {
     const [tri, setTri] = useState<TriOption>("date");
 
     const [tousLesTrajets, setTousLesTrajets] = useState<Trajet[]>([]);
+    const [trajetsItineraire, setTrajetsItineraire] = useState<TrajetAvecMatching[]>([]);
+    const [modeRecherche, setModeRecherche] = useState<ModeRecherche>("classique");
+    const [loadingItineraire, setLoadingItineraire] = useState(false);
     const [loading, setLoading] = useState(true);
     const [trajetSurvole, setTrajetSurvole] = useState<Trajet | null>(null);
 
@@ -153,12 +160,13 @@ export default function RechercherTrajetPage() {
     const TRI_OPTIONS: { value: TriOption; label: string }[] = [
         { value: "date", label: "Date" },
         { value: "pertinence", label: "Pertinence" },
+        { value: "score", label: "Score" },
         { value: "prix_asc", label: "Prix ↑" },
         { value: "prix_desc", label: "Prix ↓" },
         { value: "places", label: "Places" },
     ];
 
-    // Charger tous les trajets au démarrage
+    // Charger tous les trajets au démarrage (mode classique)
     useEffect(() => {
         const fetch = async () => {
             setLoading(true);
@@ -174,12 +182,55 @@ export default function RechercherTrajetPage() {
         fetch();
     }, []);
 
+    // Recherche intelligente par itinéraire (OSRM)
+    const lancerRechercheItineraire = async () => {
+        if (!depart?.lat || !destination?.lat) return;
+        setLoadingItineraire(true);
+        try {
+            const res = await rechercherParItineraire({
+                pickup_lat: depart.lat,
+                pickup_lng: depart.lng,
+                dropoff_lat: destination.lat,
+                dropoff_lng: destination.lng,
+                date: date || undefined,
+                places: parseInt(placesInput) || undefined,
+                score_minimum: 40,
+            });
+            setTrajetsItineraire(res.resultats ?? []);
+            setTri("score");
+        } catch {
+            setTrajetsItineraire([]);
+        } finally {
+            setLoadingItineraire(false);
+        }
+    };
+
+    // Auto-déclencher la recherche itinéraire quand les coordonnées changent en mode itinéraire
+    useEffect(() => {
+        if (modeRecherche === "itineraire" && depart?.lat && destination?.lat) {
+            lancerRechercheItineraire();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [modeRecherche, depart, destination, date, placesInput]);
+
     // Nombre de places demandées (0 = pas de filtre)
     const placesRecherchees = parseInt(placesInput) || 0;
 
     // Filtrage + tri en temps réel côté frontend
     const trajetsFiltres = useMemo(() => {
-        let result = [...tousLesTrajets];
+        // Mode itinéraire : utiliser les résultats OSRM directement
+        if (modeRecherche === "itineraire") {
+            let result = [...trajetsItineraire] as TrajetAvecMatching[];
+            if (typeVehicule) {
+                result = result.filter((t) => t.type_vehicule?.toLowerCase().includes(typeVehicule.toLowerCase()));
+            }
+            if (tri === "prix_asc") result.sort((a, b) => Number(a.prix_par_place) - Number(b.prix_par_place));
+            else if (tri === "prix_desc") result.sort((a, b) => Number(b.prix_par_place) - Number(a.prix_par_place));
+            else result.sort((a, b) => (b.matching?.score ?? 0) - (a.matching?.score ?? 0));
+            return result;
+        }
+
+        let result = [...tousLesTrajets] as TrajetAvecMatching[];
 
         // Filtre départ — recherche partielle insensible à la casse
         if (depart) {
@@ -238,6 +289,9 @@ export default function RechercherTrajetPage() {
                     (b.places_restantes ?? b.places_disponibles) - (a.places_restantes ?? a.places_disponibles)
                 );
                 break;
+            case "score":
+                result.sort((a, b) => ((b as TrajetAvecMatching).matching?.score ?? 0) - ((a as TrajetAvecMatching).matching?.score ?? 0));
+                break;
             case "pertinence":
             default:
                 if (depart || destination) {
@@ -257,7 +311,7 @@ export default function RechercherTrajetPage() {
         }
 
         return result;
-    }, [tousLesTrajets, depart, destination, date, placesRecherchees, typeVehicule, tri]);
+    }, [tousLesTrajets, trajetsItineraire, modeRecherche, depart, destination, date, placesRecherchees, typeVehicule, tri]);
 
     const formatDate = (iso: string) =>
         new Date(iso).toLocaleDateString("fr-FR", {
@@ -291,9 +345,11 @@ export default function RechercherTrajetPage() {
                     <p className="text-white/60 text-xs uppercase tracking-widest font-medium mb-2">Passager</p>
                     <h1 className="text-2xl font-bold text-white tracking-tight mb-1">Où allez-vous ?</h1>
                     <p className="text-white/50 text-sm mb-6">
-                        {loading
-                            ? "Chargement des trajets..."
-                            : `${tousLesTrajets.length} trajet${tousLesTrajets.length > 1 ? "s" : ""} disponible${tousLesTrajets.length > 1 ? "s" : ""} au Togo`
+                        {(loading || loadingItineraire)
+                            ? "Recherche en cours..."
+                            : modeRecherche === "itineraire"
+                                ? `${trajetsItineraire.length} trajet${trajetsItineraire.length > 1 ? "s" : ""} compatible${trajetsItineraire.length > 1 ? "s" : ""} avec votre itinéraire`
+                                : `${tousLesTrajets.length} trajet${tousLesTrajets.length > 1 ? "s" : ""} disponible${tousLesTrajets.length > 1 ? "s" : ""} au Togo`
                         }
                     </p>
 
@@ -371,6 +427,43 @@ export default function RechercherTrajetPage() {
                             </button>
                         )}
                     </div>
+
+                    {/* Mode de recherche */}
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/10">
+                        <span className="text-white/40 text-xs uppercase tracking-wide">Mode :</span>
+                        <div className="flex rounded-xl overflow-hidden border border-white/20">
+                            <button
+                                onClick={() => setModeRecherche("classique")}
+                                className={`px-3 py-1 text-xs font-medium transition-all ${modeRecherche === "classique" ? "bg-white text-base-content" : "bg-white/10 text-white hover:bg-white/20"}`}
+                            >
+                                Classique
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setModeRecherche("itineraire");
+                                    if (depart?.lat && destination?.lat) lancerRechercheItineraire();
+                                }}
+                                className={`px-3 py-1 text-xs font-medium transition-all flex items-center gap-1.5 ${modeRecherche === "itineraire" ? "bg-white text-base-content" : "bg-white/10 text-white hover:bg-white/20"}`}
+                            >
+                                {loadingItineraire ? (
+                                    <span className="loading loading-spinner loading-xs" />
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                    </svg>
+                                )}
+                                Par itinéraire
+                            </button>
+                        </div>
+                        {modeRecherche === "itineraire" && (
+                            <span className="text-white/40 text-xs">
+                                {(!depart?.lat || !destination?.lat)
+                                    ? "Sélectionnez départ + destination"
+                                    : `${trajetsItineraire.length} trajet${trajetsItineraire.length > 1 ? "s" : ""} compatibles`
+                                }
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -420,7 +513,7 @@ export default function RechercherTrajetPage() {
                         <div className="lg:col-span-3 space-y-3 pb-8">
 
                             {/* Skeleton chargement */}
-                            {loading && [1, 2, 3, 4].map((i) => (
+                            {(loading || loadingItineraire) && [1, 2, 3, 4].map((i) => (
                                 <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-5 animate-pulse">
                                     <div className="h-4 bg-base-300 rounded w-1/2 mb-3" />
                                     <div className="h-3 bg-base-300 rounded w-1/3 mb-2" />
@@ -449,8 +542,11 @@ export default function RechercherTrajetPage() {
                             )}
 
                             {/* Cartes trajets */}
-                            {!loading && trajetsFiltres.map((trajet) => {
+                            {!loading && !loadingItineraire && trajetsFiltres.map((trajet) => {
+                                const t = trajet as TrajetAvecMatching;
                                 const placesRestantes = trajet.places_restantes ?? trajet.places_disponibles;
+                                const matching = t.matching;
+                                const prixAffiche = matching?.prix_passager ?? Number(trajet.prix_par_place);
                                 return (
                                     <div
                                         key={trajet.id}
@@ -465,20 +561,30 @@ export default function RechercherTrajetPage() {
                                         <div className="p-5">
                                             <div className="flex items-start justify-between gap-4 mb-3">
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="font-semibold text-base-content">
-                                                        {trajet.depart}
-                                                        <span className="text-base-content/25 mx-2 font-light">→</span>
-                                                        {trajet.destination}
-                                                    </p>
-                                                    <p className="text-xs text-base-content/40 mt-0.5">
+                                                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                                        <p className="font-semibold text-base-content">
+                                                            {trajet.depart}
+                                                            <span className="text-base-content/25 mx-2 font-light">→</span>
+                                                            {trajet.destination}
+                                                        </p>
+                                                        {matching && (
+                                                            <span className={`badge badge-sm rounded-full font-semibold ${matching.score >= 80 ? "badge-success" : matching.score >= 60 ? "badge-warning" : "badge-ghost border border-base-300"}`}>
+                                                                {matching.score}%
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-base-content/40">
                                                         {formatDate(trajet.date_heure_depart)}
+                                                        {matching && <span className="ml-2 text-base-content/30">{matching.distance_passager_km} km votre trajet</span>}
                                                     </p>
                                                 </div>
                                                 <div className="text-right shrink-0">
                                                     <p className="text-xl font-bold text-primary leading-none">
-                                                        {Number(trajet.prix_par_place).toLocaleString("fr-FR")}
+                                                        {prixAffiche.toLocaleString("fr-FR")}
                                                     </p>
-                                                    <p className="text-xs text-base-content/40 mt-0.5">FCFA / place</p>
+                                                    <p className="text-xs text-base-content/40 mt-0.5">
+                                                        {matching ? "FCFA votre part" : "FCFA / place"}
+                                                    </p>
                                                 </div>
                                             </div>
 

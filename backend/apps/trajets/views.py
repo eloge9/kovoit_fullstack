@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from ..modeles.models import Trajet, Reservation, Utilisateur
+from ..modeles.models import Trajet, Reservation, Utilisateur, TripStop
 from .serializers import TrajetSerializer, TrajetCreateSerializer
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,21 @@ class TrajetViewSet(viewsets.ModelViewSet):
                 {"error": "Seuls les conducteurs peuvent proposer des trajets."},
                 status=status.HTTP_403_FORBIDDEN
             )
+        # Vérifier que le conducteur est validé
+        try:
+            from apps.verification.models import DriverProfile, DriverStatus
+            dp = DriverProfile.objects.get(user=request.user)
+            if dp.status != DriverStatus.ACTIVE:
+                return Response(
+                    {
+                        "error": "Votre compte conducteur n'est pas encore activé.",
+                        "driver_status": dp.status,
+                        "redirect": "/conducteur/verification",
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Exception:
+            pass  # Si le module vérification n'est pas utilisé, autoriser quand même
         serializer = TrajetCreateSerializer(
             data=request.data,
             context={'request': request}
@@ -425,3 +440,145 @@ out geom;
             {'nom': r.get('display_name', '').split(',')[0].strip(), 'display': r.get('display_name', ''), 'lat': float(r['lat']), 'lng': float(r['lon'])}
             for r in results if r.get('lat') and r.get('lon')
         ])
+
+    # ── Escales (TripStop) ────────────────────────────────────────────────────
+
+    @action(detail=True, methods=['get', 'post'], url_path='escales', permission_classes=[IsAuthenticated])
+    def escales(self, request, pk=None):
+        """
+        GET  /api/trajets/{id}/escales/  → liste les escales
+        POST /api/trajets/{id}/escales/  → ajoute une escale
+        """
+        trajet = get_object_or_404(Trajet, pk=pk)
+
+        if request.method == 'GET':
+            stops = trajet.escales.all()
+            return Response([{
+                'id': s.id, 'nom': s.nom, 'lat': s.lat, 'lng': s.lng,
+                'ordre': s.ordre, 'heure_prevue': s.heure_prevue,
+                'heure_reelle': s.heure_reelle, 'statut': s.statut,
+            } for s in stops])
+
+        # POST — seul le conducteur peut ajouter des escales
+        if trajet.conducteur != request.user:
+            return Response({"error": "Action réservée au conducteur."}, status=403)
+
+        data = request.data
+        stop = TripStop.objects.create(
+            trajet=trajet,
+            nom=data.get('nom', ''),
+            lat=float(data.get('lat', 0)),
+            lng=float(data.get('lng', 0)),
+            ordre=data.get('ordre', trajet.escales.count()),
+            heure_prevue=data.get('heure_prevue'),
+        )
+        return Response({
+            'id': stop.id, 'nom': stop.nom, 'lat': stop.lat, 'lng': stop.lng,
+            'ordre': stop.ordre, 'statut': stop.statut,
+        }, status=201)
+
+    @action(detail=True, methods=['patch', 'delete'], url_path=r'escales/(?P<stop_id>\d+)', permission_classes=[IsAuthenticated])
+    def escale_detail(self, request, pk=None, stop_id=None):
+        """
+        PATCH  /api/trajets/{id}/escales/{stop_id}/  → met à jour statut/heure réelle
+        DELETE /api/trajets/{id}/escales/{stop_id}/  → supprime l'escale
+        """
+        trajet = get_object_or_404(Trajet, pk=pk, conducteur=request.user)
+        stop = get_object_or_404(TripStop, pk=stop_id, trajet=trajet)
+
+        if request.method == 'DELETE':
+            stop.delete()
+            return Response(status=204)
+
+        # PATCH
+        for field in ['statut', 'heure_reelle', 'nom', 'heure_prevue']:
+            if field in request.data:
+                setattr(stop, field, request.data[field])
+        stop.save()
+        return Response({'id': stop.id, 'statut': stop.statut, 'heure_reelle': stop.heure_reelle})
+
+    # ── Recherche par itinéraire (matching géographique) ─────────────────────
+
+    @action(detail=False, methods=['post'], url_path='rechercher-itineraire', permission_classes=[AllowAny])
+    def rechercher_par_itineraire(self, request):
+        """
+        Recherche les trajets compatibles avec le point de prise en charge
+        et le point de dépose du passager.
+
+        Body JSON :
+        {
+            "pickup_lat": 6.137,  "pickup_lng": 1.212,
+            "dropoff_lat": 6.890, "dropoff_lng": 1.102,
+            "date": "2026-06-15",
+            "places": 1,
+            "score_minimum": 50
+        }
+        """
+        from .matching import rechercher_trajets_compatibles
+
+        pickup_lat  = request.data.get('pickup_lat')
+        pickup_lng  = request.data.get('pickup_lng')
+        dropoff_lat = request.data.get('dropoff_lat')
+        dropoff_lng = request.data.get('dropoff_lng')
+        date        = request.data.get('date')
+        places      = int(request.data.get('places', 1))
+        score_min   = int(request.data.get('score_minimum', 50))
+
+        if not all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
+            return Response({"error": "pickup_lat, pickup_lng, dropoff_lat, dropoff_lng requis."}, status=400)
+
+        qs = Trajet.objects.filter(statut='ouvert', places_disponibles__gte=places)
+        if date:
+            qs = qs.filter(date_heure_depart__date=date)
+        qs = qs.select_related('conducteur', 'vehicule').prefetch_related('escales')
+
+        resultats = rechercher_trajets_compatibles(
+            qs,
+            float(pickup_lat), float(pickup_lng),
+            float(dropoff_lat), float(dropoff_lng),
+            score_minimum=score_min,
+        )
+
+        from .serializers import TrajetSerializer
+        data = []
+        for r in resultats:
+            t = TrajetSerializer(r['trajet']).data
+            t['matching'] = {
+                'score': r['score'],
+                'distance_passager_km': r['distance_passager_km'],
+                'detour_km': r['detour_km'],
+                'prix_passager': r['prix_passager'],
+                'raison': r['raison'],
+            }
+            data.append(t)
+
+        return Response({'count': len(data), 'resultats': data})
+
+    @action(detail=True, methods=['post'], url_path='matching-score', permission_classes=[AllowAny])
+    def matching_score(self, request, pk=None):
+        """
+        Calcule le score de compatibilité entre ce trajet et une demande passager.
+        Body : { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng }
+        """
+        from .matching import calculer_score_matching, calculer_prix_passager
+
+        trajet = get_object_or_404(Trajet, pk=pk)
+        try:
+            pickup_lat  = float(request.data['pickup_lat'])
+            pickup_lng  = float(request.data['pickup_lng'])
+            dropoff_lat = float(request.data['dropoff_lat'])
+            dropoff_lng = float(request.data['dropoff_lng'])
+        except (KeyError, TypeError, ValueError):
+            return Response({"error": "pickup_lat, pickup_lng, dropoff_lat, dropoff_lng requis."}, status=400)
+
+        match = calculer_score_matching(trajet, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng)
+
+        if match['compatible']:
+            prix = calculer_prix_passager(
+                match['distance_passager_km'],
+                trajet.distance_km or 1,
+                float(trajet.cout_total or trajet.prix_par_place),
+            )
+            match['prix_passager'] = prix
+
+        return Response(match)
