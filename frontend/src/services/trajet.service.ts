@@ -39,6 +39,9 @@ export interface Trajet {
   est_regulier: boolean;
   jours_semaine: string[] | null;
   statut: "ouvert" | "en_cours" | "termine" | "annule";
+  polyline:            string;         // JSON string "[[lng,lat],...]" from OSRM
+  polyline_stored:     boolean;
+  tolerance_detour_km: number;
   created_at: string;
 }
 
@@ -58,6 +61,7 @@ export interface TrajetCreatePayload {
   description: string;
   est_regulier: boolean;
   jours_semaine: string[] | null;
+  tolerance_km?: number;
 }
 
 // ─── Tarifs selon type de véhicule ────────────────────────────────────────
@@ -269,11 +273,14 @@ export const calculerDistance = async (
 // ─── Recherche par itinéraire (OSRM matching) ─────────────────────────────
 
 export interface MatchingInfo {
-  score: number;
-  distance_passager_km: number;
-  detour_km: number;
-  prix_passager: number;
-  raison: string;
+  score:                  number;
+  distance_passager_km:   number;
+  distance_pickup_km:     number | null;
+  distance_dropoff_km:    number | null;
+  detour_km:              number;
+  direction_ok:           boolean;
+  prix_passager:          number;
+  raison:                 string;
 }
 
 export interface TrajetAvecMatching extends Trajet {
@@ -288,7 +295,8 @@ export const rechercherParItineraire = (params: {
   date?: string;
   places?: number;
   score_minimum?: number;
-}): Promise<{ count: number; resultats: TrajetAvecMatching[] }> =>
+  tolerance_km?: number;   // 0.5 | 1 | 2 | 3 | 5
+}): Promise<{ count: number; tolerance_km: number; algorithm: string; resultats: TrajetAvecMatching[] }> =>
   api("/trajets/rechercher-itineraire/", "POST", params);
 
 // ─── Escales (TripStop) ────────────────────────────────────────────────────
@@ -337,3 +345,16 @@ export const debarquerPassager = (reservationId: string): Promise<{
   passager: string;
   heure_depose: string;
 }> => api(`/reservations/${reservationId}/debarquer/`, "POST");
+
+// ─── Parse stored OSRM polyline ──────────────────────────────────────────────
+
+export const parsePolyline = (polylineJson: string): [number, number][] | null => {
+  if (!polylineJson) return null;
+  try {
+    const coords = JSON.parse(polylineJson);
+    if (Array.isArray(coords) && coords.length >= 2) {
+      return coords as [number, number][];
+    }
+  } catch {}
+  return null;
+};

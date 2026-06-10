@@ -20,6 +20,7 @@ class TrajetSerializer(serializers.ModelSerializer):
             'distance_km', 'cout_total', 'prix_par_place',
             'date_heure_depart', 'places_disponibles', 'places_restantes',
             'description', 'est_regulier', 'jours_semaine',
+            'polyline', 'polyline_stored', 'tolerance_detour_km',
             'statut', 'created_at',
         ]
         read_only_fields = ['conducteur', 'created_at', 'updated_at']
@@ -111,4 +112,12 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         vehicule    = Vehicule.objects.get(pk=vehicule_id)
         validated_data['conducteur'] = self.context['request'].user
         validated_data['vehicule']   = vehicule
-        return super().create(validated_data)
+        trajet = super().create(validated_data)
+        # Store OSRM polyline (non-blocking)
+        try:
+            from .matching import fetch_and_store_polyline
+            if trajet.depart_lat and trajet.destination_lat:
+                fetch_and_store_polyline(trajet)
+        except Exception:
+            pass
+        return trajet

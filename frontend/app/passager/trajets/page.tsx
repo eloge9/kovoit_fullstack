@@ -145,6 +145,16 @@ export default function RechercherTrajetPage() {
     const [typeVehicule, setTypeVehicule] = useState("");
     const [tri, setTri] = useState<TriOption>("date");
 
+    const TOLERANCE_OPTIONS = [
+        { value: 0.5,  label: "500 m",  desc: "Très précis (ville)" },
+        { value: 1.0,  label: "1 km",   desc: "Recommandé" },
+        { value: 2.0,  label: "2 km",   desc: "Zone rurale" },
+        { value: 3.0,  label: "3 km",   desc: "Recherche élargie" },
+        { value: 5.0,  label: "5 km",   desc: "Très large" },
+    ];
+    const [toleranceKm, setToleranceKm] = useState<number>(2.0);
+    const [algorithme, setAlgorithme] = useState<string>("");
+
     const [tousLesTrajets, setTousLesTrajets] = useState<Trajet[]>([]);
     const [trajetsItineraire, setTrajetsItineraire] = useState<TrajetAvecMatching[]>([]);
     const [modeRecherche, setModeRecherche] = useState<ModeRecherche>("classique");
@@ -188,15 +198,17 @@ export default function RechercherTrajetPage() {
         setLoadingItineraire(true);
         try {
             const res = await rechercherParItineraire({
-                pickup_lat: depart.lat,
-                pickup_lng: depart.lng,
-                dropoff_lat: destination.lat,
-                dropoff_lng: destination.lng,
-                date: date || undefined,
-                places: parseInt(placesInput) || undefined,
+                pickup_lat:   depart.lat,
+                pickup_lng:   depart.lng,
+                dropoff_lat:  destination.lat,
+                dropoff_lng:  destination.lng,
+                date:         date || undefined,
+                places:       parseInt(placesInput) || undefined,
+                tolerance_km: toleranceKm,
                 score_minimum: 40,
             });
             setTrajetsItineraire(res.resultats ?? []);
+            setAlgorithme(res.algorithm ?? "");
             setTri("score");
         } catch {
             setTrajetsItineraire([]);
@@ -211,7 +223,7 @@ export default function RechercherTrajetPage() {
             lancerRechercheItineraire();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [modeRecherche, depart, destination, date, placesInput]);
+    }, [modeRecherche, depart, destination, date, placesInput, toleranceKm]);
 
     // Nombre de places demandées (0 = pas de filtre)
     const placesRecherchees = parseInt(placesInput) || 0;
@@ -313,6 +325,23 @@ export default function RechercherTrajetPage() {
         return result;
     }, [tousLesTrajets, trajetsItineraire, modeRecherche, depart, destination, date, placesRecherchees, typeVehicule, tri]);
 
+    // Extrait les polylines stockées pour l'affichage sur la carte
+    const polylinesMap = useMemo(() => {
+        const map: Record<number, [number, number][]> = {};
+        trajetsFiltres.forEach((t) => {
+            const tAm = t as TrajetAvecMatching;
+            if (tAm.polyline) {
+                try {
+                    const coords = JSON.parse(tAm.polyline);
+                    if (Array.isArray(coords) && coords.length >= 2) {
+                        map[t.id] = coords;
+                    }
+                } catch {}
+            }
+        });
+        return map;
+    }, [trajetsFiltres]);
+
     const formatDate = (iso: string) =>
         new Date(iso).toLocaleDateString("fr-FR", {
             weekday: "short", day: "numeric", month: "short",
@@ -348,13 +377,13 @@ export default function RechercherTrajetPage() {
                         {(loading || loadingItineraire)
                             ? "Recherche en cours..."
                             : modeRecherche === "itineraire"
-                                ? `${trajetsItineraire.length} trajet${trajetsItineraire.length > 1 ? "s" : ""} compatible${trajetsItineraire.length > 1 ? "s" : ""} avec votre itinéraire`
+                                ? `${trajetsItineraire.length} trajet${trajetsItineraire.length > 1 ? "s" : ""} compatible${trajetsItineraire.length > 1 ? "s" : ""} (tolérance ${toleranceKm < 1 ? toleranceKm * 1000 + "m" : toleranceKm + "km"})`
                                 : `${tousLesTrajets.length} trajet${tousLesTrajets.length > 1 ? "s" : ""} disponible${tousLesTrajets.length > 1 ? "s" : ""} au Togo`
                         }
                     </p>
 
                     {/* Filtres */}
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div className={`grid sm:grid-cols-2 gap-3 mb-4 ${modeRecherche === "itineraire" ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
                         <div>
                             <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">Départ</p>
                             <AutocompleteInput
@@ -397,6 +426,24 @@ export default function RechercherTrajetPage() {
                                 className="input input-sm w-full rounded-xl bg-white/10 border-white/20 text-white placeholder-white/40 focus:bg-white focus:text-base-content transition-all"
                             />
                         </div>
+                        {modeRecherche === "itineraire" && (
+                            <div>
+                                <p className="text-white/50 text-xs uppercase tracking-wide mb-1.5">
+                                    Tolérance
+                                </p>
+                                <select
+                                    value={toleranceKm}
+                                    onChange={(e) => setToleranceKm(parseFloat(e.target.value))}
+                                    className="select select-sm w-full rounded-xl bg-white/10 border-white/20 text-white focus:bg-white focus:text-base-content transition-all"
+                                >
+                                    {TOLERANCE_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value} className="text-base-content bg-base-100">
+                                            {opt.label} — {opt.desc}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
 
                     {/* Type de véhicule */}
@@ -575,7 +622,21 @@ export default function RechercherTrajetPage() {
                                                     </div>
                                                     <p className="text-xs text-base-content/40">
                                                         {formatDate(trajet.date_heure_depart)}
-                                                        {matching && <span className="ml-2 text-base-content/30">{matching.distance_passager_km} km votre trajet</span>}
+                                                        {matching && (
+                                                            <span className="ml-2 text-base-content/30 flex items-center gap-1.5 flex-wrap">
+                                                                <span>{matching.distance_passager_km} km</span>
+                                                                {matching.distance_pickup_km !== null && matching.distance_pickup_km !== undefined && (
+                                                                    <span className={`text-xs ${matching.distance_pickup_km > 1 ? "text-warning/70" : "text-success/70"}`}>
+                                                                        · montée à {matching.distance_pickup_km < 1
+                                                                            ? `${Math.round(matching.distance_pickup_km * 1000)}m`
+                                                                            : `${matching.distance_pickup_km.toFixed(1)}km`} de la route
+                                                                    </span>
+                                                                )}
+                                                                {matching.direction_ok === false && (
+                                                                    <span className="text-error text-xs">· sens inverse</span>
+                                                                )}
+                                                            </span>
+                                                        )}
                                                     </p>
                                                 </div>
                                                 <div className="text-right shrink-0">
@@ -668,6 +729,7 @@ export default function RechercherTrajetPage() {
                                         depart={depart}
                                         destination={destination}
                                         onTrajetClick={(id) => router.push(`/passager/trajets/${id}`)}
+                                        polylines={polylinesMap}
                                     />
                                 </div>
                             </div>

@@ -23,6 +23,7 @@ interface Props {
     depart: Point | null;
     destination: Point | null;
     onTrajetClick: (id: number) => void;
+    polylines?: Record<number, [number, number][]>;
 }
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
@@ -45,6 +46,7 @@ export default function MapRecherche({
     depart,
     destination,
     onTrajetClick,
+    polylines = {},
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef       = useRef<maplibregl.Map | null>(null);
@@ -147,22 +149,45 @@ export default function MapRecherche({
 
                 markersRef.current.push(mDep, mDest);
 
-                // Ligne départ → destination
+                // Ligne départ → destination (polyline stockée ou droite de repli)
                 const lineId = `line-${trajet.id}`;
+                const lineCoords: [number, number][] = (polylines[trajet.id] && polylines[trajet.id].length >= 2)
+                    ? polylines[trajet.id]
+                    : [
+                        [trajet.depart_lng, trajet.depart_lat],
+                        [trajet.destination_lng, trajet.destination_lat],
+                    ];
                 map.addSource(lineId, {
                     type: "geojson",
                     data: {
                         type: "Feature",
                         geometry: {
                             type: "LineString",
-                            coordinates: [
-                                [trajet.depart_lng, trajet.depart_lat],
-                                [trajet.destination_lng, trajet.destination_lat],
-                            ],
+                            coordinates: lineCoords,
                         },
                         properties: {},
                     },
                 });
+
+                // Corridor buffer — zone de tolérance visuelle pour le trajet survolé
+                if (survole) {
+                    const corridorLayerId = `${lineId}-corridor`;
+                    if (!map.getLayer(corridorLayerId)) {
+                        map.addLayer({
+                            id: corridorLayerId,
+                            type: "line",
+                            source: lineId,
+                            layout: { "line-join": "round", "line-cap": "round" },
+                            paint: {
+                                "line-color": "#3b82f6",
+                                "line-width": 24,
+                                "line-opacity": 0.12,
+                            },
+                        });
+                        linesRef.current.push(corridorLayerId);
+                    }
+                }
+
                 map.addLayer({
                     id: lineId,
                     type: "line",
@@ -197,7 +222,7 @@ export default function MapRecherche({
         } else {
             map.once("load", renderTrajets);
         }
-    }, [trajets, trajetSurvole, depart]);
+    }, [trajets, trajetSurvole, depart, polylines]);
 
     return (
         <div ref={containerRef} style={{ height: "100%", width: "100%" }} className="z-0" />

@@ -502,40 +502,52 @@ out geom;
     @action(detail=False, methods=['post'], url_path='rechercher-itineraire', permission_classes=[AllowAny])
     def rechercher_par_itineraire(self, request):
         """
-        Recherche les trajets compatibles avec le point de prise en charge
-        et le point de dépose du passager.
+        Recherche de trajets compatibles avec l'itinéraire passager.
+        Utilise les polylines OSRM stockées en base (v2 — aucun appel OSRM pendant la recherche).
 
         Body JSON :
         {
             "pickup_lat": 6.137,  "pickup_lng": 1.212,
             "dropoff_lat": 6.890, "dropoff_lng": 1.102,
-            "date": "2026-06-15",
-            "places": 1,
-            "score_minimum": 50
+            "date": "2026-06-15",       (optionnel)
+            "places": 1,                (optionnel, défaut 1)
+            "tolerance_km": 2.0,        (optionnel, défaut 2.0 — valeurs: 0.5/1/2/3/5)
+            "score_minimum": 50         (optionnel, défaut 50)
         }
         """
-        from .matching import rechercher_trajets_compatibles
+        from .matching import rechercher_trajets_compatibles_v2, VALID_TOLERANCES, SHAPELY_AVAILABLE
 
         pickup_lat  = request.data.get('pickup_lat')
         pickup_lng  = request.data.get('pickup_lng')
         dropoff_lat = request.data.get('dropoff_lat')
         dropoff_lng = request.data.get('dropoff_lng')
-        date        = request.data.get('date')
-        places      = int(request.data.get('places', 1))
-        score_min   = int(request.data.get('score_minimum', 50))
+        date         = request.data.get('date')
+        places       = int(request.data.get('places', 1))
+        tolerance_km = float(request.data.get('tolerance_km', 2.0))
+        score_min    = int(request.data.get('score_minimum', 50))
 
         if not all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
-            return Response({"error": "pickup_lat, pickup_lng, dropoff_lat, dropoff_lng requis."}, status=400)
+            return Response(
+                {"error": "pickup_lat, pickup_lng, dropoff_lat, dropoff_lng requis."},
+                status=400,
+            )
 
-        qs = Trajet.objects.filter(statut='ouvert', places_disponibles__gte=places)
+        # Clamper la tolérance aux valeurs supportées
+        tolerance_km = min(VALID_TOLERANCES, key=lambda t: abs(t - tolerance_km))
+
+        qs = Trajet.objects.filter(
+            statut='ouvert',
+            places_disponibles__gte=places,
+        )
         if date:
             qs = qs.filter(date_heure_depart__date=date)
         qs = qs.select_related('conducteur', 'vehicule').prefetch_related('escales')
 
-        resultats = rechercher_trajets_compatibles(
+        resultats = rechercher_trajets_compatibles_v2(
             qs,
             float(pickup_lat), float(pickup_lng),
             float(dropoff_lat), float(dropoff_lng),
+            tolerance_km=tolerance_km,
             score_minimum=score_min,
         )
 
@@ -544,15 +556,23 @@ out geom;
         for r in resultats:
             t = TrajetSerializer(r['trajet']).data
             t['matching'] = {
-                'score': r['score'],
+                'score':                r['score'],
                 'distance_passager_km': r['distance_passager_km'],
-                'detour_km': r['detour_km'],
-                'prix_passager': r['prix_passager'],
-                'raison': r['raison'],
+                'distance_pickup_km':   r.get('distance_pickup_km'),
+                'distance_dropoff_km':  r.get('distance_dropoff_km'),
+                'detour_km':            r['detour_km'],
+                'direction_ok':         r.get('direction_ok', True),
+                'prix_passager':        r['prix_passager'],
+                'raison':               r['raison'],
             }
             data.append(t)
 
-        return Response({'count': len(data), 'resultats': data})
+        return Response({
+            'count':        len(data),
+            'tolerance_km': tolerance_km,
+            'algorithm':    'polyline_shapely' if SHAPELY_AVAILABLE else 'haversine_fallback',
+            'resultats':    data,
+        })
 
     @action(detail=True, methods=['post'], url_path='matching-score', permission_classes=[AllowAny])
     def matching_score(self, request, pk=None):

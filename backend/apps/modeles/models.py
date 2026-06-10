@@ -204,6 +204,7 @@ class Trajet(models.Model):
 
     # Itinéraire encodé (polyline OSRM) pour le matching géographique
     polyline            = models.TextField(blank=True, default='')
+    polyline_stored     = models.BooleanField(default=False, db_index=True)
     # Détour maximum accepté pour embarquer un passager hors route (km)
     tolerance_detour_km = models.FloatField(default=2.0)
 
