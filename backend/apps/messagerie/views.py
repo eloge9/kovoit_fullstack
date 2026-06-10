@@ -1,183 +1,200 @@
 import logging
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q, Max, Subquery, OuterRef
+from rest_framework.response import Response
+from rest_framework import status
 from django.utils import timezone
 
-from ..modeles.models import Message, Utilisateur
+from .models import Conversation, Participant, MessageConv
 
 logger = logging.getLogger(__name__)
 
 
-class MessagerieViewSet(viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
+def _user_info(u):
+    return {
+        'id':          str(u.id),
+        'username':    u.username,
+        'nom':         f"{u.first_name} {u.last_name}".strip() or u.username,
+        'photo_profil': u.photo_profil.url if getattr(u, 'photo_profil', None) and u.photo_profil else None,
+        'role':        getattr(u, 'role', ''),
+    }
 
-    # ── Liste des conversations ───────────────────────────────────────────
-    @action(detail=False, methods=['get'], url_path='conversations')
-    def conversations(self, request):
-        """
-        Retourne la liste des utilisateurs avec qui l'utilisateur a échangé,
-        avec le dernier message et le nombre de messages non lus.
-        """
-        user = request.user
 
-        # IDs de tous les interlocuteurs (expéditeurs ou destinataires)
-        envoyes  = Message.objects.filter(expediteur=user).values_list('destinataire_id', flat=True)
-        recus    = Message.objects.filter(destinataire=user).values_list('expediteur_id', flat=True)
-        ids_tous = set(envoyes) | set(recus)
+def _non_lus_pour_participant(p: Participant) -> int:
+    qs = p.conversation.messages.exclude(auteur=p.utilisateur)
+    if p.dernier_lu_at:
+        return qs.filter(created_at__gt=p.dernier_lu_at).count()
+    return qs.count()
 
-        conversations = []
-        for autre_id in ids_tous:
-            # Dernier message du thread
-            dernier = (
-                Message.objects
-                .filter(
-                    Q(expediteur=user, destinataire_id=autre_id) |
-                    Q(expediteur_id=autre_id, destinataire=user)
-                )
-                .order_by('-created_at')
-                .first()
-            )
-            if dernier is None:
-                continue
 
-            non_lus = Message.objects.filter(
-                expediteur_id=autre_id,
-                destinataire=user,
-                lu=False,
-            ).count()
+def _conv_data(conv: Conversation, current_user) -> dict:
+    dernier = conv.messages.order_by('-created_at').first()
+    dernier_data = None
+    if dernier:
+        dernier_data = {
+            'id':        dernier.id,
+            'contenu':   dernier.contenu,
+            'auteur_id': str(dernier.auteur_id),
+            'timestamp': dernier.created_at.isoformat(),
+            'moi':       dernier.auteur_id == current_user.id,
+        }
 
-            try:
-                autre = Utilisateur.objects.get(pk=autre_id)
-            except Utilisateur.DoesNotExist:
-                continue
+    interlocuteurs = []
+    for p in conv.participants.exclude(utilisateur=current_user).select_related('utilisateur'):
+        interlocuteurs.append(_user_info(p.utilisateur))
 
-            conversations.append({
-                'utilisateur': {
-                    'id':          str(autre.id),
-                    'username':    autre.username,
-                    'nom':         f"{autre.first_name} {autre.last_name}".strip() or autre.username,
-                    'photo_profil': autre.photo_profil.url if autre.photo_profil else None,
-                    'role':        autre.role,
-                },
-                'dernier_message': {
-                    'id':           dernier.id,
-                    'contenu':      dernier.contenu,
-                    'expediteur_id': str(dernier.expediteur_id),
-                    'timestamp':    dernier.created_at.isoformat(),
-                },
-                'non_lus': non_lus,
-            })
-
-        # Trier par date du dernier message (plus récent en premier)
-        conversations.sort(key=lambda c: c['dernier_message']['timestamp'], reverse=True)
-        return Response(conversations)
-
-    # ── Historique avec un utilisateur ───────────────────────────────────
-    @action(detail=False, methods=['get'], url_path='messages/(?P<user_id>[0-9a-f-]+)')
-    def historique(self, request, user_id=None):
-        """
-        Retourne les 50 derniers messages échangés avec un utilisateur donné.
-        Marque automatiquement les messages reçus comme lus.
-        """
-        user = request.user
-
-        # Vérifier que l'interlocuteur existe (même réponse 404 pour éviter l'énumération d'IDs)
-        if not Utilisateur.objects.filter(pk=user_id).exists():
-            from rest_framework.exceptions import NotFound
-            raise NotFound("Utilisateur introuvable.")
-
-        messages = (
-            Message.objects
-            .filter(
-                Q(expediteur=user, destinataire_id=user_id) |
-                Q(expediteur_id=user_id, destinataire=user)
-            )
-            .select_related('expediteur')
-            .order_by('-created_at')[:50]
-        )
-
-        # Marquer les messages reçus comme lus
-        Message.objects.filter(
-            expediteur_id=user_id,
-            destinataire=user,
-            lu=False,
-        ).update(lu=True)
-
-        data = [
-            {
-                'id':           m.id,
-                'contenu':      m.contenu,
-                'expediteur_id': str(m.expediteur_id),
-                'username':     m.expediteur.username,
-                'lu':           m.lu,
-                'timestamp':    m.created_at.isoformat(),
-                'moi':          m.expediteur_id == user.id,
+    trajet_info = None
+    if conv.reservation_id:
+        try:
+            res = conv.reservation
+            t = res.trajet
+            trajet_info = {
+                'id':                 t.id,
+                'depart':             t.depart,
+                'destination':        t.destination,
+                'date':               t.date_heure_depart.isoformat() if t.date_heure_depart else None,
+                'statut_reservation': res.statut,
+                'reservation_id':     res.id,
             }
-            for m in reversed(list(messages))
-        ]
-        return Response(data)
+        except Exception:
+            pass
 
-    # ── Envoyer un message REST (fallback WebSocket) ──────────────────────
-    @action(detail=False, methods=['post'], url_path='messages/(?P<user_id>[0-9a-f-]+)/envoyer')
-    def envoyer(self, request, user_id=None):
-        """
-        Envoie un message par REST (utilisé quand le WebSocket n'est pas disponible).
-        """
-        contenu = str(request.data.get('contenu', '')).strip()
-        if not contenu:
-            return Response({"error": "Le message ne peut pas être vide."}, status=400)
+    try:
+        p_current = conv.participants.get(utilisateur=current_user)
+        non_lus = _non_lus_pour_participant(p_current)
+    except Participant.DoesNotExist:
+        non_lus = 0
 
-        try:
-            destinataire = Utilisateur.objects.get(pk=user_id)
-        except Utilisateur.DoesNotExist:
-            return Response({"error": "Destinataire introuvable."}, status=404)
+    return {
+        'id':             conv.id,
+        'statut':         conv.statut,
+        'reservation_id': conv.reservation_id,
+        'trajet':         trajet_info,
+        'interlocuteurs': interlocuteurs,
+        'dernier_message': dernier_data,
+        'non_lus':        non_lus,
+        'updated_at':     conv.updated_at.isoformat(),
+    }
 
-        if destinataire.id == request.user.id:
-            return Response({"error": "Vous ne pouvez pas vous envoyer un message."}, status=400)
 
-        message = Message.objects.create(
-            expediteur=request.user,
-            destinataire=destinataire,
-            contenu=contenu,
+# ── GET /messagerie/conversations/ ───────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def liste_conversations(request):
+    participations = (
+        Participant.objects
+        .filter(utilisateur=request.user)
+        .select_related(
+            'conversation',
+            'conversation__reservation',
+            'conversation__reservation__trajet',
+        )
+        .prefetch_related('conversation__participants__utilisateur', 'conversation__messages')
+        .order_by('-conversation__updated_at')
+    )
+    data = [_conv_data(p.conversation, request.user) for p in participations]
+    return Response(data)
+
+
+# ── GET /messagerie/conversations/{id}/ ──────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def detail_conversation(request, conv_id):
+    try:
+        Participant.objects.get(conversation_id=conv_id, utilisateur=request.user)
+    except Participant.DoesNotExist:
+        return Response({"error": "Conversation introuvable."}, status=404)
+    try:
+        conv = (
+            Conversation.objects
+            .select_related('reservation', 'reservation__trajet')
+            .prefetch_related('participants__utilisateur')
+            .get(pk=conv_id)
+        )
+    except Conversation.DoesNotExist:
+        return Response({"error": "Conversation introuvable."}, status=404)
+    return Response(_conv_data(conv, request.user))
+
+
+# ── GET /messagerie/conversations/{id}/messages/ ─────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def messages_conversation(request, conv_id):
+    if not Participant.objects.filter(conversation_id=conv_id, utilisateur=request.user).exists():
+        return Response({"error": "Conversation introuvable."}, status=404)
+
+    # Pagination basique : cursor via ?avant=<id> pour charger les anciens messages
+    avant_id = request.query_params.get('avant')
+    qs = MessageConv.objects.filter(conversation_id=conv_id).select_related('auteur')
+    if avant_id:
+        qs = qs.filter(id__lt=avant_id)
+    msgs = list(qs.order_by('-created_at')[:50])
+
+    # Marquer comme lu
+    Participant.objects.filter(
+        conversation_id=conv_id,
+        utilisateur=request.user,
+    ).update(dernier_lu_at=timezone.now())
+
+    data = [
+        {
+            'id':        m.id,
+            'contenu':   m.contenu,
+            'auteur_id': str(m.auteur_id),
+            'username':  m.auteur.username,
+            'timestamp': m.created_at.isoformat(),
+            'moi':       m.auteur_id == request.user.id,
+        }
+        for m in reversed(msgs)
+    ]
+    return Response(data)
+
+
+# ── POST /messagerie/conversations/{id}/messages/ (REST fallback) ─────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def envoyer_message(request, conv_id):
+    if not Participant.objects.filter(conversation_id=conv_id, utilisateur=request.user).exists():
+        return Response({"error": "Conversation introuvable."}, status=404)
+
+    try:
+        conv = Conversation.objects.get(pk=conv_id)
+    except Conversation.DoesNotExist:
+        return Response({"error": "Conversation introuvable."}, status=404)
+
+    if conv.statut != Conversation.OUVERTE:
+        return Response(
+            {"error": f"La conversation est en mode {conv.statut}."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
-        return Response({
-            'id':           message.id,
-            'contenu':      message.contenu,
-            'expediteur_id': str(message.expediteur_id),
-            'timestamp':    message.created_at.isoformat(),
-        }, status=status.HTTP_201_CREATED)
+    contenu = str(request.data.get('contenu', '')).strip()
+    if not contenu:
+        return Response({"error": "Le message ne peut pas être vide."}, status=400)
 
-    # ── Nombre total de messages non lus ─────────────────────────────────
-    @action(detail=False, methods=['get'], url_path='non-lus')
-    def non_lus(self, request):
-        """Retourne le nombre de messages non lus (pour le badge dans la navbar)."""
-        count = Message.objects.filter(destinataire=request.user, lu=False).count()
-        return Response({'count': count})
+    msg = MessageConv.objects.create(conversation=conv, auteur=request.user, contenu=contenu)
+    Conversation.objects.filter(pk=conv_id).update(updated_at=timezone.now())
 
-    # ── Infos d'un utilisateur pour démarrer une conversation ────────────
-    @action(detail=False, methods=['get'], url_path='utilisateur/(?P<user_id>[0-9a-f-]+)')
-    def info_utilisateur(self, request, user_id=None):
-        """
-        Retourne les infos de base d'un utilisateur pour initier une nouvelle conversation.
-        Utilisé quand on navigue vers /communication/messages?avec=<uuid> sans conversation existante.
-        """
-        try:
-            autre = Utilisateur.objects.get(pk=user_id)
-        except Utilisateur.DoesNotExist:
-            from rest_framework.exceptions import NotFound
-            raise NotFound("Utilisateur introuvable.")
+    return Response({
+        'id':        msg.id,
+        'contenu':   msg.contenu,
+        'auteur_id': str(msg.auteur_id),
+        'username':  request.user.username,
+        'timestamp': msg.created_at.isoformat(),
+        'moi':       True,
+    }, status=201)
 
-        if str(autre.id) == str(request.user.id):
-            return Response({"error": "Impossible d'ouvrir une conversation avec vous-même."}, status=400)
 
-        return Response({
-            'id':          str(autre.id),
-            'username':    autre.username,
-            'nom':         f"{autre.first_name} {autre.last_name}".strip() or autre.username,
-            'photo_profil': autre.photo_profil.url if autre.photo_profil else None,
-            'role':        autre.role,
-        })
+# ── GET /messagerie/non-lus/ ──────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def non_lus_count(request):
+    total = 0
+    for p in Participant.objects.filter(utilisateur=request.user).prefetch_related('conversation__messages'):
+        total += _non_lus_pour_participant(p)
+    return Response({'count': total})

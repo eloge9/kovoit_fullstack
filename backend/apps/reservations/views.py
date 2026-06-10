@@ -113,11 +113,23 @@ class ReservationViewSet(viewsets.GenericViewSet):
                 prix_passager=prix_passager,
             )
 
+            # Créer automatiquement la conversation passager ↔ conducteur
+            conv_id = None
+            try:
+                from apps.messagerie.models import Conversation, Participant
+                conv = Conversation.objects.create(reservation=reservation)
+                Participant.objects.create(conversation=conv, utilisateur=request.user)
+                Participant.objects.create(conversation=conv, utilisateur=trajet.conducteur)
+                conv_id = conv.id
+            except Exception as exc:
+                logger.warning("Erreur création conversation: %s", exc)
+
             prix_prevu = float(prix_passager or trajet.prix_par_place or 0)
 
             return Response({
                 "message": "Réservation envoyée. En attente de confirmation.",
                 "reservation_id": reservation.id,
+                "conversation_id": conv_id,
                 "code_embarquement": reservation.code_embarquement,
                 "prix_prevu": str(prix_prevu),
             }, status=201)
@@ -189,6 +201,15 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
         reservation.statut = 'declinee'
         reservation.save()
+
+        # Conversation en lecture seule — le passager peut encore lire mais pas écrire
+        try:
+            from apps.messagerie.models import Conversation
+            Conversation.objects.filter(reservation=reservation).update(
+                statut=Conversation.LECTURE_SEULE
+            )
+        except Exception:
+            pass
 
         return Response({"message": "Réservation déclinée."})
     

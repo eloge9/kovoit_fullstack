@@ -1,35 +1,80 @@
 import { api } from "./api";
 
-export const getConversations = () =>
-    api("/messagerie/conversations/", "GET");
+// ── Types ────────────────────────────────────────────────────────────────────
 
-export const getHistorique = (userId: string) =>
-    api(`/messagerie/messages/${userId}/`, "GET");
+export interface InterlocuteurInfo {
+  id:          string;
+  username:    string;
+  nom:         string;
+  photo_profil: string | null;
+  role:        string;
+}
 
-export const envoyerMessage = (userId: string, contenu: string) =>
-    api(`/messagerie/messages/${userId}/envoyer/`, "POST", { contenu });
+export interface TrajetInfo {
+  id:                 number;
+  depart:             string;
+  destination:        string;
+  date:               string | null;
+  statut_reservation: string;
+  reservation_id:     number;
+}
 
-export const getNonLus = () =>
-    api("/messagerie/non-lus/", "GET");
+export interface DernierMessage {
+  id:        number;
+  contenu:   string;
+  auteur_id: string;
+  timestamp: string;
+  moi:       boolean;
+}
 
-export const getInfoUtilisateur = (userId: string): Promise<{
-    id: string;
-    username: string;
-    nom: string;
-    photo_profil: string | null;
-    role: string;
-}> => api(`/messagerie/utilisateur/${userId}/`, "GET");
+export interface ConversationItem {
+  id:             number;
+  statut:         'ouverte' | 'lecture_seule' | 'fermee';
+  reservation_id: number | null;
+  trajet:         TrajetInfo | null;
+  interlocuteurs: InterlocuteurInfo[];
+  dernier_message: DernierMessage | null;
+  non_lus:        number;
+  updated_at:     string;
+}
 
-export const getQrCode = (reservationId: string) =>
-    api(`/reservations/${reservationId}/qr-code/`, "GET");
+export interface ChatMessage {
+  id:        number;
+  contenu:   string;
+  auteur_id: string;
+  username:  string;
+  timestamp: string;
+  moi:       boolean;
+}
 
-export const scannerQr = (reservationId: string, token: string) =>
-    api(`/reservations/${reservationId}/scanner-qr/`, "POST", { token });
+// ── API REST ─────────────────────────────────────────────────────────────────
 
-export const declencherSos = (data: { latitude?: number; longitude?: number; trajet_id?: string }) =>
-    api("/utilisateurs/ko/sos/", "POST", data);
+export const getConversations = (): Promise<ConversationItem[]> =>
+  api("/messagerie/conversations/", "GET");
+
+export const getDetailConversation = (convId: number): Promise<ConversationItem> =>
+  api(`/messagerie/conversations/${convId}/`, "GET");
+
+export const getMessages = (convId: number, avantId?: number): Promise<ChatMessage[]> => {
+  const qs = avantId ? `?avant=${avantId}` : "";
+  return api(`/messagerie/conversations/${convId}/messages/${qs}`, "GET");
+};
+
+export const envoyerMessageRest = (convId: number, contenu: string): Promise<ChatMessage> =>
+  api(`/messagerie/conversations/${convId}/envoyer/`, "POST", { contenu });
+
+export const getNonLus = (): Promise<{ count: number }> =>
+  api("/messagerie/non-lus/", "GET");
+
+// ── QR code / code embarquement (utilisé sur la page réservation passager) ───
+
+export const getQrCode = (reservationId: string): Promise<{ token: string }> =>
+  api(`/reservations/${reservationId}/qr-code/`, "GET");
+
+// ── Contact d'urgence (utilisé sur les pages de profil) ───────────────────────
 
 export const mettreAJourContactUrgence = (data: {
-    contact_urgence_nom: string;
-    contact_urgence_telephone: string;
-}) => api("/utilisateurs/ko/contact-urgence/", "POST", data);
+  contact_urgence_nom: string;
+  contact_urgence_telephone: string;
+}): Promise<unknown> =>
+  api("/utilisateurs/ko/contact-urgence/", "POST", data);

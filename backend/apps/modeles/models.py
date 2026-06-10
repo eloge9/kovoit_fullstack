@@ -250,6 +250,7 @@ class Trajet(models.Model):
             models.Index(fields=['conducteur', '-date_heure_depart']),
             models.Index(fields=['statut', '-date_heure_depart']),
             models.Index(fields=['-date_heure_depart']),
+            models.Index(fields=['statut', 'polyline_stored'], name='trajet_statut_poly_idx'),
         ]
 
     def __str__(self):

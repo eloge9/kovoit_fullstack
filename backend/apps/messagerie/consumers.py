@@ -8,70 +8,100 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-# Codes WebSocket personnalisés (cohérent avec trajets/consumers.py)
-WS_FORBIDDEN   = 4003
-WS_BAD_REQUEST = 4400
+WS_FORBIDDEN = 4003
+WS_NOT_FOUND = 4404
 
 
-class ChatConsumer(AsyncWebsocketConsumer):
+class ConversationConsumer(AsyncWebsocketConsumer):
     """
-    WebSocket de messagerie pair-à-pair.
+    WebSocket de conversation par ID.
+    URL  : ws/conv/{conv_id}/?token={jwt}
+    Room : conv_{conv_id}
 
-    Room déterministe : chat_{min(u1,u2)}_{max(u1,u2)}
-    Peu importe qui initie, les deux utilisateurs rejoignent la même room.
+    Client → serveur :
+        {"type": "message", "contenu": "..."}
+        {"type": "typing"}
+        {"type": "lire"}
 
-    Messages supportés (client → serveur) :
-        { "type": "message",  "contenu": "..." }
-        { "type": "typing" }
-        { "type": "lu" }
-
-    Messages envoyés (serveur → client) :
-        { "type": "message",  "id", "contenu", "expediteur_id", "username", "timestamp" }
-        { "type": "typing",   "user_id", "username" }
+    Serveur → client :
+        {"type": "message",  "id", "conv_id", "contenu", "auteur_id", "username", "timestamp"}
+        {"type": "typing",   "user_id", "username"}
+        {"type": "lu",       "user_id"}
+        {"type": "error",    "reason"}
     """
-
-    # ── Helpers DB ────────────────────────────────────────────────────────
 
     @database_sync_to_async
-    def _sauvegarder_message(self, expediteur, destinataire_id: str, contenu: str):
-        from apps.modeles.models import Message, Utilisateur
+    def _verifier_participant(self, conv_id: int, user):
+        from .models import Conversation, Participant
         try:
-            destinataire = Utilisateur.objects.get(pk=destinataire_id)
-        except Utilisateur.DoesNotExist:
+            conv = Conversation.objects.get(pk=conv_id)
+        except Conversation.DoesNotExist:
             return None
-        msg = Message.objects.create(
-            expediteur=expediteur,
-            destinataire=destinataire,
+        if not Participant.objects.filter(conversation=conv, utilisateur=user).exists():
+            return None
+        return conv
+
+    @database_sync_to_async
+    def _sauvegarder_message(self, conv_id: int, auteur, contenu: str):
+        from .models import Conversation, MessageConv
+        from django.utils import timezone as tz
+        try:
+            conv = Conversation.objects.get(pk=conv_id)
+        except Conversation.DoesNotExist:
+            return None, 'introuvable'
+        if conv.statut != Conversation.OUVERTE:
+            return None, conv.statut
+        msg = MessageConv.objects.create(
+            conversation=conv,
+            auteur=auteur,
             contenu=contenu,
         )
-        return msg
+        Conversation.objects.filter(pk=conv_id).update(updated_at=tz.now())
+        return msg, 'ok'
 
     @database_sync_to_async
-    def _marquer_lu(self, destinataire_id: str, expediteur_id: str):
-        from apps.modeles.models import Message
-        Message.objects.filter(
-            destinataire_id=destinataire_id,
-            expediteur_id=expediteur_id,
-            lu=False,
-        ).update(lu=True)
+    def _marquer_lu(self, conv_id: int, user):
+        from .models import Participant
+        Participant.objects.filter(
+            conversation_id=conv_id,
+            utilisateur=user,
+        ).update(dernier_lu_at=timezone.now())
 
-    # ── Cycle de vie WebSocket ────────────────────────────────────────────
+    @database_sync_to_async
+    def _autres_participants_ids(self, conv_id: int, user):
+        from .models import Participant
+        return list(
+            Participant.objects
+            .filter(conversation_id=conv_id)
+            .exclude(utilisateur=user)
+            .values_list('utilisateur_id', flat=True)
+        )
+
+    # ── Cycle de vie ──────────────────────────────────────────────────────────
 
     async def connect(self):
         self.user = self.scope.get("user")
-
-        if not self.user or isinstance(self.user, AnonymousUser) or not self.user.is_authenticated:
+        if not self.user or isinstance(self.user, AnonymousUser):
             await self.close(code=WS_FORBIDDEN)
             return
 
-        other_id    = self.scope["url_route"]["kwargs"].get("user_id", "")
-        u1, u2      = sorted([str(self.user.id), str(other_id)])
-        self.room     = f"chat_{u1}_{u2}"
-        self.other_id = other_id
+        try:
+            self.conv_id = int(self.scope["url_route"]["kwargs"]["conv_id"])
+        except (KeyError, TypeError, ValueError):
+            await self.close(code=WS_NOT_FOUND)
+            return
 
+        conv = await self._verifier_participant(self.conv_id, self.user)
+        if conv is None:
+            await self.close(code=WS_FORBIDDEN)
+            return
+
+        self.conv_statut = conv.statut
+        self.room = f"conv_{self.conv_id}"
         await self.channel_layer.group_add(self.room, self.channel_name)
         await self.accept()
-        logger.debug("ChatConsumer connecté : %s → room %s", self.user.username, self.room)
+        await self._marquer_lu(self.conv_id, self.user)
+        logger.debug("ConversationConsumer %s → conv %s", self.user.username, self.conv_id)
 
     async def disconnect(self, close_code):
         if hasattr(self, "room"):
@@ -81,74 +111,110 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
         except json.JSONDecodeError:
-            await self.close(code=WS_BAD_REQUEST)
             return
 
-        msg_type = data.get("type")
+        kind = data.get("type")
 
-        if msg_type == "typing":
-            await self.channel_layer.group_send(self.room, {
-                "type":     "typing",
-                "user_id":  str(self.user.id),
-                "username": self.user.username,
-            })
+        if kind == "typing":
+            if self.conv_statut == "ouverte":
+                await self.channel_layer.group_send(self.room, {
+                    "type":     "chat.typing",
+                    "user_id":  str(self.user.id),
+                    "username": self.user.username,
+                })
 
-        elif msg_type == "message":
+        elif kind == "message":
             contenu = str(data.get("contenu", "")).strip()
             if not contenu:
                 return
 
-            message = await self._sauvegarder_message(self.user, self.other_id, contenu)
-            if message is None:
+            msg, result = await self._sauvegarder_message(self.conv_id, self.user, contenu)
+            if msg is None:
+                await self.send(text_data=json.dumps({
+                    "type":   "error",
+                    "reason": f"conversation_{result}",
+                }))
                 return
 
+            payload = {
+                "type":      "chat.message",
+                "id":        msg.id,
+                "conv_id":   self.conv_id,
+                "contenu":   msg.contenu,
+                "auteur_id": str(self.user.id),
+                "username":  self.user.username,
+                "timestamp": msg.created_at.isoformat(),
+            }
+            await self.channel_layer.group_send(self.room, payload)
+
+            # Notification push pour les autres participants
+            for uid in await self._autres_participants_ids(self.conv_id, self.user):
+                await self.channel_layer.group_send(f"notif_{uid}", {
+                    "type":       "notification",
+                    "notif_type": "nouveau_message",
+                    "data": {
+                        "conv_id":    self.conv_id,
+                        "auteur":     self.user.username,
+                        "contenu":    msg.contenu[:80],
+                        "message_id": msg.id,
+                    },
+                })
+
+        elif kind == "lire":
+            await self._marquer_lu(self.conv_id, self.user)
             await self.channel_layer.group_send(self.room, {
-                "type":          "message",
-                "id":            message.id,
-                "contenu":       message.contenu,
-                "expediteur_id": str(self.user.id),
-                "username":      self.user.username,
-                "timestamp":     message.created_at.isoformat(),
+                "type":    "chat.lu",
+                "user_id": str(self.user.id),
             })
 
-        elif msg_type == "lu":
-            await self._marquer_lu(str(self.user.id), self.other_id)
+    # ── Handlers group_send ───────────────────────────────────────────────────
 
-    # Handlers appelés par group_send
-    async def message(self, event):
-        await self.send(text_data=json.dumps(event))
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            "type":      "message",
+            "id":        event["id"],
+            "conv_id":   event["conv_id"],
+            "contenu":   event["contenu"],
+            "auteur_id": event["auteur_id"],
+            "username":  event["username"],
+            "timestamp": event["timestamp"],
+        }))
 
-    async def typing(self, event):
-        await self.send(text_data=json.dumps(event))
+    async def chat_typing(self, event):
+        if event["user_id"] != str(self.user.id):
+            await self.send(text_data=json.dumps({
+                "type":     "typing",
+                "user_id":  event["user_id"],
+                "username": event["username"],
+            }))
+
+    async def chat_lu(self, event):
+        await self.send(text_data=json.dumps({
+            "type":    "lu",
+            "user_id": event["user_id"],
+        }))
 
 
 class NotificationConsumer(AsyncWebsocketConsumer):
     """
-    Canal WebSocket dédié aux notifications temps réel de l'utilisateur connecté.
-    Room : notif_{user_id}
-
-    Lecture seule côté client — le serveur envoie via envoyer_notification().
-    Appeler : from apps.modeles.notifs import envoyer_notification
+    Canal WebSocket dédié aux notifications temps réel.
+    Room : notif_{user_id} — lecture seule côté client.
     """
 
     async def connect(self):
         self.user = self.scope.get("user")
-
-        if not self.user or isinstance(self.user, AnonymousUser) or not self.user.is_authenticated:
+        if not self.user or isinstance(self.user, AnonymousUser):
             await self.close(code=WS_FORBIDDEN)
             return
-
         self.room = f"notif_{self.user.id}"
         await self.channel_layer.group_add(self.room, self.channel_name)
         await self.accept()
-        logger.debug("NotificationConsumer connecté : %s", self.user.username)
 
     async def disconnect(self, close_code):
         if hasattr(self, "room"):
             await self.channel_layer.group_discard(self.room, self.channel_name)
 
     async def receive(self, text_data):
-        # Connexion en lecture seule — le client n'envoie rien
         pass
 
     async def notification(self, event):

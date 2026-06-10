@@ -29,6 +29,9 @@ class ReservationSerializer(serializers.ModelSerializer):
     paiement_moyen            = serializers.SerializerMethodField()
     paiement_reference_mobile = serializers.SerializerMethodField()
 
+    # Lien vers la conversation messagerie
+    conversation_id = serializers.SerializerMethodField()
+
     class Meta:
         model = Reservation
         fields = [
@@ -45,6 +48,8 @@ class ReservationSerializer(serializers.ModelSerializer):
             'distance_passager', 'penalite_annulation',
             # Paiement
             'paiement_statut', 'paiement_moyen', 'paiement_reference_mobile',
+            # Messagerie
+            'conversation_id',
         ]
 
     def get_conducteur(self, obj):
@@ -84,6 +89,12 @@ class ReservationSerializer(serializers.ModelSerializer):
     def get_paiement_reference_mobile(self, obj):
         p = self._get_paiement(obj)
         return p.reference_mobile if p else None
+
+    def get_conversation_id(self, obj):
+        try:
+            return obj.conversation.id
+        except Exception:
+            return None
 
 
 class ReservationCreateSerializer(serializers.Serializer):
