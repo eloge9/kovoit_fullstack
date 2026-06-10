@@ -402,6 +402,100 @@ class PaiementViewSet(viewsets.GenericViewSet):
 
         return Response(data)
 
+    # ── Paiements reçus par le conducteur ────────────────────────────────
+    @action(detail=False, methods=['get'])
+    def paiements_conducteur(self, request):
+        """
+        Retourne l'historique des paiements reçus par le conducteur.
+        Paramètres optionnels: date_debut, date_fin (YYYY-MM-DD), mois, annee
+        """
+        qs = Paiement.objects.filter(
+            conducteur=request.user,
+            statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],
+        ).select_related(
+            'reservation', 'reservation__trajet', 'reservation__passager'
+        ).order_by('-date_creation')
+
+        # Filtres optionnels
+        date_debut = request.query_params.get('date_debut')
+        date_fin   = request.query_params.get('date_fin')
+        mois       = request.query_params.get('mois')
+        annee      = request.query_params.get('annee')
+
+        from datetime import datetime as dt
+
+        if date_debut and date_fin:
+            try:
+                d1 = dt.strptime(date_debut, '%Y-%m-%d').date()
+                d2 = dt.strptime(date_fin,   '%Y-%m-%d').date()
+                qs = qs.filter(
+                    Q(statut=Paiement.Statut.CONFIRME, date_confirmation__date__gte=d1, date_confirmation__date__lte=d2) |
+                    Q(statut=Paiement.Statut.PAYEE,    date_payement__date__gte=d1,     date_payement__date__lte=d2)
+                )
+            except ValueError:
+                return Response({"error": "Format date invalide (YYYY-MM-DD)."}, status=400)
+        elif mois and annee:
+            try:
+                m, a = int(mois), int(annee)
+                qs = qs.filter(
+                    Q(statut=Paiement.Statut.CONFIRME, date_confirmation__year=a, date_confirmation__month=m) |
+                    Q(statut=Paiement.Statut.PAYEE,    date_payement__year=a,     date_payement__month=m)
+                )
+            except ValueError:
+                return Response({"error": "mois/annee invalides."}, status=400)
+        elif annee:
+            try:
+                a = int(annee)
+                qs = qs.filter(
+                    Q(statut=Paiement.Statut.CONFIRME, date_confirmation__year=a) |
+                    Q(statut=Paiement.Statut.PAYEE,    date_payement__year=a)
+                )
+            except ValueError:
+                return Response({"error": "annee invalide."}, status=400)
+
+        data = []
+        for p in qs:
+            montant    = float(p.montant)
+            commission = round(montant * COMMISSION_KOVOIT)
+            net        = montant - commission
+            resa       = p.reservation
+            trajet     = resa.trajet
+            passager   = resa.passager
+
+            # Date effective du paiement
+            date_effective = p.date_payement or p.date_confirmation or p.date_creation
+
+            data.append({
+                "paiement_id":      p.id,
+                "reservation_id":   resa.id,
+                "depart":           trajet.depart,
+                "destination":      trajet.destination,
+                "date_trajet":      trajet.date_heure_depart.strftime('%Y-%m-%d') if trajet.date_heure_depart else None,
+                "date_paiement":    date_effective.strftime('%Y-%m-%d') if date_effective else None,
+                "passager_nom":     f"{passager.first_name} {passager.last_name}".strip() or passager.username,
+                "places":           resa.places_reservees,
+                "montant_brut":     montant,
+                "commission_kovoit": commission,
+                "montant_net":      net,
+                "taux_commission":  COMMISSION_KOVOIT,
+                "moyen_paiement":   p.moyen_paiement,
+                "statut":           p.statut,
+            })
+
+        # Totaux globaux pour la période
+        total_brut       = sum(d["montant_brut"]      for d in data)
+        total_commission = sum(d["commission_kovoit"]  for d in data)
+        total_net        = sum(d["montant_net"]        for d in data)
+
+        return Response({
+            "nombre":            len(data),
+            "total_brut":        round(total_brut),
+            "total_commission":  round(total_commission),
+            "total_net":         round(total_net),
+            "taux_commission":   COMMISSION_KOVOIT,
+            "paiements":         data,
+        })
+
     # ── Soumettre référence T-Money / Flooz (manuel) ─────────────────────
     @action(detail=False, methods=['post'])
     def soumettre_reference_mobile(self, request):

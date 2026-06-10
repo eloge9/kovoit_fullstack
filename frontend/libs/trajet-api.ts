@@ -10,7 +10,10 @@ interface TrajetActionResponse {
 interface PositionActuelleResponse {
   latitude: number;
   longitude: number;
-  derniere_mise_a_jour: string;
+  vitesse_kmh?: number;
+  direction?: number;
+  timestamp?: string;
+  derniere_mise_a_jour?: string;
 }
 
 interface PositionMiseAJourData {

@@ -1,542 +1,349 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { TrendingDown, Car, DollarSign, Filter, BarChart3, PiggyBank, Target, AlertCircle } from "lucide-react";
-import ChartEconomies from "./components/ChartEconomies";
-import { api } from "../../../src/services/api";
-import { useAuth } from "../../../src/hooks/useAuth";
+import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { api } from "@/src/services/api";
+import { useAuth } from "@/src/hooks/useAuth";
 
-interface TrajetEconomie {
-  reservation_id: string;
-  trajet: string;
-  date: string;
-  distance_km: number;
-  type_vehicule: string;
-  places_reservees: number;
-  prix_kovoit_total: number;
-  prix_reference_total: number;
-  economie: number;
-  pourcentage_economie: number;
-  reference_type: string;
+const ChartEconomies = dynamic(() => import("./components/ChartEconomies"), { ssr: false });
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface DetailReservation {
+    reservation_id:       number;
+    trajet:               string;
+    date:                 string;
+    distance_km:          number;
+    type_vehicule:        string;
+    places_reservees:     number;
+    prix_kovoit_total:    number;
+    prix_reference_total: number;
+    economie:             number;
+    pourcentage_economie: number;
+    reference_type:       string;  // "Gozem" | "Taxi"
 }
 
-interface StatistiquesEconomie {
-  periode: string;
-  total_economie: number;
-  total_depense_kovoit: number;
-  total_depense_reference: number;
-  nombre_reservations: number;
-  economie_moyenne_reservation: number;
-  details_reservations: TrajetEconomie[];
-}
-
-interface ComparaisonType {
-  [type: string]: {
-    nombre_reservations: number;
-    total_economie: number;
-    total_distance: number;
-    economie_moyenne: number;
-  };
-}
-
-interface ResumeEconomie {
-  type_utilisateur: string;
-  chiffre_principal: number;
-  libelle_chiffre: string;
-  evolution_mois_precedent: number;
-  nombre_operations: number;
-  moyenne_operation: number;
+interface EconomiesData {
+    periode:                    string;
+    total_economie:             number;
+    total_depense_kovoit:       number;
+    total_depense_reference:    number;
+    nombre_reservations:        number;
+    economie_moyenne_reservation: number;
+    details_reservations:       DetailReservation[];
 }
 
 interface ChartData {
-  date: string;
-  economies: number;
-  reservations: number;
+    date:        string;
+    economies:   number;
+    reservations: number;
 }
 
+type Periode = "tous" | "mois" | "annee" | "semaine" | "personnalise";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const TYPE_ICON: Record<string, string> = {
+    moto: "🏍️", voiture: "🚗", minibus: "🚌", camion: "🚚",
+};
+
+function fmtFCFA(v: number) {
+    return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(v)) + " FCFA";
+}
+
+function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("fr-FR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+    });
+}
+
+function buildChartData(details: DetailReservation[]): ChartData[] {
+    const map: Record<string, { economies: number; reservations: number }> = {};
+    details.forEach((d) => {
+        const key = new Date(d.date).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+        if (!map[key]) map[key] = { economies: 0, reservations: 0 };
+        map[key].economies   += d.economie;
+        map[key].reservations += 1;
+    });
+    return Object.entries(map).map(([date, v]) => ({ date, ...v }));
+}
+
+function buildParams(periode: Periode, debut: string, fin: string): string {
+    const p = new URLSearchParams();
+    const now = new Date();
+    if (periode === "mois") {
+        p.set("mois",  String(now.getMonth() + 1));
+        p.set("annee", String(now.getFullYear()));
+    } else if (periode === "annee") {
+        p.set("annee", String(now.getFullYear()));
+    } else if (periode === "semaine") {
+        const dow = now.getDay();
+        const lundi = new Date(now);
+        lundi.setDate(now.getDate() - ((dow + 6) % 7));
+        const dim = new Date(lundi);
+        dim.setDate(lundi.getDate() + 6);
+        p.set("date_debut", lundi.toISOString().slice(0, 10));
+        p.set("date_fin",   dim.toISOString().slice(0, 10));
+    } else if (periode === "personnalise" && debut && fin) {
+        p.set("date_debut", debut);
+        p.set("date_fin",   fin);
+    }
+    // "tous" → pas de paramètre
+    return p.toString();
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
 export default function EconomiePassager() {
-  const { user, token, loading: authLoading } = useAuth();
-  const [periode, setPeriode] = useState("tous");
-  const [dateDebut, setDateDebut] = useState("");
-  const [dateFin, setDateFin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [statistiques, setStatistiques] = useState<StatistiquesEconomie>({
-    periode: "",
-    total_economie: 0,
-    total_depense_kovoit: 0,
-    total_depense_reference: 0,
-    nombre_reservations: 0,
-    economie_moyenne_reservation: 0,
-    details_reservations: []
-  });
-  const [resume, setResume] = useState<ResumeEconomie>({
-    type_utilisateur: "passager",
-    chiffre_principal: 0,
-    libelle_chiffre: "Économies ce mois",
-    evolution_mois_precedent: 0,
-    nombre_operations: 0,
-    moyenne_operation: 0
-  });
-  const [comparaisonTypes, setComparaisonTypes] = useState<{ periode: string; stats_par_type: ComparaisonType; total_general: any }>({
-    periode: "",
-    stats_par_type: {},
-    total_general: { economie_totale: 0, nombre_total_reservations: 0 }
-  });
-  const [chartData, setChartData] = useState<ChartData[]>([]);
-  const [loading, setLoading] = useState(false);
+    const { token, loading: authLoading } = useAuth();
+    const [periode,   setPeriode]   = useState<Periode>("tous");
+    const [dateDebut, setDateDebut] = useState("");
+    const [dateFin,   setDateFin]   = useState("");
+    const [data,      setData]      = useState<EconomiesData | null>(null);
+    const [loading,   setLoading]   = useState(true);
+    const [error,     setError]     = useState<string | null>(null);
 
-  useEffect(() => {
-    if (token) {
-      fetchEconomies();
-    }
-  }, [periode, dateDebut, dateFin, token]);
+    const load = useCallback(async () => {
+        if (!token) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const qs = buildParams(periode, dateDebut, dateFin);
+            const res: EconomiesData = await api(
+                `/economie/mes_economies/${qs ? "?" + qs : ""}`,
+                "GET"
+            );
+            setData(res);
+        } catch {
+            setError("Impossible de charger vos économies.");
+        } finally {
+            setLoading(false);
+        }
+    }, [token, periode, dateDebut, dateFin]);
 
-  const fetchEconomies = async () => {
-    if (!token) {
-      setError("Veuillez vous connecter pour voir vos économies.");
-      return;
-    }
+    useEffect(() => {
+        if (periode !== "personnalise") load();
+    }, [load, periode]);
 
-    setLoading(true);
-    setError(null);
-    try {
-      // Récupérer les économies du passager
-      const params = new URLSearchParams();
-
-      if (periode === "aujourdhui") {
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-
-        params.set('date_debut', todayStr);
-        params.set('date_fin', todayStr);
-      } else if (periode === "semaine") {
-        const now = new Date();
-        const dayOfWeek = now.getDay(); // 0 = Dimanche, 1 = Lundi, ...
-        const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Ajuster pour commencer lundi
-        const monday = new Date(now.setDate(diff));
-        const sunday = new Date(now.setDate(diff + 6));
-
-        params.set('date_debut', monday.toISOString().split('T')[0]);
-        params.set('date_fin', sunday.toISOString().split('T')[0]);
-      } else if (periode === "mois") {
-        const now = new Date();
-        params.set('mois', (now.getMonth() + 1).toString());
-        params.set('annee', now.getFullYear().toString());
-      } else if (periode === "annee") {
-        const now = new Date();
-        params.set('annee', now.getFullYear().toString());
-      }
-      // Pour "tous", on ne filtre pas
-
-      const statsData = await api(`/economie/mes_economies/?${params.toString()}`);
-      setStatistiques(statsData);
-
-      // Mettre à jour le résumé
-      const libelleMap = {
-        tous: "Économies totales",
-        aujourdhui: "Économies aujourd'hui",
-        semaine: "Économies cette semaine",
-        mois: "Économies ce mois",
-        annee: "Économies cette année",
-        personnalise: "Économies période"
-      };
-
-      setResume({
-        type_utilisateur: "passager",
-        chiffre_principal: statsData.total_economie || 0,
-        libelle_chiffre: libelleMap[periode as keyof typeof libelleMap] || "Économies",
-        evolution_mois_precedent: 0, // TODO: calculer l'évolution
-        nombre_operations: statsData.nombre_reservations || 0,
-        moyenne_operation: statsData.economie_moyenne_reservation || 0
-      });
-
-      // Transformer les données pour le graphique
-      if (statsData.details_reservations && statsData.details_reservations.length > 0) {
-        // Grouper par mois pour le graphique
-        const groupedData = statsData.details_reservations.reduce((acc: any, trajet: TrajetEconomie) => {
-          const date = new Date(trajet.date);
-          const monthKey = date.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
-
-          if (!acc[monthKey]) {
-            acc[monthKey] = { month: monthKey, economies: 0, reservations: 0 };
-          }
-
-          acc[monthKey].economies += trajet.economie;
-          acc[monthKey].reservations += 1;
-
-          return acc;
-        }, {});
-
-        const chartDataTransformed = Object.values(groupedData).map((item: any) => ({
-          date: item.month.split(' ')[0], // Prendre seulement le mois
-          economies: item.economies,
-          reservations: item.reservations
-        }));
-
-        setChartData(chartDataTransformed);
-      } else {
-        setChartData([]);
-      }
-
-      // Récupérer la comparaison par type de véhicule
-      const comparaisonData = await api('/economie/comparaison_types_vehicule/');
-      setComparaisonTypes(comparaisonData);
-
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        setError("Session expirée. Veuillez vous reconnecter.");
-      } else if (error.response?.status === 403) {
-        setError("Accès refusé. Veuillez vous connecter.");
-      } else if (error.response?.status >= 500) {
-        setError("Serveur indisponible. Veuillez réessayer plus tard.");
-      } else {
-        setError("Impossible de charger vos données économiques.");
-      }
-      // Réinitialiser les données en cas d'erreur
-      setStatistiques({
-        periode: "",
-        total_economie: 0,
-        total_depense_kovoit: 0,
-        total_depense_reference: 0,
-        nombre_reservations: 0,
-        economie_moyenne_reservation: 0,
-        details_reservations: []
-      });
-      setChartData([]);
-      setComparaisonTypes({
-        periode: "",
-        stats_par_type: {},
-        total_general: { economie_totale: 0, nombre_total_reservations: 0 }
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFiltrer = () => {
-    if (periode === "personnalise" && dateDebut && dateFin) {
-      fetchEconomies();
-    }
-  };
-
-  const formatMontant = (montant: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0
-    }).format(montant);
-  };
-
-  const getTypeVehiculeIcon = (type: string) => {
-    switch (type) {
-      case 'moto': return '🏍️';
-      case 'voiture': return '🚗';
-      case 'minibus': return '🚌';
-      case 'camion': return '🚚';
-      default: return '🚗';
-    }
-  };
-
-  // Afficher le chargement de l'authentification
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="loading loading-spinner loading-lg"></div>
-      </div>
+    // ── Attente auth ──
+    if (authLoading) return (
+        <div className="flex items-center justify-center min-h-96">
+            <span className="loading loading-spinner loading-lg" />
+        </div>
     );
-  }
 
-  // Afficher l'erreur d'authentification
-  if (!token) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-warning mx-auto" />
-          <div>
-            <h2 className="text-xl font-semibold mb-2">Connexion requise</h2>
-            <p className="text-base-content/60 mb-4">Veuillez vous connecter pour voir vos économies</p>
-            <Link href="/auth/connexion" className="btn btn-primary">
-              Se connecter
-            </Link>
-          </div>
+    if (!token) return (
+        <div className="flex flex-col items-center justify-center min-h-96 gap-4 text-center">
+            <p className="text-5xl">🔒</p>
+            <p className="font-semibold text-base-content">Connexion requise</p>
+            <p className="text-sm text-base-content/50">Connectez-vous pour voir vos économies.</p>
+            <Link href="/auth/connexion" className="btn btn-primary btn-sm rounded-full">Se connecter</Link>
         </div>
-      </div>
     );
-  }
 
-  // Afficher l'erreur de chargement des données
-  if (error) {
+    const chartData = data ? buildChartData(data.details_reservations) : [];
+    const pctEco    = data && data.total_depense_reference > 0
+        ? (data.total_economie / data.total_depense_reference) * 100 : 0;
+
     return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-error mx-auto" />
-          <div>
-            <h2 className="text-xl font-semibold mb-2">Erreur de chargement</h2>
-            <p className="text-base-content/60 mb-4">{error}</p>
-            <button onClick={fetchEconomies} className="btn btn-primary">
-              Réessayer
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+        <div className="space-y-7">
 
-  return (
-    <div className="space-y-8">
-      {/* EN-TÊTE */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pb-6 border-b border-base-300">
-        <div>
-          <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">
-            Passager
-          </p>
-          <h1 className="text-2xl font-bold text-base-content tracking-tight">
-            Mes Économies
-          </h1>
-          <div className="text-base-content/40 mt-1 text-sm">
-            {resume.nombre_operations} réservation{resume.nombre_operations > 1 ? "s" : ""} au total
-          </div>
-        </div>
-      </div>
-
-      {/* MINI BARRE DE NAVIGATION PÉRIODE */}
-      <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={() => setPeriode("tous")}
-          className={`btn btn-sm rounded-full capitalize transition-all ${periode === "tous" ? "btn-primary" : "btn-ghost border border-base-300"
-            }`}
-        >
-          Tous
-        </button>
-        {(["aujourdhui", "semaine", "mois", "annee"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriode(p)}
-            className={`btn btn-sm rounded-full capitalize transition-all ${periode === p ? "btn-primary" : "btn-ghost border border-base-300"
-              }`}
-          >
-            {p === "aujourdhui" ? "Aujourd'hui" : p === "semaine" ? "Cette semaine" : p === "mois" ? "Ce mois" : "Cette année"}
-          </button>
-        ))}
-        <button
-          onClick={() => setPeriode("personnalise")}
-          className={`btn btn-sm rounded-full capitalize transition-all ${periode === "personnalise" ? "btn-primary" : "btn-ghost border border-base-300"
-            }`}
-        >
-          Personnalisé
-        </button>
-      </div>
-
-      {/* FILTRES PERSONNALISÉS */}
-      {periode === "personnalise" && (
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-4 h-4 text-base-content/60" />
-            <h2 className="font-semibold text-base-content">Période personnalisée</h2>
-          </div>
-
-          <div className="flex flex-wrap gap-4">
-            <input
-              type="date"
-              value={dateDebut}
-              onChange={(e) => setDateDebut(e.target.value)}
-              className="input input-bordered input-sm w-full sm:w-auto"
-              placeholder="Date début"
-            />
-            <input
-              type="date"
-              value={dateFin}
-              onChange={(e) => setDateFin(e.target.value)}
-              className="input input-bordered input-sm w-full sm:w-auto"
-              placeholder="Date fin"
-            />
-            <button
-              onClick={handleFiltrer}
-              className="btn btn-primary btn-sm"
-              disabled={!dateDebut || !dateFin}
-            >
-              Filtrer
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">{resume.libelle_chiffre}</span>
-            <PiggyBank className="w-4 h-4 text-green-500" />
-          </div>
-          <div className="text-2xl font-bold text-green-600">
-            {formatMontant(resume.chiffre_principal)}
-          </div>
-          <div className={`text-xs mt-1 ${resume.evolution_mois_precedent >= 0 ? "text-green-500" : "text-red-500"
-            }`}>
-            {resume.evolution_mois_precedent >= 0 ? "+" : ""}{resume.evolution_mois_precedent.toFixed(1)}% vs période précédente
-          </div>
-        </div>
-
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Nombre de réservations</span>
-            <Car className="w-4 h-4 text-blue-500" />
-          </div>
-          <div className="text-2xl font-bold text-base-content">
-            {resume.nombre_operations}
-          </div>
-          <div className="text-xs text-blue-500 mt-1">
-            Moyenne: {formatMontant(resume.moyenne_operation)} économisée
-          </div>
-        </div>
-
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Dépenses Kovoit</span>
-            <DollarSign className="w-4 h-4 text-orange-500" />
-          </div>
-          <div className="text-2xl font-bold text-base-content">
-            {formatMontant(statistiques.total_depense_kovoit)}
-          </div>
-          <div className="text-xs text-base-content/60 mt-1">
-            Total cette période
-          </div>
-        </div>
-
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Économie moyenne</span>
-            <Target className="w-4 h-4 text-green-600" />
-          </div>
-          <div className="text-2xl font-bold text-green-600">
-            {resume.nombre_operations > 0 ?
-              ((resume.chiffre_principal / resume.nombre_operations) * 100).toFixed(1) : 0}%
-          </div>
-          <div className="text-xs text-green-500 mt-1">
-            Par rapport au taxi/Gozem
-          </div>
-        </div>
-      </div>
-
-      {/* Graphique des économies */}
-      <div className="bg-base-100 rounded-xl border border-base-200">
-        <div className="p-6 border-b border-base-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-base-content/60" />
-              <h2 className="font-semibold text-base-content">Évolution des économies</h2>
+            {/* ── En-tête ── */}
+            <div className="pb-5 border-b border-base-200">
+                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">Passager</p>
+                <h1 className="text-2xl font-bold text-base-content tracking-tight">Mes économies</h1>
+                <p className="text-sm text-base-content/40 mt-1">
+                    Économies réalisées par rapport au prix Gozem / Taxi
+                </p>
             </div>
-          </div>
-        </div>
-        <div className="p-6">
-          {chartData.length > 0 ? (
-            <ChartEconomies data={chartData} type="bar" />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-base-content/60">
-              Aucune donnée disponible pour cette période
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Comparaison par type de véhicule */}
-      {Object.keys(comparaisonTypes.stats_par_type).length > 0 && (
-        <div className="bg-base-100 rounded-xl border border-base-200">
-          <div className="p-6 border-b border-base-200">
-            <div className="flex items-center gap-2">
-              <TrendingDown className="w-4 h-4 text-base-content/60" />
-              <h2 className="font-semibold text-base-content">Économies par type de véhicule</h2>
+            {/* ── Filtres ── */}
+            <div className="flex gap-2 flex-wrap">
+                {(["tous", "semaine", "mois", "annee", "personnalise"] as Periode[]).map((p) => (
+                    <button key={p} onClick={() => setPeriode(p)}
+                        className={`btn btn-sm rounded-full capitalize transition-all ${
+                            periode === p ? "btn-primary" : "btn-ghost border border-base-200"
+                        }`}>
+                        {p === "tous" ? "Tout" : p === "semaine" ? "Cette semaine"
+                            : p === "mois" ? "Ce mois" : p === "annee" ? "Cette année" : "Personnalisé"}
+                    </button>
+                ))}
             </div>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Object.entries(comparaisonTypes.stats_par_type).map(([type, stats]) => (
-                <div key={type} className="bg-base-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-2xl">{getTypeVehiculeIcon(type)}</span>
-                    <span className="font-medium capitalize">{type}</span>
-                  </div>
-                  <div className="text-lg font-bold text-green-600">
-                    {formatMontant(stats.total_economie)}
-                  </div>
-                  <div className="text-xs text-base-content/60">
-                    {stats.nombre_reservations} réservations
-                  </div>
-                  <div className="text-xs text-base-content/60">
-                    Moyenne: {formatMontant(stats.economie_moyenne)}
-                  </div>
+
+            {periode === "personnalise" && (
+                <div className="bg-base-100 rounded-xl border border-base-200 p-4 flex flex-wrap items-end gap-3">
+                    <div>
+                        <label className="text-xs text-base-content/50 mb-1 block">Du</label>
+                        <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)}
+                            className="input input-bordered input-sm" />
+                    </div>
+                    <div>
+                        <label className="text-xs text-base-content/50 mb-1 block">Au</label>
+                        <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)}
+                            className="input input-bordered input-sm" />
+                    </div>
+                    <button onClick={load} disabled={!dateDebut || !dateFin || loading}
+                        className="btn btn-primary btn-sm">Filtrer</button>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+            )}
 
-      {/* LISTE DES RÉSERVATIONS */}
-      {loading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-6 animate-pulse">
-              <div className="h-4 bg-base-300 rounded w-1/3 mb-3" />
-              <div className="h-3 bg-base-300 rounded w-1/2" />
-            </div>
-          ))}
-        </div>
-      ) : statistiques.details_reservations.length === 0 ? (
-        <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
-          <p className="text-base-content/40 text-sm">
-            Aucune réservation trouvée pour cette période.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {statistiques.details_reservations.map((trajet) => (
-            <div
-              key={trajet.reservation_id}
-              className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden hover:shadow-sm transition-shadow"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-5 gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-lg">{getTypeVehiculeIcon(trajet.type_vehicule)}</span>
-                    <p className="font-semibold text-base-content">
-                      {trajet.trajet}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4 mt-1.5 flex-wrap">
-                    <p className="text-xs text-base-content/40">{trajet.date}</p>
-                    <p className="text-xs text-base-content/40">
-                      {trajet.distance_km} km
-                    </p>
-                    <p className="text-xs text-base-content/40">
-                      {trajet.places_reservees} place{trajet.places_reservees > 1 ? "s" : ""}
-                    </p>
-                  </div>
+            {/* ── Erreur ── */}
+            {error && (
+                <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-center gap-3">
+                    <p className="text-sm text-error flex-1">{error}</p>
+                    <button onClick={load} className="btn btn-error btn-xs rounded-full">Réessayer</button>
+                </div>
+            )}
+
+            {/* ── Cartes stats ── */}
+            {loading ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+                    {[1,2,3,4].map((i) => <div key={i} className="h-28 bg-base-300 rounded-2xl" />)}
+                </div>
+            ) : data && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard label="Économies totales"
+                        value={fmtFCFA(data.total_economie)}
+                        sub="Vs Gozem / Taxi"
+                        couleur="text-green-600"
+                        bg="bg-green-50 dark:bg-green-950/20"
+                        icon="💚" />
+                    <StatCard label="Dépensé via Kovoit"
+                        value={fmtFCFA(data.total_depense_kovoit)}
+                        sub="Total payé sur l'app"
+                        couleur="text-blue-600"
+                        bg="bg-blue-50 dark:bg-blue-950/20"
+                        icon="💳" />
+                    <StatCard label="Prix Gozem / Taxi"
+                        value={fmtFCFA(data.total_depense_reference)}
+                        sub="Ce qu'aurait coûté un taxi"
+                        couleur="text-orange-600"
+                        bg="bg-orange-50 dark:bg-orange-950/20"
+                        icon="🚕" />
+                    <StatCard label="Économie moyenne"
+                        value={`${pctEco.toFixed(1)} %`}
+                        sub={data.nombre_reservations > 0
+                            ? `${data.nombre_reservations} réservation${data.nombre_reservations > 1 ? "s" : ""}`
+                            : "Aucune réservation"}
+                        couleur="text-emerald-600"
+                        bg="bg-emerald-50 dark:bg-emerald-950/20"
+                        icon="📈" />
+                </div>
+            )}
+
+            {/* ── Graphique ── */}
+            {!loading && chartData.length > 0 && (
+                <div className="bg-base-100 rounded-2xl border border-base-200">
+                    <div className="px-5 py-4 border-b border-base-200">
+                        <h2 className="font-semibold text-sm text-base-content">Évolution des économies (FCFA)</h2>
+                    </div>
+                    <div className="px-5 py-4">
+                        <ChartEconomies data={chartData} type="bar" />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Liste des réservations ── */}
+            <div className="bg-base-100 rounded-2xl border border-base-200">
+                <div className="px-5 py-4 border-b border-base-200">
+                    <h2 className="font-semibold text-sm text-base-content">Détail par réservation</h2>
                 </div>
 
-                <div className="flex items-center gap-4 shrink-0">
-                  <div className="text-right">
+                {loading ? (
+                    <div className="divide-y divide-base-200">
+                        {[1,2,3].map((i) => (
+                            <div key={i} className="px-5 py-4 animate-pulse flex gap-4">
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-4 bg-base-300 rounded w-2/3" />
+                                    <div className="h-3 bg-base-300 rounded w-1/3" />
+                                </div>
+                                <div className="h-10 bg-base-300 rounded w-32" />
+                            </div>
+                        ))}
+                    </div>
+                ) : !data || data.details_reservations.length === 0 ? (
+                    <div className="py-16 text-center">
+                        <p className="text-4xl mb-3">🛣️</p>
+                        <p className="text-base-content/40 text-sm">Aucune réservation sur cette période.</p>
+                        <Link href="/passager/trajets" className="btn btn-primary btn-sm rounded-full mt-4">
+                            Chercher un trajet
+                        </Link>
+                    </div>
+                ) : (
+                    <div className="divide-y divide-base-200">
+                        {data.details_reservations.map((r) => (
+                            <ReservationRow key={r.reservation_id} r={r} />
+                        ))}
+                    </div>
+                )}
+            </div>
+
+        </div>
+    );
+}
+
+// ── Sous-composants ───────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, couleur, bg, icon }: {
+    label: string; value: string; sub: string; couleur: string; bg: string; icon: string;
+}) {
+    return (
+        <div className={`rounded-2xl border border-base-200 p-5 ${bg}`}>
+            <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-base-content/40 font-medium uppercase tracking-wide">{label}</span>
+                <span className="text-lg">{icon}</span>
+            </div>
+            <p className={`text-xl font-bold ${couleur} leading-tight mt-2`}>{value}</p>
+            <p className="text-xs text-base-content/40 mt-1">{sub}</p>
+        </div>
+    );
+}
+
+function ReservationRow({ r }: { r: DetailReservation }) {
+    return (
+        <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-base">{TYPE_ICON[r.type_vehicule] ?? "🚗"}</span>
+                    <span className="font-semibold text-sm text-base-content">{r.trajet}</span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-base-content/40">
+                    <span>{fmtDate(r.date)}</span>
+                    {r.distance_km > 0 && <span>{r.distance_km} km</span>}
+                    <span>{r.places_reservees} place{r.places_reservees > 1 ? "s" : ""}</span>
+                    <span className="capitalize">{r.reference_type}</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4 shrink-0">
+                {/* Prix Kovoit */}
+                <div className="text-right">
                     <p className="text-xs text-base-content/40">Prix Kovoit</p>
-                    <p className="text-sm font-medium text-blue-600">{formatMontant(trajet.prix_kovoit_total)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-base-content/40">Prix {trajet.reference_type}</p>
-                    <p className="text-sm font-medium text-orange-500">{formatMontant(trajet.prix_reference_total)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-base-content/40">Économie</p>
-                    <p className="text-sm font-bold text-green-600">{formatMontant(trajet.economie)}</p>
-                    <p className="text-xs text-green-500">
-                      {trajet.pourcentage_economie ? `(${trajet.pourcentage_economie.toFixed(1)}%)` : ''}
+                    <p className="text-sm font-medium text-blue-600">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(r.prix_kovoit_total))} F
                     </p>
-                  </div>
                 </div>
-              </div>
+                {/* Prix référence */}
+                <div className="text-right">
+                    <p className="text-xs text-base-content/40">{r.reference_type}</p>
+                    <p className="text-sm font-medium text-orange-500">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(r.prix_reference_total))} F
+                    </p>
+                </div>
+                {/* Séparateur */}
+                <div className="w-px h-8 bg-base-200" />
+                {/* Économie */}
+                <div className="text-right min-w-[80px]">
+                    <p className="text-xs text-base-content/40">Économie</p>
+                    <p className="text-base font-bold text-green-600">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(r.economie))} F
+                    </p>
+                    {r.pourcentage_economie > 0 && (
+                        <p className="text-xs text-green-500">{r.pourcentage_economie.toFixed(1)} %</p>
+                    )}
+                </div>
             </div>
-          ))}
         </div>
-      )}
-    </div>
-  );
+    );
 }

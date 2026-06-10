@@ -314,7 +314,7 @@ export default function DetailTrajetPage() {
                 {/* Actions */}
                 <div className="space-y-3">
                     <button
-                        onClick={() => router.push(`/conducteur/trajet/${trajet.id}`)}
+                        onClick={() => router.push(`/conducteur/trajets/${trajet.id}/detail`)}
                         className="btn btn-primary w-full rounded-full"
                     >
                         Gérer le trajet

@@ -1,426 +1,389 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CalendarDays, TrendingUp, Car, DollarSign, Filter, BarChart3 } from "lucide-react";
-import ChartRevenus from "./components/ChartRevenus";
-import { api } from "../../../src/services/api";
+import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
+import { api } from "@/src/services/api";
 
-interface Trajet {
-  id: string;
-  date: string;
-  trajet: string;
-  passager: string;
-  montant: number;
-  commission: number;
-  net: number;
+const ChartRevenus = dynamic(() => import("./components/ChartRevenus"), { ssr: false });
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Paiement {
+    paiement_id:       number;
+    reservation_id:    number;
+    depart:            string;
+    destination:       string;
+    date_trajet:       string | null;
+    date_paiement:     string | null;
+    passager_nom:      string;
+    places:            number;
+    montant_brut:      number;
+    commission_kovoit: number;
+    montant_net:       number;
+    taux_commission:   number;
+    moyen_paiement:    string;
+    statut:            string;
 }
 
-interface Statistiques {
-  periode: string;
-  total_revenus: number;
-  total_trajets: number;
-  total_km: number;
-  revenu_moyen_trajet: number;
-  revenu_moyen_mensuel: number;
-  meilleur_mois: {
-    mois: number;
-    mois_nom: string;
-    revenus: number;
-    trajets: number;
-  } | null;
-  evolution_mensuelle: Array<{
-    mois: number;
-    mois_nom: string;
-    revenus: number;
-    trajets: number;
-  }>;
-  dernier_trajet: {
-    id: string;
-    depart: string;
-    destination: string;
-    date: string;
-    revenu: number;
-  } | null;
-  note_moyenne: number;
-}
-
-interface ResumeEconomie {
-  type_utilisateur: string;
-  chiffre_principal: number;
-  libelle_chiffre: string;
-  evolution_mois_precedent: number;
-  nombre_operations: number;
-  moyenne_operation: number;
+interface ReponseApi {
+    nombre:           number;
+    total_brut:       number;
+    total_commission: number;
+    total_net:        number;
+    taux_commission:  number;
+    paiements:        Paiement[];
 }
 
 interface ChartData {
-  date: string;
-  revenus: number;
-  trajets: number;
+    date:       string;
+    net:        number;
+    commission: number;
+    brut:       number;
 }
 
-export default function EconomieConducteur() {
-  const [periode, setPeriode] = useState("tous");
-  const [dateDebut, setDateDebut] = useState("");
-  const [dateFin, setDateFin] = useState("");
-  const [statistiques, setStatistiques] = useState<Statistiques>({
-    periode: "",
-    total_revenus: 0,
-    total_trajets: 0,
-    total_km: 0,
-    revenu_moyen_trajet: 0,
-    revenu_moyen_mensuel: 0,
-    meilleur_mois: null,
-    evolution_mensuelle: [],
-    dernier_trajet: null,
-    note_moyenne: 0
-  });
-  const [resume, setResume] = useState<ResumeEconomie>({
-    type_utilisateur: "conducteur",
-    chiffre_principal: 0,
-    libelle_chiffre: "Revenus ce mois",
-    evolution_mois_precedent: 0,
-    nombre_operations: 0,
-    moyenne_operation: 0
-  });
-  const [trajets, setTrajets] = useState<Trajet[]>([]);
-  const [chartData, setChartData] = useState<ChartData[]>([]);
-  const [loading, setLoading] = useState(false);
+type Periode = "mois" | "trimestre" | "annee" | "tout" | "personnalise";
 
-  useEffect(() => {
-    fetchEconomies();
-  }, [periode, dateDebut, dateFin]); // Ajouter les dépendances pour les filtres
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  const fetchEconomies = async () => {
-    setLoading(true);
-    try {
-      // Récupérer le résumé économique rapide
-      const resumeData = await api('/statistiques/resume/');
-      setResume(resumeData);
+const MOYEN_LABEL: Record<string, string> = {
+    ESPECE: "Espèces", FLOOZ: "Flooz", TMONEY: "T-Money",
+};
 
-      // Récupérer les statistiques détaillées du conducteur
-      const params = new URLSearchParams();
+function fmtFCFA(v: number) {
+    return new Intl.NumberFormat("fr-FR", {
+        style: "decimal", maximumFractionDigits: 0,
+    }).format(Math.round(v)) + " FCFA";
+}
 
-      // Convertir la période frontend vers backend
-      let backendPeriode = 'mois';
-      let annee = new Date().getFullYear();
-
-      if (periode === "jour") {
-        backendPeriode = 'mois';
-      } else if (periode === "semaine") {
-        backendPeriode = 'trimestre';
-      } else if (periode === "mois") {
-        backendPeriode = 'mois';
-      } else if (periode === "tous") {
-        backendPeriode = 'annee';
-      } else if (periode === "personnalise" && dateDebut && dateFin) {
-        // Pour la période personnalisée, on utilise le mois comme base mais on filtrera côté frontend
-        backendPeriode = 'mois';
-      }
-
-      params.set('periode', backendPeriode);
-      params.set('annee', annee.toString());
-
-      const statsData = await api(`/statistiques/conducteur/?${params.toString()}`);
-      setStatistiques(statsData);
-
-      // Transformer les données pour le graphique
-      if (statsData.evolution_mensuelle && statsData.evolution_mensuelle.length > 0) {
-        const chartDataTransformed = statsData.evolution_mensuelle.map((item: any) => ({
-          date: item.mois_nom.substring(0, 3), // Prendre les 3 premières lettres
-          revenus: item.revenus,
-          trajets: item.trajets
-        }));
-        setChartData(chartDataTransformed);
-      } else {
-        setChartData([]);
-      }
-
-      // Créer les trajets récents depuis le dernier trajet
-      const trajetsRecents = [];
-      if (statsData.dernier_trajet) {
-        trajetsRecents.push({
-          id: statsData.dernier_trajet.id,
-          date: statsData.dernier_trajet.date,
-          trajet: `${statsData.dernier_trajet.depart} → ${statsData.dernier_trajet.destination}`,
-          passager: "Non spécifié",
-          montant: statsData.dernier_trajet.revenu || 0,
-          commission: (statsData.dernier_trajet.revenu || 0) * 0.1, // 10% de commission
-          net: (statsData.dernier_trajet.revenu || 0) * 0.9
-        });
-      }
-      setTrajets(trajetsRecents);
-
-    } catch (error) {
-      // Réinitialiser les données en cas d'erreur
-      setStatistiques({
-        periode: "",
-        total_revenus: 0,
-        total_trajets: 0,
-        total_km: 0,
-        revenu_moyen_trajet: 0,
-        revenu_moyen_mensuel: 0,
-        meilleur_mois: null,
-        evolution_mensuelle: [],
-        dernier_trajet: null,
-        note_moyenne: 0
-      });
-      setChartData([]);
-      setTrajets([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFiltrer = () => {
-    if (periode === "personnalise" && dateDebut && dateFin) {
-      fetchEconomies();
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+function fmtDate(iso: string | null) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleDateString("fr-FR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
     });
-  };
+}
 
-  const formatMontant = (montant: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0
-    }).format(montant);
-  };
+function groupeParMois(paiements: Paiement[]): ChartData[] {
+    const map: Record<string, { net: number; commission: number; brut: number }> = {};
+    paiements.forEach((p) => {
+        const raw = p.date_paiement || p.date_trajet;
+        if (!raw) return;
+        const d = new Date(raw);
+        const key = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+        if (!map[key]) map[key] = { net: 0, commission: 0, brut: 0 };
+        map[key].net        += p.montant_net;
+        map[key].commission += p.commission_kovoit;
+        map[key].brut       += p.montant_brut;
+    });
+    return Object.entries(map).map(([date, vals]) => ({ date, ...vals }));
+}
 
-  return (
-    <div className="space-y-8">
-      {/* EN-TÊTE */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pb-6 border-b border-base-300">
-        <div>
-          <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">
-            Conducteur
-          </p>
-          <h1 className="text-2xl font-bold text-base-content tracking-tight">
-            Mes Économies
-          </h1>
-          <div className="text-base-content/40 mt-1 text-sm">
-            {resume.nombre_operations} trajet{resume.nombre_operations > 1 ? "s" : ""} au total
-          </div>
-        </div>
-      </div>
+function periodeParams(periode: Periode, dateDebut: string, dateFin: string): string {
+    const now = new Date();
+    const params = new URLSearchParams();
+    if (periode === "mois") {
+        params.set("mois", String(now.getMonth() + 1));
+        params.set("annee", String(now.getFullYear()));
+    } else if (periode === "trimestre") {
+        const t = Math.floor(now.getMonth() / 3);
+        const d1 = new Date(now.getFullYear(), t * 3, 1);
+        const d2 = new Date(now.getFullYear(), t * 3 + 3, 0);
+        params.set("date_debut", d1.toISOString().slice(0, 10));
+        params.set("date_fin",   d2.toISOString().slice(0, 10));
+    } else if (periode === "annee") {
+        params.set("annee", String(now.getFullYear()));
+    } else if (periode === "personnalise" && dateDebut && dateFin) {
+        params.set("date_debut", dateDebut);
+        params.set("date_fin",   dateFin);
+    }
+    // "tout" → pas de paramètre = toute l'historique
+    return params.toString();
+}
 
-      {/* MINI BARRE DE NAVIGATION PÉRIODE */}
-      <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={() => setPeriode("tous")}
-          className={`btn btn-sm rounded-full capitalize transition-all ${periode === "tous" ? "btn-primary" : "btn-ghost border border-base-300"
-            }`}
-        >
-          Tous
-        </button>
-        {(["jour", "semaine", "mois"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriode(p)}
-            className={`btn btn-sm rounded-full capitalize transition-all ${periode === p ? "btn-primary" : "btn-ghost border border-base-300"
-              }`}
-          >
-            {p === "jour" ? "Aujourd'hui" : p === "semaine" ? "Cette semaine" : "Ce mois"}
-          </button>
-        ))}
-        <button
-          onClick={() => setPeriode("personnalise")}
-          className={`btn btn-sm rounded-full capitalize transition-all ${periode === "personnalise" ? "btn-primary" : "btn-ghost border border-base-300"
-            }`}
-        >
-          Personnalisé
-        </button>
-      </div>
+// ── Page ─────────────────────────────────────────────────────────────────────
 
-      {/* FILTRES PERSONNALISÉS */}
-      {periode === "personnalise" && (
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-4 h-4 text-base-content/60" />
-            <h2 className="font-semibold text-base-content">Période personnalisée</h2>
-          </div>
+export default function EconomieConducteur() {
+    const [periode,   setPeriode]   = useState<Periode>("mois");
+    const [dateDebut, setDateDebut] = useState("");
+    const [dateFin,   setDateFin]   = useState("");
+    const [data,      setData]      = useState<ReponseApi | null>(null);
+    const [loading,   setLoading]   = useState(true);
+    const [error,     setError]     = useState<string | null>(null);
+    const [chartType, setChartType] = useState<"bar" | "line">("bar");
 
-          <div className="flex flex-wrap gap-4">
-            <input
-              type="date"
-              value={dateDebut}
-              onChange={(e) => setDateDebut(e.target.value)}
-              className="input input-bordered input-sm w-full sm:w-auto"
-              placeholder="Date début"
-            />
-            <input
-              type="date"
-              value={dateFin}
-              onChange={(e) => setDateFin(e.target.value)}
-              className="input input-bordered input-sm w-full sm:w-auto"
-              placeholder="Date fin"
-            />
-            <button
-              onClick={handleFiltrer}
-              className="btn btn-primary btn-sm"
-              disabled={!dateDebut || !dateFin}
-            >
-              Filtrer
-            </button>
-          </div>
-        </div>
-      )}
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const qs = periodeParams(periode, dateDebut, dateFin);
+            const res: ReponseApi = await api(
+                `/paiements/paiements_conducteur/${qs ? "?" + qs : ""}`,
+                "GET"
+            );
+            setData(res);
+        } catch {
+            setError("Impossible de charger vos données de revenus.");
+        } finally {
+            setLoading(false);
+        }
+    }, [periode, dateDebut, dateFin]);
 
-      {/* Statistiques */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">{resume.libelle_chiffre}</span>
-            <DollarSign className="w-4 h-4 text-green-500" />
-          </div>
-          <div className="text-2xl font-bold text-base-content">
-            {formatMontant(resume.chiffre_principal)}
-          </div>
-          <div className={`text-xs mt-1 ${resume.evolution_mois_precedent >= 0 ? "text-green-500" : "text-red-500"
-            }`}>
-            {resume.evolution_mois_precedent >= 0 ? "+" : ""}{resume.evolution_mois_precedent.toFixed(1)}% vs période précédente
-          </div>
-        </div>
+    useEffect(() => {
+        if (periode !== "personnalise") load();
+    }, [load, periode]);
 
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Nombre de trajets</span>
-            <Car className="w-4 h-4 text-blue-500" />
-          </div>
-          <div className="text-2xl font-bold text-base-content">
-            {resume.nombre_operations}
-          </div>
-          <div className="text-xs text-blue-500 mt-1">
-            Moyenne: {formatMontant(resume.moyenne_operation)}
-          </div>
-        </div>
+    const chartData = data ? groupeParMois(data.paiements) : [];
+    const taux      = data?.taux_commission ?? 0.10;
 
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Distance parcourue</span>
-            <TrendingUp className="w-4 h-4 text-orange-500" />
-          </div>
-          <div className="text-2xl font-bold text-base-content">
-            {statistiques.total_km.toFixed(0)} km
-          </div>
-          <div className="text-xs text-base-content/60 mt-1">
-            Total cette période
-          </div>
-        </div>
+    return (
+        <div className="space-y-7">
 
-        <div className="bg-base-100 rounded-xl p-6 border border-base-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-base-content/60 text-sm">Note moyenne</span>
-            <DollarSign className="w-4 h-4 text-green-600" />
-          </div>
-          <div className="text-2xl font-bold text-green-600">
-            {statistiques.note_moyenne.toFixed(1)}/5
-          </div>
-          <div className="text-xs text-green-500 mt-1">
-            Évaluation des passagers
-          </div>
-        </div>
-      </div>
-
-      {/* Graphique des revenus */}
-      <div className="bg-base-100 rounded-xl border border-base-200">
-        <div className="p-6 border-b border-base-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-base-content/60" />
-              <h2 className="font-semibold text-base-content">Évolution des revenus</h2>
+            {/* ── En-tête ── */}
+            <div className="pb-5 border-b border-base-200">
+                <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-1">Conducteur</p>
+                <h1 className="text-2xl font-bold text-base-content tracking-tight">Mes revenus</h1>
+                <p className="text-sm text-base-content/40 mt-1">
+                    Revenus réels après commission Kovoit ({Math.round(taux * 100)}%)
+                </p>
             </div>
-            <div className="flex gap-2">
-              <button
-                className="btn btn-outline btn-xs"
-                onClick={() => {/* Toggle chart type */ }}
-              >
-                Barres
-              </button>
-              <button
-                className="btn btn-outline btn-xs"
-                onClick={() => {/* Toggle chart type */ }}
-              >
-                Ligne
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="p-6">
-          {chartData.length > 0 ? (
-            <ChartRevenus data={chartData} type="bar" />
-          ) : (
-            <div className="h-64 flex items-center justify-center text-base-content/60">
-              Aucune donnée disponible pour cette période
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* LISTE DES TRAJETS */}
-      {loading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-base-100 rounded-2xl border border-base-200 p-6 animate-pulse">
-              <div className="h-4 bg-base-300 rounded w-1/3 mb-3" />
-              <div className="h-3 bg-base-300 rounded w-1/2" />
+            {/* ── Filtres période ── */}
+            <div className="flex gap-2 flex-wrap">
+                {(["mois", "trimestre", "annee", "tout", "personnalise"] as Periode[]).map((p) => (
+                    <button key={p}
+                        onClick={() => setPeriode(p)}
+                        className={`btn btn-sm rounded-full capitalize transition-all ${
+                            periode === p ? "btn-primary" : "btn-ghost border border-base-200"
+                        }`}
+                    >
+                        {p === "mois" ? "Ce mois" : p === "trimestre" ? "Ce trimestre"
+                            : p === "annee" ? "Cette année" : p === "tout" ? "Tout" : "Personnalisé"}
+                    </button>
+                ))}
             </div>
-          ))}
-        </div>
-      ) : trajets.length === 0 ? (
-        <div className="bg-base-100 rounded-2xl border border-base-200 p-12 text-center">
-          <p className="text-base-content/40 text-sm">
-            Aucun trajet trouvé pour cette période.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {trajets.map((trajet) => (
-            <div
-              key={trajet.id}
-              className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden hover:shadow-sm transition-shadow"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-5 gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-base-content">
-                      {trajet.trajet}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4 mt-1.5 flex-wrap">
-                    <p className="text-xs text-base-content/40">{trajet.date}</p>
-                    <p className="text-xs text-base-content/40">
-                      Passager: {trajet.passager}
-                    </p>
-                    <p className="text-xs font-semibold text-primary">
-                      {formatMontant(trajet.montant)}
-                    </p>
-                  </div>
+
+            {/* ── Filtres date personnalisée ── */}
+            {periode === "personnalise" && (
+                <div className="bg-base-100 rounded-xl border border-base-200 p-4 flex flex-wrap items-end gap-3">
+                    <div>
+                        <label className="text-xs text-base-content/50 mb-1 block">Du</label>
+                        <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)}
+                            className="input input-bordered input-sm" />
+                    </div>
+                    <div>
+                        <label className="text-xs text-base-content/50 mb-1 block">Au</label>
+                        <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)}
+                            className="input input-bordered input-sm" />
+                    </div>
+                    <button onClick={load} disabled={!dateDebut || !dateFin || loading}
+                        className="btn btn-primary btn-sm">
+                        Filtrer
+                    </button>
+                </div>
+            )}
+
+            {/* ── Erreur ── */}
+            {error && (
+                <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-center gap-3">
+                    <p className="text-sm text-error flex-1">{error}</p>
+                    <button onClick={load} className="btn btn-error btn-xs rounded-full">Réessayer</button>
+                </div>
+            )}
+
+            {/* ── Cartes stats ── */}
+            {loading ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+                    {[1,2,3,4].map((i) => <div key={i} className="h-28 bg-base-300 rounded-2xl" />)}
+                </div>
+            ) : data && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard
+                        label="Net conducteur"
+                        value={fmtFCFA(data.total_net)}
+                        sub="Ce que vous recevez"
+                        couleur="text-green-600"
+                        bg="bg-green-50 dark:bg-green-950/20"
+                        icon="💰"
+                    />
+                    <StatCard
+                        label="Commission Kovoit"
+                        value={fmtFCFA(data.total_commission)}
+                        sub={`${Math.round(taux * 100)}% du brut`}
+                        couleur="text-amber-600"
+                        bg="bg-amber-50 dark:bg-amber-950/20"
+                        icon="🏢"
+                    />
+                    <StatCard
+                        label="Total brut"
+                        value={fmtFCFA(data.total_brut)}
+                        sub="Payé par les passagers"
+                        couleur="text-blue-600"
+                        bg="bg-blue-50 dark:bg-blue-950/20"
+                        icon="📊"
+                    />
+                    <StatCard
+                        label="Transactions"
+                        value={String(data.nombre)}
+                        sub={data.nombre > 0 ? `Moy. ${fmtFCFA(data.total_net / data.nombre)}/trajet` : "Aucun paiement"}
+                        couleur="text-purple-600"
+                        bg="bg-purple-50 dark:bg-purple-950/20"
+                        icon="🎫"
+                    />
+                </div>
+            )}
+
+            {/* ── Schéma commission ── */}
+            {!loading && data && data.total_brut > 0 && (
+                <div className="bg-base-100 rounded-2xl border border-base-200 p-5">
+                    <h3 className="font-semibold text-sm text-base-content mb-3">
+                        Répartition du montant payé par les passagers
+                    </h3>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 bg-base-200 rounded-full h-5 overflow-hidden flex">
+                            <div
+                                className="bg-green-500 h-full rounded-l-full transition-all"
+                                style={{ width: `${(1 - taux) * 100}%` }}
+                            />
+                            <div
+                                className="bg-amber-400 h-full rounded-r-full transition-all"
+                                style={{ width: `${taux * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-between text-xs text-base-content/50">
+                        <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                            Vous ({Math.round((1 - taux) * 100)}%) — {fmtFCFA(data.total_net)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                            Kovoit ({Math.round(taux * 100)}%) — {fmtFCFA(data.total_commission)}
+                            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Graphique ── */}
+            {!loading && chartData.length > 0 && (
+                <div className="bg-base-100 rounded-2xl border border-base-200">
+                    <div className="px-5 py-4 border-b border-base-200 flex items-center justify-between">
+                        <h2 className="font-semibold text-sm text-base-content">Évolution des revenus (FCFA)</h2>
+                        <div className="flex gap-1">
+                            <button onClick={() => setChartType("bar")}
+                                className={`btn btn-xs rounded-full ${chartType === "bar" ? "btn-primary" : "btn-ghost border border-base-200"}`}>
+                                Barres
+                            </button>
+                            <button onClick={() => setChartType("line")}
+                                className={`btn btn-xs rounded-full ${chartType === "line" ? "btn-primary" : "btn-ghost border border-base-200"}`}>
+                                Ligne
+                            </button>
+                        </div>
+                    </div>
+                    <div className="px-5 py-4">
+                        <ChartRevenus data={chartData} type={chartType} />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Liste des paiements ── */}
+            <div className="bg-base-100 rounded-2xl border border-base-200">
+                <div className="px-5 py-4 border-b border-base-200">
+                    <h2 className="font-semibold text-sm text-base-content">
+                        Détail des paiements reçus
+                    </h2>
                 </div>
 
-                <div className="flex items-center gap-4 shrink-0">
-                  <div className="text-right">
+                {loading ? (
+                    <div className="divide-y divide-base-200">
+                        {[1,2,3].map((i) => (
+                            <div key={i} className="px-5 py-4 animate-pulse flex gap-4">
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-4 bg-base-300 rounded w-2/3" />
+                                    <div className="h-3 bg-base-300 rounded w-1/3" />
+                                </div>
+                                <div className="h-10 bg-base-300 rounded w-28" />
+                            </div>
+                        ))}
+                    </div>
+                ) : !data || data.paiements.length === 0 ? (
+                    <div className="py-16 text-center">
+                        <p className="text-4xl mb-3">💳</p>
+                        <p className="text-base-content/40 text-sm">Aucun paiement reçu sur cette période.</p>
+                    </div>
+                ) : (
+                    <div className="divide-y divide-base-200">
+                        {data.paiements.map((p) => (
+                            <PaiementRow key={p.paiement_id} p={p} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ── Sous-composants ───────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, couleur, bg, icon }: {
+    label: string; value: string; sub: string; couleur: string; bg: string; icon: string;
+}) {
+    return (
+        <div className={`rounded-2xl border border-base-200 p-5 ${bg}`}>
+            <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-base-content/40 font-medium uppercase tracking-wide">{label}</span>
+                <span className="text-lg">{icon}</span>
+            </div>
+            <p className={`text-xl font-bold ${couleur} leading-tight mt-2`}>{value}</p>
+            <p className="text-xs text-base-content/40 mt-1">{sub}</p>
+        </div>
+    );
+}
+
+function PaiementRow({ p }: { p: Paiement }) {
+    return (
+        <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm text-base-content">
+                        {p.depart} → {p.destination}
+                    </span>
+                    <span className="badge badge-xs badge-ghost rounded-full">
+                        {MOYEN_LABEL[p.moyen_paiement] ?? p.moyen_paiement}
+                    </span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-base-content/40">
+                    <span>Trajet : {fmtDate(p.date_trajet)}</span>
+                    <span>Payé le : {fmtDate(p.date_paiement)}</span>
+                    <span>Passager : {p.passager_nom}</span>
+                    <span>{p.places} place{p.places > 1 ? "s" : ""}</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4 shrink-0">
+                {/* Brut */}
+                <div className="text-right">
+                    <p className="text-xs text-base-content/40">Brut</p>
+                    <p className="text-sm font-medium text-base-content">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(p.montant_brut))} F
+                    </p>
+                </div>
+                {/* Flèche séparateur */}
+                <div className="text-base-content/20 text-xs">−</div>
+                {/* Commission */}
+                <div className="text-right">
                     <p className="text-xs text-base-content/40">Commission</p>
-                    <p className="text-sm font-medium text-orange-500">{formatMontant(trajet.commission)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-base-content/40">Net</p>
-                    <p className="text-sm font-bold text-green-600">{formatMontant(trajet.net)}</p>
-                  </div>
+                    <p className="text-sm font-medium text-amber-500">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(p.commission_kovoit))} F
+                    </p>
                 </div>
-              </div>
+                {/* = Net */}
+                <div className="w-px h-8 bg-base-200" />
+                <div className="text-right min-w-[80px]">
+                    <p className="text-xs text-base-content/40">Vous recevez</p>
+                    <p className="text-base font-bold text-green-600">
+                        {new Intl.NumberFormat("fr-FR").format(Math.round(p.montant_net))} F
+                    </p>
+                </div>
             </div>
-          ))}
         </div>
-      )}
-    </div>
-  );
+    );
 }

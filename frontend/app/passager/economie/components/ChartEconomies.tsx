@@ -1,99 +1,70 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+    ResponsiveContainer, LineChart, Line,
+} from "recharts";
 
 interface ChartData {
-  date: string;
-  economies: number;
-  reservations: number;
+    date:        string;
+    economies:   number;
+    reservations: number;
 }
 
 interface ChartEconomiesProps {
-  data: ChartData[];
-  type: 'bar' | 'line';
+    data: ChartData[];
+    type: "bar" | "line";
 }
 
-export default function ChartEconomies({ data, type }: ChartEconomiesProps) {
-  const formatMontant = (value: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'XOF',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(value);
-  };
+const fmtFCFA = (v: number) =>
+    new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(v) + " F";
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-base-100 border border-base-300 rounded-lg p-3 shadow-lg">
-          <p className="text-sm font-medium text-base-content">{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <p key={index} className="text-sm" style={{ color: entry.color }}>
-              {entry.name}: {entry.name === 'economies' ? formatMontant(entry.value) : entry.value}
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
+const fmtAxis = (v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 
-  if (type === 'line') {
+const CustomTooltip = ({ active, payload, label }: {
+    active?: boolean;
+    payload?: { value: number; name: string; color: string }[];
+    label?: string;
+}) => {
+    if (!active || !payload?.length) return null;
     return (
-      <ResponsiveContainer width="100%" height={250}>
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 12 }}
-            stroke="currentColor"
-            className="opacity-60"
-          />
-          <YAxis
-            tick={{ fontSize: 12 }}
-            stroke="currentColor"
-            className="opacity-60"
-            tickFormatter={(value) => `${value / 1000}k`}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Line
-            type="monotone"
-            dataKey="economies"
-            stroke="#10b981"
-            strokeWidth={2}
-            dot={{ fill: '#10b981', r: 4 }}
-            name="Économies"
-          />
-        </LineChart>
-      </ResponsiveContainer>
+        <div className="bg-base-100 border border-base-200 rounded-xl p-3 shadow-lg text-sm">
+            <p className="font-semibold text-base-content mb-1">{label}</p>
+            {payload.map((p, i) => (
+                <p key={i} style={{ color: p.color }}>
+                    {p.name} : {fmtFCFA(p.value)}
+                </p>
+            ))}
+        </div>
     );
-  }
+};
 
-  return (
-    <ResponsiveContainer width="100%" height={250}>
-      <BarChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 12 }}
-          stroke="currentColor"
-          className="opacity-60"
-        />
-        <YAxis
-          tick={{ fontSize: 12 }}
-          stroke="currentColor"
-          className="opacity-60"
-          tickFormatter={(value) => `${value / 1000}k`}
-        />
-        <Tooltip content={<CustomTooltip />} />
-        <Bar
-          dataKey="economies"
-          fill="#10b981"
-          name="Économies"
-          radius={[4, 4, 0, 0]}
-        />
-      </BarChart>
-    </ResponsiveContainer>
-  );
+export default function ChartEconomies({ data, type }: ChartEconomiesProps) {
+    if (type === "line") {
+        return (
+            <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Line type="monotone" dataKey="economies" name="Économies (FCFA)"
+                        stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+            </ResponsiveContainer>
+        );
+    }
+
+    return (
+        <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="economies" name="Économies (FCFA)"
+                    fill="#10b981" radius={[4, 4, 0, 0]} />
+            </BarChart>
+        </ResponsiveContainer>
+    );
 }
