@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../trajets/providers/trajet_provider.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/colors.dart';
 import '../../../core/utils/formatters.dart';
-import '../../../shared/widgets/app_button.dart';
-import '../../../shared/widgets/app_text_field.dart';
+import '../../../core/widgets/k_button.dart';
+import '../../../core/widgets/k_text_field.dart';
 
 class VehiculesPage extends ConsumerWidget {
   const VehiculesPage({super.key});
@@ -24,11 +24,16 @@ class VehiculesPage extends ConsumerWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.directions_car_outlined,
-                          size: 80, color: Colors.grey),
+                      const Icon(
+                        Icons.directions_car_outlined,
+                        size: 80,
+                        color: Colors.grey,
+                      ),
                       const SizedBox(height: 12),
-                      const Text('Aucun véhicule enregistré',
-                          style: TextStyle(color: Colors.grey)),
+                      const Text(
+                        'Aucun véhicule enregistré',
+                        style: TextStyle(color: Colors.grey),
+                      ),
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
                         onPressed: () => _showAddVehiculeDialog(context, ref),
@@ -59,12 +64,12 @@ class VehiculesPage extends ConsumerWidget {
                         leading: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                            color: KColors.primary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
                             _vehiculeIcon(v.typeVehicule),
-                            color: AppTheme.primaryColor,
+                            color: KColors.primary,
                           ),
                         ),
                         title: Text(
@@ -74,11 +79,13 @@ class VehiculesPage extends ConsumerWidget {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${Formatters.vehiculeLabel(v.typeVehicule)} • ${v.placesMax} places'),
+                            Text(
+                              '${Formatters.vehiculeLabel(v.typeVehicule)} • ${v.placesMax} places',
+                            ),
                             Text(
                               v.actif ? 'Actif' : 'Inactif',
                               style: TextStyle(
-                                color: v.actif ? AppTheme.successColor : Colors.grey,
+                                color: v.actif ? KColors.success : Colors.grey,
                                 fontWeight: FontWeight.w500,
                                 fontSize: 12,
                               ),
@@ -99,10 +106,18 @@ class VehiculesPage extends ConsumerWidget {
                                     value: 'desactiver',
                                     child: Row(
                                       children: [
-                                        Icon(Icons.block, size: 16, color: AppTheme.errorColor),
+                                        Icon(
+                                          Icons.block,
+                                          size: 16,
+                                          color: KColors.error,
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Désactiver',
-                                            style: TextStyle(color: AppTheme.errorColor)),
+                                        Text(
+                                          'Désactiver',
+                                          style: TextStyle(
+                                            color: KColors.error,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -145,8 +160,10 @@ class VehiculesPage extends ConsumerWidget {
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(ok ? 'Véhicule ajouté !' : 'Erreur lors de l\'ajout'),
-                backgroundColor: ok ? AppTheme.successColor : AppTheme.errorColor,
+                content: Text(
+                  ok ? 'Véhicule ajouté !' : 'Erreur lors de l\'ajout',
+                ),
+                backgroundColor: ok ? KColors.success : KColors.error,
               ),
             );
           }
@@ -187,7 +204,10 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        16, 16, 16, MediaQuery.of(context).viewInsets.bottom + 16,
+        16,
+        16,
+        16,
+        MediaQuery.of(context).viewInsets.bottom + 16,
       ),
       child: Form(
         key: _formKey,
@@ -197,8 +217,10 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
           children: [
             Row(
               children: [
-                const Text('Ajouter un véhicule',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text(
+                  'Ajouter un véhicule',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -208,10 +230,12 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _type,
+              initialValue: _type,
               decoration: InputDecoration(
                 labelText: 'Type',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               items: const [
                 DropdownMenuItem(value: 'moto', child: Text('Moto')),
@@ -225,7 +249,7 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
             Row(
               children: [
                 Expanded(
-                  child: AppTextField(
+                  child: KTextField(
                     controller: _marqueCtrl,
                     label: 'Marque',
                     hint: 'Toyota',
@@ -234,7 +258,7 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: AppTextField(
+                  child: KTextField(
                     controller: _modeleCtrl,
                     label: 'Modèle',
                     hint: 'Corolla',
@@ -247,7 +271,7 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
             Row(
               children: [
                 Expanded(
-                  child: AppTextField(
+                  child: KTextField(
                     controller: _couleurCtrl,
                     label: 'Couleur',
                     hint: 'Blanc',
@@ -255,7 +279,7 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: AppTextField(
+                  child: KTextField(
                     controller: _plaqueCtrl,
                     label: 'Plaque',
                     hint: 'TG-XXXX-XX',
@@ -270,18 +294,26 @@ class _AddVehiculeSheetState extends State<_AddVehiculeSheet> {
                 const Text('Places max:'),
                 const SizedBox(width: 16),
                 IconButton(
-                  onPressed: () => setState(() => _places = (_places - 1).clamp(1, 15)),
+                  onPressed: () =>
+                      setState(() => _places = (_places - 1).clamp(1, 15)),
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
-                Text('$_places', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text(
+                  '$_places',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 IconButton(
-                  onPressed: () => setState(() => _places = (_places + 1).clamp(1, 15)),
+                  onPressed: () =>
+                      setState(() => _places = (_places + 1).clamp(1, 15)),
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            AppButton(
+            KButton(
               label: 'Enregistrer',
               isLoading: _isSaving,
               onPressed: _isSaving

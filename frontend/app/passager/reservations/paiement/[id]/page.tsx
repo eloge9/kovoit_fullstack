@@ -338,7 +338,7 @@ export default function PaiementPage() {
                                 </label>
                                 <div className="grid grid-cols-2 gap-3">
                                     {[
-                                        { value: "FLOOZ", label: "Flooz (Yas)" },
+                                        { value: "FLOOZ", label: "Flooz (Moov)" },
                                         { value: "TMONEY", label: "Mixx by Yas" },
                                     ].map((n) => (
                                         <button

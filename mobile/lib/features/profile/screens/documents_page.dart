@@ -6,8 +6,11 @@ import 'dart:io';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_button.dart';
+import '../../../core/theme/colors.dart';
+import '../../../core/theme/text_styles.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/k_button.dart';
+import '../../../core/widgets/k_card.dart';
 
 class DocumentsPage extends ConsumerStatefulWidget {
   const DocumentsPage({super.key});
@@ -31,7 +34,6 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
       imageQuality: 85,
     );
     if (picked == null) return;
-
     setState(() {
       if (type == 'cni') {
         _cniFile = File(picked.path);
@@ -48,7 +50,6 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
       );
       return;
     }
-
     setState(() {
       _isUploading = true;
       _progress = 0;
@@ -57,49 +58,43 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
     try {
       final formData = FormData();
       if (_cniFile != null) {
-        formData.files.add(MapEntry(
-          'photo_cni',
-          await MultipartFile.fromFile(
-            _cniFile!.path,
-            filename: 'cni.jpg',
+        formData.files.add(
+          MapEntry(
+            'photo_cni',
+            await MultipartFile.fromFile(_cniFile!.path, filename: 'cni.jpg'),
           ),
-        ));
+        );
       }
       if (_permisFile != null) {
-        formData.files.add(MapEntry(
-          'photo_permis',
-          await MultipartFile.fromFile(
-            _permisFile!.path,
-            filename: 'permis.jpg',
+        formData.files.add(
+          MapEntry(
+            'photo_permis',
+            await MultipartFile.fromFile(
+              _permisFile!.path,
+              filename: 'permis.jpg',
+            ),
           ),
-        ));
+        );
       }
-
       await DioClient.upload(
         ApiConstants.uploadDocuments,
         formData,
-        onSendProgress: (sent, total) {
-          setState(() => _progress = sent / total);
-        },
+        onSendProgress: (sent, total) =>
+            setState(() => _progress = sent / total),
       );
-
       await ref.read(authProvider.notifier).loadProfil();
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Documents envoyés ! En cours de vérification.'),
-            backgroundColor: AppTheme.successColor,
+            backgroundColor: KColors.success,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: AppTheme.errorColor,
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: KColors.error),
         );
       }
     } finally {
@@ -112,15 +107,34 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
     final user = ref.watch(currentUserProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes documents')),
+      backgroundColor: KColors.base200,
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Image.asset('assets/logos/logo1.png', width: 22, height: 22),
+            const SizedBox(width: 8),
+            Text(
+              'Mes documents',
+              style: KTextStyles.bodySm.copyWith(
+                fontWeight: FontWeight.w700,
+                color: KColors.baseContent,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: KColors.base100,
+        elevation: 0,
+        shape: const Border(bottom: BorderSide(color: KColors.border)),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(KSpacing.pagePaddingH),
         children: [
-          // Statut global
-          Card(
-            color: _statutColor(user?.statutValidation).withValues(alpha: 0.05),
+          const SizedBox(height: KSpacing.lg),
+
+          // ── Statut global ──────────────────────────────────────────────
+          KCard(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(KSpacing.xl),
               child: Row(
                 children: [
                   Icon(
@@ -134,17 +148,14 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Statut de vérification',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                          ),
+                          'STATUT DE VÉRIFICATION',
+                          style: KTextStyles.label,
                         ),
+                        const SizedBox(height: 4),
                         Text(
                           _statutLabel(user?.statutValidation ?? 'non_soumis'),
-                          style: TextStyle(
+                          style: KTextStyles.bodySmBold.copyWith(
                             color: _statutColor(user?.statutValidation),
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -154,11 +165,12 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: KSpacing.xl),
 
-          const Text(
-            'Carte Nationale d\'Identité (CNI)',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          // ── CNI ────────────────────────────────────────────────────────
+          Text(
+            "Carte Nationale d'Identité (CNI)",
+            style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           _DocumentUploadCard(
@@ -167,11 +179,12 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
             onPick: () => _pickImage('cni'),
             label: 'CNI',
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: KSpacing.xl),
 
-          const Text(
+          // ── Permis ─────────────────────────────────────────────────────
+          Text(
             'Permis de conduire',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           _DocumentUploadCard(
@@ -180,66 +193,67 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
             onPick: () => _pickImage('permis'),
             label: 'Permis',
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: KSpacing.xl),
 
           if (_isUploading) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
                 value: _progress,
-                backgroundColor: Colors.grey.shade200,
-                minHeight: 8,
+                color: KColors.primary,
+                backgroundColor: KColors.base300,
+                minHeight: 6,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Envoi en cours... ${(_progress * 100).toStringAsFixed(0)}%',
+              'Envoi en cours… ${(_progress * 100).toStringAsFixed(0)}%',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: KTextStyles.caption,
             ),
             const SizedBox(height: 16),
           ],
 
-          AppButton(
+          KButton(
             label: 'Envoyer les documents',
-            icon: Icons.upload,
+            icon: Icons.upload_outlined,
             onPressed: _isUploading ? null : _upload,
             isLoading: _isUploading,
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: KSpacing.xxl),
         ],
       ),
     );
   }
 
-  Color _statutColor(String? statut) {
-    switch (statut) {
+  Color _statutColor(String? s) {
+    switch (s) {
       case 'valide':
-        return AppTheme.successColor;
+        return KColors.success;
       case 'en_attente':
-        return AppTheme.warningColor;
+        return KColors.warning;
       case 'rejete':
-        return AppTheme.errorColor;
+        return KColors.error;
       default:
-        return Colors.grey;
+        return KColors.baseContentMid;
     }
   }
 
-  IconData _statutIcon(String? statut) {
-    switch (statut) {
+  IconData _statutIcon(String? s) {
+    switch (s) {
       case 'valide':
-        return Icons.verified;
+        return Icons.verified_outlined;
       case 'en_attente':
-        return Icons.hourglass_empty;
+        return Icons.hourglass_empty_outlined;
       case 'rejete':
-        return Icons.cancel;
+        return Icons.cancel_outlined;
       default:
-        return Icons.upload_file;
+        return Icons.upload_file_outlined;
     }
   }
 
-  String _statutLabel(String statut) {
-    switch (statut) {
+  String _statutLabel(String s) {
+    switch (s) {
       case 'valide':
         return 'Documents validés ✓';
       case 'en_attente':
@@ -270,48 +284,39 @@ class _DocumentUploadCard extends StatelessWidget {
     return GestureDetector(
       onTap: onPick,
       child: Container(
-        height: 140,
+        height: 150,
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(12),
+          color: KColors.base200,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: file != null
-                ? AppTheme.primaryColor
-                : Colors.grey.shade300,
+            color: file != null ? KColors.primary : KColors.border,
             width: file != null ? 2 : 1,
-            style: BorderStyle.solid,
           ),
         ),
+        clipBehavior: Clip.antiAlias,
         child: file != null
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(file!, fit: BoxFit.cover),
-              )
+            ? Image.file(file!, fit: BoxFit.cover)
             : existingUrl != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      existingUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _placeholder(label),
-                    ),
-                  )
-                : _placeholder(label),
+            ? Image.network(
+                existingUrl!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _placeholder(),
+              )
+            : _placeholder(),
       ),
     );
   }
 
-  Widget _placeholder(String label) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.add_photo_alternate_outlined, size: 40, color: Colors.grey),
-        const SizedBox(height: 8),
-        Text(
-          'Appuyez pour ajouter votre $label',
-          style: const TextStyle(color: Colors.grey, fontSize: 13),
-        ),
-      ],
-    );
-  }
+  Widget _placeholder() => Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      const Icon(
+        Icons.add_photo_alternate_outlined,
+        size: 36,
+        color: KColors.baseContentMid,
+      ),
+      const SizedBox(height: 8),
+      Text('Appuyez pour ajouter votre $label', style: KTextStyles.caption),
+    ],
+  );
 }

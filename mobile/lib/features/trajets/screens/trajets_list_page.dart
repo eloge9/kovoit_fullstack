@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/trajet_provider.dart';
-import '../../../shared/widgets/trajet_card.dart';
+import '../../../core/widgets/trajet_card.dart';
 
 class TrajetsListPage extends ConsumerStatefulWidget {
   final bool isMesTrajets;

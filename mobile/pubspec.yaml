@@ -41,10 +41,21 @@ dependencies:
   # QR Code
   qr_flutter: ^4.1.0
 
+  # Shimmer loading (skeleton DaisyUI)
+  shimmer: ^3.0.0
+
   # Utilitaires
   intl: ^0.20.1
-  shimmer: ^3.0.0
   url_launcher: ^6.3.1
+
+  # Graphiques (économie)
+  fl_chart: ^0.69.0
+
+  # File upload (documents)
+  file_picker: ^8.1.4
+
+  # Permissions
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
@@ -54,5 +65,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/logos/
     - assets/images/
     - assets/icons/

@@ -49,7 +49,7 @@ export default function ChartEconomies({ data, type }: ChartEconomiesProps) {
                     <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="economies" name="Économies (FCFA)"
-                        stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                        stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
             </ResponsiveContainer>
         );
@@ -63,7 +63,7 @@ export default function ChartEconomies({ data, type }: ChartEconomiesProps) {
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="economies" name="Économies (FCFA)"
-                    fill="#10b981" radius={[4, 4, 0, 0]} />
+                    fill="#22c55e" radius={[4, 4, 0, 0]} />
             </BarChart>
         </ResponsiveContainer>
     );

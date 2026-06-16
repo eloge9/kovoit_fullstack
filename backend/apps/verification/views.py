@@ -162,9 +162,9 @@ class DriverVerificationViewSet(viewsets.GenericViewSet):
             import threading
 
             def _run_in_thread(profile_id: str):
-                import django
-                # S'assurer que Django est initialisé dans le thread
                 try:
+                    from django.db import close_old_connections
+                    close_old_connections()
                     from .agents.orchestrator import run_verification
                     run_verification(profile_id)
                 except Exception as ex:

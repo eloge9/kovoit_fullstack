@@ -776,3 +776,19 @@ class SysConfig(models.Model):
             defaults={'valeur': str(valeur), 'description': description, 'modifie_par': admin}
         )
         return obj
+
+
+class PasswordResetCode(models.Model):
+    email      = models.EmailField(db_index=True)
+    code       = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used       = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def is_valid(self):
+        return not self.used and (timezone.now() - self.created_at).total_seconds() < 600
+
+    def __str__(self):
+        return f"Reset {self.email} [{self.code}]"

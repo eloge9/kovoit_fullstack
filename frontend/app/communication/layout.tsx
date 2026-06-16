@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -45,7 +45,11 @@ export default function CommunicationLayout({ children }: { children: React.Reac
     const { user, logout } = useAuth();
     const [menuOpen, setMenuOpen] = useState(false);
 
-    const role = (user?.role as string) ?? (typeof window !== "undefined" ? localStorage.getItem("user_role") : null) ?? "passager";
+    const [role, setRole] = useState<string>("passager");
+    useEffect(() => {
+        const r = (user?.role as string) ?? localStorage.getItem("user_role") ?? "passager";
+        setRole(r);
+    }, [user?.role]);
     const nav  = NAV[role] ?? NAV.passager;
     const dashHref = role === "conducteur" ? "/conducteur/dashboard" : "/passager/dashboard";
     const altHref  = role === "conducteur" ? "/passager/dashboard"   : "/conducteur/dashboard";

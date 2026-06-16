@@ -42,10 +42,10 @@ class AdminReviewAgent(BaseAgent):
             f"🤖 Décision IA        : {decision.get('decision', 'N/A')} (confiance: {decision.get('confidence', 'N/A')}%)",
         ]
 
-        hard_rejects = decision.get("hard_rejects", [])
+        hard_rejects = decision.get("critical_rejects", [])
         if hard_rejects:
             lines.append("")
-            lines.append("❗ BLOCAGES DÉTECTÉS:")
+            lines.append("BLOCAGES DÉTECTÉS:")
             for r in hard_rejects:
                 lines.append(f"   • {r}")
 

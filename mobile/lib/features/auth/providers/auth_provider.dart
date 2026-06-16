@@ -3,10 +3,8 @@ import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 import '../../../core/services/storage_service.dart';
 
-// Repository provider
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
 
-// État d'authentification
 class AuthState {
   final UserModel? user;
   final bool isLoading;
@@ -25,20 +23,19 @@ class AuthState {
     bool? isLoading,
     String? error,
     bool? isAuthenticated,
-  }) {
-    return AuthState(
-      user: user ?? this.user,
-      isLoading: isLoading ?? this.isLoading,
-      error: error,
-      isAuthenticated: isAuthenticated ?? this.isAuthenticated,
-    );
-  }
+  }) =>
+      AuthState(
+        user:            user ?? this.user,
+        isLoading:       isLoading ?? this.isLoading,
+        error:           error,
+        isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      );
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repo;
 
-  AuthNotifier(this._repo) : super(const AuthState()) {
+  AuthNotifier(this._repo) : super(const AuthState(isLoading: true)) {
     _init();
   }
 
@@ -46,6 +43,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final loggedIn = await StorageService.isLoggedIn();
     if (loggedIn) {
       await loadProfil();
+    } else {
+      state = state.copyWith(isLoading: false);
     }
   }
 
@@ -53,17 +52,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final data = await _repo.connexion(email: email, password: password);
-      final user = data['user'] != null
-          ? UserModel.fromJson(data['user'] as Map<String, dynamic>)
-          : null;
-      state = state.copyWith(
-        isLoading: false,
-        user: user,
-        isAuthenticated: true,
-      );
+      // Le backend retourne { "utilisateur": {...}, "tokens": {...} }
+      final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
+      final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
+      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(isLoading: false, error: _parseError(e));
       return false;
     }
   }
@@ -71,11 +66,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<bool> inscription(Map<String, dynamic> data) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      await _repo.inscription(data);
-      state = state.copyWith(isLoading: false);
+      final response = await _repo.inscription(data);
+      // Auto-login : le backend renvoie aussi l'utilisateur et les tokens
+      final utilisateurJson = response['utilisateur'] as Map<String, dynamic>?;
+      final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
+      state = state.copyWith(
+        isLoading: false,
+        user: user,
+        isAuthenticated: user != null,
+      );
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(isLoading: false, error: _parseError(e));
       return false;
     }
   }
@@ -84,13 +86,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final user = await _repo.getProfil();
-      state = state.copyWith(
-        isLoading: false,
-        user: user,
-        isAuthenticated: true,
-      );
+      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      await StorageService.clearAll();
+      state = state.copyWith(isLoading: false, isAuthenticated: false, user: null);
     }
   }
 
@@ -101,7 +100,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(isLoading: false, user: user);
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(isLoading: false, error: _parseError(e));
       return false;
     }
   }
@@ -113,31 +112,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<bool> changerMode(String mode) async {
     try {
-      await _repo.changerMode(mode);
-      if (state.user != null) {
-        state = state.copyWith(
-          user: state.user!.copyWith(modeCourant: mode),
-        );
+      final res = await _repo.changerMode(mode);
+      final utilisateurJson = res['utilisateur'] as Map<String, dynamic>?;
+      if (utilisateurJson != null && state.user != null) {
+        state = state.copyWith(user: UserModel.fromJson(utilisateurJson));
       }
       return true;
     } catch (e) {
-      state = state.copyWith(error: e.toString());
+      state = state.copyWith(error: _parseError(e));
       return false;
     }
   }
 
   void clearError() => state = state.copyWith(error: null);
+
+  String _parseError(Object e) {
+    final s = e.toString();
+    if (s.contains('Exception:')) return s.split('Exception:').last.trim();
+    return s;
+  }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(
   (ref) => AuthNotifier(ref.watch(authRepositoryProvider)),
 );
 
-// Providers dérivés pour accès rapide
-final currentUserProvider = Provider<UserModel?>(
-  (ref) => ref.watch(authProvider).user,
-);
-
-final isAuthenticatedProvider = Provider<bool>(
-  (ref) => ref.watch(authProvider).isAuthenticated,
-);
+final currentUserProvider = Provider<UserModel?>((ref) => ref.watch(authProvider).user);
+final isAuthenticatedProvider = Provider<bool>((ref) => ref.watch(authProvider).isAuthenticated);

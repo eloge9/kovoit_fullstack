@@ -19,6 +19,18 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    // :app already sets compileSdk = 36 directly — skip it to avoid
+    // "afterEvaluate called on already-evaluated project" error caused
+    // by evaluationDependsOn(":app") above.
+    if (project.name != "app") {
+        afterEvaluate {
+            extensions.findByType(com.android.build.gradle.BaseExtension::class.java)
+                ?.compileSdkVersion(36)
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

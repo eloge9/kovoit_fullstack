@@ -106,7 +106,7 @@ export default function InscriptionPage() {
             }
 
             const response = await inscription(payload);
-            login(response);
+            await login(response);
 
             if (form.role === "conducteur") router.push("/conducteur/dashboard");
             else router.push("/passager/dashboard");

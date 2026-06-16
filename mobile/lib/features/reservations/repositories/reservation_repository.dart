@@ -23,7 +23,9 @@ class ReservationRepository {
       final response = await DioClient.get(ApiConstants.mesReservations);
       final data = response.data;
       if (data is List) {
-        return data.map((e) => ReservationModel.fromJson(e as Map<String, dynamic>)).toList();
+        return data
+            .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
       }
       if (data is Map && data['results'] is List) {
         return (data['results'] as List)
@@ -41,7 +43,9 @@ class ReservationRepository {
       final response = await DioClient.get(ApiConstants.reservationsRecues);
       final data = response.data;
       if (data is List) {
-        return data.map((e) => ReservationModel.fromJson(e as Map<String, dynamic>)).toList();
+        return data
+            .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
       }
       if (data is Map && data['results'] is List) {
         return (data['results'] as List)
@@ -56,9 +60,7 @@ class ReservationRepository {
 
   Future<ReservationModel> confirmerReservation(int id) async {
     try {
-      final response = await DioClient.post(
-        '${_basePath}$id/confirmer/',
-      );
+      final response = await DioClient.post('$_basePath$id/confirmer/');
       return ReservationModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
@@ -67,7 +69,7 @@ class ReservationRepository {
 
   Future<ReservationModel> declinerReservation(int id) async {
     try {
-      final response = await DioClient.post('${_basePath}$id/decliner/');
+      final response = await DioClient.post('$_basePath$id/decliner/');
       return ReservationModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
@@ -76,7 +78,7 @@ class ReservationRepository {
 
   Future<void> annulerReservation(int id) async {
     try {
-      await DioClient.post('${_basePath}$id/annuler/');
+      await DioClient.post('$_basePath$id/annuler/');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

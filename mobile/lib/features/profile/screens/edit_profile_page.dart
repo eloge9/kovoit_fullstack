@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_button.dart';
-import '../../../shared/widgets/app_text_field.dart';
+import '../../../core/theme/colors.dart';
+import '../../../core/widgets/k_button.dart';
+import '../../../core/widgets/k_text_field.dart';
 
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key});
@@ -60,7 +60,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Profil mis à jour !'),
-          backgroundColor: AppTheme.successColor,
+          backgroundColor: KColors.success,
         ),
       );
       context.pop();
@@ -69,7 +69,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error ?? 'Erreur lors de la mise à jour'),
-          backgroundColor: AppTheme.errorColor,
+          backgroundColor: KColors.error,
         ),
       );
     }
@@ -87,14 +87,14 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
           padding: const EdgeInsets.all(16),
           children: [
             const SizedBox(height: 8),
-            AppTextField(
+            KTextField(
               controller: _usernameCtrl,
               label: 'Nom d\'utilisateur',
               prefixIcon: const Icon(Icons.person_outline),
               validator: (v) => v?.isEmpty == true ? 'Champ requis' : null,
             ),
             const SizedBox(height: 12),
-            AppTextField(
+            KTextField(
               controller: _phoneCtrl,
               label: 'Téléphone',
               hint: '+228 XX XX XX XX',
@@ -112,20 +112,20 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
             const SizedBox(height: 12),
-            AppTextField(
+            KTextField(
               controller: _urgenceNomCtrl,
               label: 'Nom du contact',
               prefixIcon: const Icon(Icons.contact_emergency_outlined),
             ),
             const SizedBox(height: 12),
-            AppTextField(
+            KTextField(
               controller: _urgenceTelCtrl,
               label: 'Téléphone du contact',
               keyboardType: TextInputType.phone,
               prefixIcon: const Icon(Icons.phone_outlined),
             ),
             const SizedBox(height: 32),
-            AppButton(
+            KButton(
               label: 'Enregistrer',
               onPressed: isLoading ? null : _submit,
               isLoading: isLoading,

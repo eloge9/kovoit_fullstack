@@ -170,7 +170,7 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'email', 'role', 'numero_telephone',
             'photo_profil', 'note', 'is_active',
             'date_joined', 'last_login',
-            'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire',
+            'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire', 'is_driver',
             'contact_urgence_nom', 'contact_urgence_telephone',
             'profil_conducteur', 'profil_passager', 'profil_admin',
             # Champs vérification conducteur

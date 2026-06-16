@@ -6,9 +6,12 @@ import '../repositories/messagerie_repository.dart';
 import '../models/message_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/services/storage_service.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/colors.dart';
+import '../../../core/theme/text_styles.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/k_avatar.dart';
 
 class ConversationPage extends ConsumerStatefulWidget {
   final String userId;
@@ -69,6 +72,15 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             final msg = MessageModel.fromJson(json['message'] as Map<String, dynamic>);
             setState(() => _messages.add(msg));
             _scrollToBottom();
+            // Notify only if message is from the other user (app may be backgrounded)
+            if (msg.expediteurId.toString() == widget.userId) {
+              NotificationService.nouveauMessage(
+                widget.userName,
+                msg.contenu.length > 60
+                    ? '${msg.contenu.substring(0, 60)}…'
+                    : msg.contenu,
+              );
+            }
           }
         },
         onError: (e) => debugPrint('WS Error: $e'),
@@ -97,7 +109,6 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
     _messageCtrl.clear();
 
-    // Essai via WebSocket
     if (_wsChannel != null) {
       _wsChannel!.sink.add(jsonEncode({'type': 'message', 'contenu': text}));
       return;
@@ -109,9 +120,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
       setState(() => _messages.add(msg));
       _scrollToBottom();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: KColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -128,112 +144,143 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final currentUserId = ref.watch(currentUserProvider)?.id ?? '';
 
     return Scaffold(
+      backgroundColor: KColors.base200,
       appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppTheme.primaryColor,
-              child: Text(
-                widget.userName.isNotEmpty
-                    ? widget.userName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(widget.userName),
-          ],
+        backgroundColor: KColors.base100,
+        elevation: 0,
+        shape: const Border(bottom: BorderSide(color: KColors.border)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: KColors.baseContent),
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
+        title: Row(children: [
+          KAvatar(name: widget.userName, size: 34),
+          const SizedBox(width: 10),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.userName, style: KTextStyles.bodySm.copyWith(
+                fontWeight: FontWeight.w700, color: KColors.baseContent,
+              )),
+              Text('En ligne', style: KTextStyles.caption.copyWith(
+                color: KColors.success, fontSize: 10,
+              )),
+            ],
+          )),
+        ]),
       ),
       body: Column(
         children: [
+          // ── Messages list ──────────────────────────────────────────────
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: CircularProgressIndicator(color: KColors.primary))
                 : _messages.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.chat_bubble_outline,
-                                size: 48, color: Colors.grey),
-                            SizedBox(height: 8),
-                            Text('Commencez la conversation',
-                                style: TextStyle(color: Colors.grey)),
+                            const Text('💬', style: TextStyle(fontSize: 48)),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Commencez la conversation',
+                              style: KTextStyles.bodySm.copyWith(color: KColors.baseContentMid),
+                            ),
                           ],
                         ),
                       )
                     : ListView.builder(
                         controller: _scrollCtrl,
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                         itemCount: _messages.length,
                         itemBuilder: (context, i) {
                           final msg = _messages[i];
                           final isMine = msg.expediteurId == currentUserId;
-                          return _MessageBubble(
-                            message: msg,
-                            isMine: isMine,
-                          );
+                          final showDate = i == 0 ||
+                              !_isSameDay(_messages[i - 1].timestamp, msg.timestamp);
+                          return Column(children: [
+                            if (showDate) _DateSeparator(date: msg.timestamp),
+                            _MessageBubble(message: msg, isMine: isMine),
+                          ]);
                         },
                       ),
           ),
 
-          // Zone de saisie
+          // ── Input bar ─────────────────────────────────────────────────
           Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, -2),
-                ),
-              ],
+            color: KColors.base100,
+            padding: EdgeInsets.fromLTRB(
+              12, 8, 12, MediaQuery.of(context).viewInsets.bottom + 8,
             ),
             child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Votre message...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
+              top: false,
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageCtrl,
+                    style: KTextStyles.bodyLg.copyWith(color: KColors.baseContent),
+                    decoration: InputDecoration(
+                      hintText: 'Votre message…',
+                      hintStyle: KTextStyles.bodyLg.copyWith(color: KColors.baseContentLow),
+                      filled: true,
+                      fillColor: KColors.base200,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
                       ),
-                      maxLines: null,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Material(
-                    color: AppTheme.primaryColor,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      onTap: _sendMessage,
-                      customBorder: const CircleBorder(),
-                      child: const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Icon(Icons.send, color: Colors.white, size: 20),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10,
                       ),
                     ),
+                    maxLines: null,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendMessage(),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: KColors.primary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    onTap: _sendMessage,
+                    customBorder: const CircleBorder(),
+                    child: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
+              ]),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+class _DateSeparator extends StatelessWidget {
+  final DateTime date;
+  const _DateSeparator({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(children: [
+        const Expanded(child: Divider(color: KColors.border)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            Formatters.date(date),
+            style: KTextStyles.caption.copyWith(color: KColors.baseContentMid),
+          ),
+        ),
+        const Expanded(child: Divider(color: KColors.border)),
+      ]),
     );
   }
 }
@@ -249,36 +296,36 @@ class _MessageBubble extends StatelessWidget {
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
+        margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
+          maxWidth: MediaQuery.of(context).size.width * 0.72,
         ),
         decoration: BoxDecoration(
-          color: isMine ? AppTheme.primaryColor : Colors.grey.shade200,
+          color: isMine ? KColors.primary : KColors.base100,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
             bottomLeft: Radius.circular(isMine ? 16 : 4),
             bottomRight: Radius.circular(isMine ? 4 : 16),
           ),
+          border: isMine ? null : Border.all(color: KColors.border),
         ),
         child: Column(
-          crossAxisAlignment:
-              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Text(
               message.contenu,
-              style: TextStyle(
-                color: isMine ? Colors.white : Colors.black87,
+              style: KTextStyles.bodyLg.copyWith(
+                color: isMine ? Colors.white : KColors.baseContent,
                 fontSize: 14,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               Formatters.time(message.timestamp),
-              style: TextStyle(
-                color: isMine ? Colors.white70 : Colors.grey,
+              style: KTextStyles.caption.copyWith(
+                color: isMine ? Colors.white70 : KColors.baseContentMid,
                 fontSize: 10,
               ),
             ),

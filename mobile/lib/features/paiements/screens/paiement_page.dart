@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../reservations/repositories/reservation_repository.dart';
 import '../../reservations/models/paiement_model.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/formatters.dart';
-import '../../../shared/widgets/app_button.dart';
-import '../../../shared/widgets/app_text_field.dart';
+import '../../../core/theme/colors.dart';
+import '../../../core/widgets/k_button.dart';
+import '../../../core/widgets/k_text_field.dart';
 
-final _reservationRepoProvider =
-    Provider<ReservationRepository>((ref) => ReservationRepository());
+final _reservationRepoProvider = Provider<ReservationRepository>(
+  (ref) => ReservationRepository(),
+);
 
 class PaiementPage extends ConsumerStatefulWidget {
   final int reservationId;
@@ -184,7 +184,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
 
             // Formulaire selon le mode
             if (_moyenPaiement != 'ESPECE') ...[
-              AppTextField(
+              KTextField(
                 controller: _phoneCtrl,
                 label: 'Numéro $_network',
                 hint: '+228 XX XX XX XX',
@@ -194,7 +194,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
               const SizedBox(height: 12),
               if (_paiementEnCours != null && !_success) ...[
                 Card(
-                  color: AppTheme.warningColor.withValues(alpha: 0.1),
+                  color: KColors.warning.withValues(alpha: 0.1),
                   child: const Padding(
                     padding: EdgeInsets.all(16),
                     child: Row(
@@ -214,14 +214,14 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
                 const SizedBox(height: 12),
                 const Text('Ou saisissez manuellement votre référence :'),
                 const SizedBox(height: 8),
-                AppTextField(
+                KTextField(
                   controller: _refCtrl,
                   label: 'Référence de paiement',
                   hint: 'TXN-XXXXXXXX',
                   prefixIcon: const Icon(Icons.confirmation_number),
                 ),
                 const SizedBox(height: 12),
-                AppButton(
+                KButton(
                   label: 'Valider la référence',
                   onPressed: _isLoading ? null : _soumettreRef,
                   isLoading: _isLoading,
@@ -238,7 +238,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.info_outline, color: AppTheme.primaryColor),
+                          Icon(Icons.info_outline, color: KColors.primary),
                           SizedBox(width: 8),
                           Text(
                             'Paiement en espèces',
@@ -263,17 +263,21 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppTheme.errorColor.withValues(alpha: 0.1),
+                  color: KColors.error.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline, color: AppTheme.errorColor, size: 20),
+                    const Icon(
+                      Icons.error_outline,
+                      color: KColors.error,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _error!,
-                        style: const TextStyle(color: AppTheme.errorColor),
+                        style: const TextStyle(color: KColors.error),
                       ),
                     ),
                   ],
@@ -283,7 +287,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
 
             const SizedBox(height: 24),
             if (_paiementEnCours == null || _moyenPaiement == 'ESPECE')
-              AppButton(
+              KButton(
                 label: _moyenPaiement == 'ESPECE'
                     ? 'Confirmer le paiement en espèces'
                     : 'Initier le paiement $_network',
@@ -305,11 +309,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.check_circle,
-                size: 100,
-                color: AppTheme.successColor,
-              ),
+              const Icon(Icons.check_circle, size: 100, color: KColors.success),
               const SizedBox(height: 24),
               const Text(
                 'Paiement confirmé !',
@@ -358,11 +358,11 @@ class _PaymentOption extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppTheme.primaryColor.withValues(alpha: 0.1)
+              ? KColors.primary.withValues(alpha: 0.1)
               : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppTheme.primaryColor : Colors.grey.shade300,
+            color: isSelected ? KColors.primary : Colors.grey.shade300,
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -370,14 +370,14 @@ class _PaymentOption extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: isSelected ? AppTheme.primaryColor : Colors.grey,
+              color: isSelected ? KColors.primary : Colors.grey,
               size: 24,
             ),
             const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? AppTheme.primaryColor : Colors.grey,
+                color: isSelected ? KColors.primary : Colors.grey,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 fontSize: 12,
               ),

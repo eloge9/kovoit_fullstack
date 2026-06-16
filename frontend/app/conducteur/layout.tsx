@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/src/hooks/useAuth";
 import { useDriverVerification } from "@/src/hooks/useDriverVerification";
-import { deconnexion } from "@/src/services/auth.service";
+import { changerMode, deconnexion } from "@/src/services/auth.service";
 import { getMediaUrl } from "@/src/utils/imageUtils";
 import { DRIVER_STATUS_LABELS } from "@/src/services/verification.service";
 
@@ -117,7 +117,21 @@ const BANNER_HIDDEN_ON = [
 export default function ConducteurLayout({ children }: { children: React.ReactNode }) {
     const pathname  = usePathname();
     const router    = useRouter();
-    const { user, logout } = useAuth();
+    const { user, logout, updateUser } = useAuth();
+    const [switching, setSwitching] = useState(false);
+
+    const handleSwitchToPassager = async () => {
+        setSwitching(true);
+        try {
+            const res = await changerMode();
+            updateUser(res.utilisateur, res.tokens?.access, res.tokens?.refresh);
+            router.push("/passager/dashboard");
+        } catch {
+            router.push("/passager/dashboard");
+        } finally {
+            setSwitching(false);
+        }
+    };
     const { isActive, loading: verifLoading, status: verifStatus } = useDriverVerification();
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -255,9 +269,11 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                         </Link>
                                     </li>
                                     <li>
-                                        <Link href="/passager/dashboard" className="block px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors">
-                                            Passer en mode Passager
-                                        </Link>
+                                        <button onClick={handleSwitchToPassager} disabled={switching}
+                                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors flex items-center gap-2">
+                                            {switching && <span className="loading loading-spinner loading-xs" />}
+                                            Utiliser comme passager
+                                        </button>
                                     </li>
                                     <li className="border-t border-base-200 mt-1 pt-1">
                                         <button onClick={handleLogout} className="w-full text-left px-3 py-2 rounded-lg text-sm text-error hover:bg-error/5 transition-colors">
@@ -307,9 +323,11 @@ export default function ConducteurLayout({ children }: { children: React.ReactNo
                                 </Link>
                             )}
                             <div className="border-t border-base-200 mt-2 pt-2 space-y-1">
-                                <Link href="/passager/dashboard" onClick={() => setMenuOpen(false)} className="block px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5">
-                                    Passer en mode Passager
-                                </Link>
+                                <button onClick={() => { setMenuOpen(false); handleSwitchToPassager(); }} disabled={switching}
+                                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5 flex items-center gap-2">
+                                    {switching && <span className="loading loading-spinner loading-xs" />}
+                                    Utiliser comme passager
+                                </button>
                                 <button onClick={handleLogout} className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-error hover:bg-error/5">
                                     Déconnexion
                                 </button>

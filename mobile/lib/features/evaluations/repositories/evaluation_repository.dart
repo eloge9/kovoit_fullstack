@@ -18,7 +18,7 @@ class EvaluationRepository {
           'trajet_id': trajetId,
           'cible_id': cibleId,
           'note': note,
-          if (commentaire != null) 'commentaire': commentaire,
+          'commentaire': ?commentaire,
         },
       );
       return EvaluationModel.fromJson(response.data as Map<String, dynamic>);
@@ -32,7 +32,9 @@ class EvaluationRepository {
       final response = await DioClient.get(ApiConstants.mesEvaluations);
       final data = response.data;
       if (data is List) {
-        return data.map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>)).toList();
+        return data
+            .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
       }
       return [];
     } on DioException catch (e) {

@@ -16,10 +16,12 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-from ..modeles.models import Utilisateur, Vehicule, Conducteur, Passager, Evaluation, PLACES_MAX_PAR_TYPE
+from ..modeles.models import Utilisateur, Vehicule, Conducteur, Passager, Evaluation, PLACES_MAX_PAR_TYPE, PasswordResetCode
 from django.db.models import Avg
+from django.core.mail import send_mail
 from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer, ChangePasswordSerializer
 from .tokens import KovoitRefreshToken
+import random
 
 
 class AuthRateThrottle(AnonRateThrottle):
@@ -114,6 +116,82 @@ class AuthViewSet(viewsets.GenericViewSet):
             }, status=status.HTTP_200_OK)
         except Exception:
             return Response({"error": "Refresh token invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='demander-code')
+    def demander_code(self, request):
+        email = request.data.get('email', '').strip().lower()
+        if not email:
+            return Response({'error': 'Email requis.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not Utilisateur.objects.filter(email=email).exists():
+            # Réponse identique pour ne pas révéler si l'email existe
+            return Response({'message': 'Si cet email existe, un code a été envoyé.'})
+
+        # Invalider les anciens codes
+        PasswordResetCode.objects.filter(email=email, used=False).update(used=True)
+
+        code = f"{random.randint(0, 999999):06d}"
+        PasswordResetCode.objects.create(email=email, code=code)
+
+        try:
+            send_mail(
+                subject='KoVoit — Code de réinitialisation',
+                message=(
+                    f"Votre code de réinitialisation KoVoit est : {code}\n\n"
+                    f"Ce code est valable 10 minutes.\n"
+                    f"Si vous n'avez pas demandé cette réinitialisation, ignorez cet email."
+                ),
+                html_message=(
+                    f"<div style='font-family:sans-serif;max-width:480px;margin:auto;padding:32px;'>"
+                    f"<h2 style='color:#3b82f6;'>KoVoit</h2>"
+                    f"<p>Votre code de réinitialisation de mot de passe :</p>"
+                    f"<div style='font-size:36px;font-weight:bold;letter-spacing:8px;"
+                    f"background:#f1f5f9;padding:16px 24px;border-radius:12px;"
+                    f"text-align:center;margin:24px 0;'>{code}</div>"
+                    f"<p style='color:#64748b;font-size:14px;'>Ce code expire dans <strong>10 minutes</strong>.</p>"
+                    f"<p style='color:#64748b;font-size:14px;'>Si vous n'avez pas fait cette demande, ignorez cet email.</p>"
+                    f"</div>"
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            logger.error(f"Erreur envoi email reset: {e}")
+            return Response({'error': "Impossible d'envoyer l'email. Réessayez plus tard."}, status=500)
+
+        return Response({'message': 'Si cet email existe, un code a été envoyé.'})
+
+    @action(detail=False, methods=['post'], url_path='reinitialisation')
+    def reinitialisation(self, request):
+        email        = request.data.get('email', '').strip().lower()
+        code         = request.data.get('code', '').strip()
+        new_password = request.data.get('new_password', '')
+        new_password2 = request.data.get('new_password2', '')
+
+        if not all([email, code, new_password, new_password2]):
+            return Response({'error': 'Tous les champs sont requis.'}, status=400)
+
+        if new_password != new_password2:
+            return Response({'error': 'Les mots de passe ne correspondent pas.'}, status=400)
+
+        if len(new_password) < 8:
+            return Response({'error': 'Le mot de passe doit contenir au moins 8 caractères.'}, status=400)
+
+        reset = PasswordResetCode.objects.filter(email=email, code=code, used=False).order_by('-created_at').first()
+        if not reset or not reset.is_valid():
+            return Response({'error': 'Code invalide ou expiré.'}, status=400)
+
+        try:
+            user = Utilisateur.objects.get(email=email)
+        except Utilisateur.DoesNotExist:
+            return Response({'error': 'Code invalide ou expiré.'}, status=400)
+
+        user.set_password(new_password)
+        user.save()
+        reset.used = True
+        reset.save()
+
+        return Response({'message': 'Mot de passe réinitialisé avec succès.'})
 
 
 class UtilisateurViewSet(viewsets.GenericViewSet):
@@ -330,6 +408,7 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
         # Changer le rôle et passer en attente
         user.role = 'conducteur'
         user.statut_validation = 'en_attente'
+        user.is_driver = True
         user.save()
 
         # Créer le profil conducteur (idempotent)
@@ -362,41 +441,48 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'], url_path='changer-mode')
     def changer_mode(self, request):
         """
-        Permet à un utilisateur validé (peut_conduire=True) de basculer
-        entre le mode passager et conducteur SANS re-soumettre de documents.
+        Conducteur → Passager : toujours autorisé (1 clic).
+        Passager → Conducteur : autorisé si peut_conduire=True (validé)
+                                 OU si un profil conducteur existe (en cours de validation).
+        Retourne de nouveaux tokens JWT avec le rôle mis à jour.
         """
         user = request.user
-
-        if not user.peut_conduire:
-            return Response(
-                {"error": "Votre dossier conducteur n'a pas encore été validé par un administrateur."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
         Role = Utilisateur.Role
 
-        if user.role == Role.PASSAGER:
-            if not hasattr(user, 'profil_conducteur'):
-                return Response(
-                    {"error": "Profil conducteur introuvable. Soumettez d'abord un dossier."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            user.role = Role.CONDUCTEUR
-            user.save(update_fields=['role'])
-            return Response({
-                "message": "Mode conducteur activé.",
-                "role": user.role,
-                "utilisateur": UtilisateurSerializer(user).data,
-            })
-
-        elif user.role == Role.CONDUCTEUR:
+        if user.role == Role.CONDUCTEUR:
+            # Conducteur → Passager : toujours permis
             if not hasattr(user, 'profil_passager'):
                 Passager.objects.create(utilisateur=user)
             user.role = Role.PASSAGER
             user.save(update_fields=['role'])
+            tokens = get_tokens(user)
             return Response({
                 "message": "Mode passager activé.",
                 "role": user.role,
+                "tokens": tokens,
+                "utilisateur": UtilisateurSerializer(user).data,
+            })
+
+        elif user.role == Role.PASSAGER:
+            # Passager → Conducteur : validé OU profil en cours
+            has_driver_profile = hasattr(user, 'driver_profile') or hasattr(user, 'profil_conducteur')
+            if not user.peut_conduire and not has_driver_profile:
+                return Response(
+                    {"error": "Vous devez d'abord soumettre un dossier conducteur.", "code": "NO_DRIVER_PROFILE"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if not hasattr(user, 'profil_conducteur'):
+                return Response(
+                    {"error": "Profil conducteur introuvable. Soumettez d'abord un dossier.", "code": "NO_DRIVER_PROFILE"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            user.role = Role.CONDUCTEUR
+            user.save(update_fields=['role'])
+            tokens = get_tokens(user)
+            return Response({
+                "message": "Mode conducteur activé.",
+                "role": user.role,
+                "tokens": tokens,
                 "utilisateur": UtilisateurSerializer(user).data,
             })
 

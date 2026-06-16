@@ -160,7 +160,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
                         {/* Logo */}
                         <Link href="/admin/dashboard" className="flex items-center gap-2 shrink-0">
-                            <Image src="/logo/logo1.png" alt="KoVoit" width={26} height={26} />
+                            <Image src="/logo/logo1.png" alt="KoVoit" width={28} height={28} />
                             <span className="font-bold text-base tracking-tight">KoVoit</span>
                             <span className="hidden sm:block text-xs text-base-content/30 border-l border-base-300 pl-2">
                                 Admin

@@ -54,8 +54,8 @@ export default function ChartRevenus({ data, type = "bar" }: ChartRevenusProps) 
                     <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
                     <Tooltip content={<CustomTooltip />} />
                     <Legend />
-                    <Line type="monotone" dataKey="net"        name="Net conducteur"  stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="commission" name="Commission Kovoit" stroke="#d97706" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="5 4" />
+                    <Line type="monotone" dataKey="net"        name="Net conducteur"  stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="commission" name="Commission Kovoit" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="5 4" />
                 </LineChart>
             </ResponsiveContainer>
         );
@@ -69,8 +69,8 @@ export default function ChartRevenus({ data, type = "bar" }: ChartRevenusProps) 
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} tickFormatter={fmtAxis} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend />
-                <Bar dataKey="net"        name="Net conducteur"   fill="#16a34a" radius={[4, 4, 0, 0]} stackId="a" />
-                <Bar dataKey="commission" name="Commission Kovoit" fill="#d97706" radius={[4, 4, 0, 0]} stackId="a" />
+                <Bar dataKey="net"        name="Net conducteur"   fill="#22c55e" radius={[4, 4, 0, 0]} stackId="a" />
+                <Bar dataKey="commission" name="Commission Kovoit" fill="#f59e0b" radius={[4, 4, 0, 0]} stackId="a" />
             </BarChart>
         </ResponsiveContainer>
     );

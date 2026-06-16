@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/providers/auth_provider.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/colors.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -25,13 +25,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       duration: const Duration(milliseconds: 1200),
     );
 
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
-    _scaleAnimation = Tween<double>(begin: 0.6, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.6,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
 
     _controller.forward();
     _navigate();
@@ -63,17 +65,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.primaryColor,
+      backgroundColor: KColors.primary,
       body: Center(
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, child) {
             return FadeTransition(
               opacity: _fadeAnimation,
-              child: ScaleTransition(
-                scale: _scaleAnimation,
-                child: child,
-              ),
+              child: ScaleTransition(scale: _scaleAnimation, child: child),
             );
           },
           child: Column(
@@ -96,7 +95,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 child: const Icon(
                   Icons.directions_car_rounded,
                   size: 60,
-                  color: AppTheme.primaryColor,
+                  color: KColors.primary,
                 ),
               ),
               const SizedBox(height: 24),

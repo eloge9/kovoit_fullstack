@@ -9,6 +9,7 @@ interface AuthContextType {
     loading: boolean;
     login: (data: any) => Promise<void>;
     logout: () => Promise<void>;
+    updateUser: (userData: any, newToken?: string, newRefresh?: string) => void;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -18,7 +19,6 @@ export const AuthProvider = ({ children }: any) => {
     const [token, setToken]     = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Restaurer la session React depuis localStorage au montage
     useEffect(() => {
         const storedToken = localStorage.getItem("token");
         if (storedToken) {
@@ -26,7 +26,6 @@ export const AuthProvider = ({ children }: any) => {
             getMe(storedToken)
                 .then((data) => setUser(data))
                 .catch(() => {
-                    // Token localStorage expiré ou invalide : nettoyer tout
                     localStorage.removeItem("token");
                     localStorage.removeItem("refresh");
                     localStorage.removeItem("user_role");
@@ -37,28 +36,19 @@ export const AuthProvider = ({ children }: any) => {
         }
     }, []);
 
-    /**
-     * Appelé après une connexion réussie.
-     * data = { tokens: { access, refresh }, utilisateur }
-     * Le cookie httpOnly est posé côté serveur via /api/auth/set-cookie.
-     */
     const login = async (data: any) => {
         setToken(data.tokens.access);
         setUser(data.utilisateur);
         localStorage.setItem("token", data.tokens.access);
         localStorage.setItem("refresh", data.tokens.refresh);
         localStorage.setItem("user_role", data.utilisateur.role);
-
-        // Poser le cookie httpOnly (inaccessible depuis JS, protège contre XSS)
         try {
             await fetch("/api/auth/set-cookie", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ access: data.tokens.access }),
             });
-        } catch {
-            // Le cookie est optionnel — le token localStorage suffit pour l'auth
-        }
+        } catch { }
     };
 
     const logout = async () => {
@@ -67,13 +57,27 @@ export const AuthProvider = ({ children }: any) => {
         localStorage.removeItem("token");
         localStorage.removeItem("refresh");
         localStorage.removeItem("user_role");
-
-        // Supprimer le cookie httpOnly côté serveur
         await fetch("/api/auth/logout", { method: "POST" });
     };
 
+    /**
+     * Met à jour l'utilisateur en mémoire + localStorage après un changement de mode.
+     * Si newToken est fourni, remplace aussi le token JWT (rôle mis à jour dans le JWT).
+     */
+    const updateUser = (userData: any, newToken?: string, newRefresh?: string) => {
+        setUser(userData);
+        localStorage.setItem("user_role", userData.role);
+        if (newToken) {
+            setToken(newToken);
+            localStorage.setItem("token", newToken);
+        }
+        if (newRefresh) {
+            localStorage.setItem("refresh", newRefresh);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser }}>
             {children}
         </AuthContext.Provider>
     );

@@ -91,13 +91,13 @@ export default function AdminStatistiques() {
                     </ChartCard>
 
                     {/* Trajets par jour */}
-                    <ChartCard titre="Trajets créés par jour" couleur="#10b981">
+                    <ChartCard titre="Trajets créés par jour" couleur="#22c55e">
                         <BarChart data={data.trajets}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
                             <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtShort} />
                             <Tooltip />
-                            <Bar dataKey="valeur" name="Trajets" fill="#10b981" radius={[3,3,0,0]} />
+                            <Bar dataKey="valeur" name="Trajets" fill="#22c55e" radius={[3,3,0,0]} />
                         </BarChart>
                     </ChartCard>
 

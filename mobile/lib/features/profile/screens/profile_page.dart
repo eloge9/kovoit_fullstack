@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/colors.dart';
+import '../../../core/theme/text_styles.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/k_card.dart';
+import '../../../core/widgets/k_avatar.dart';
+import '../../../core/widgets/k_list_tile.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -10,173 +15,190 @@ class ProfilePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
-    final isConducteur = user?.role == 'conducteur' || user?.peutConduire == true;
-    final prefix = isConducteur ? '/conducteur' : '/passager';
+    final prefix = (user?.role == 'conducteur') ? '/conducteur' : '/passager';
 
     if (user == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: KColors.base200,
+        body: Center(child: CircularProgressIndicator(color: KColors.primary)),
+      );
     }
 
     return Scaffold(
+      backgroundColor: KColors.base200,
       appBar: AppBar(
-        title: const Text('Mon profil'),
+        backgroundColor: KColors.base100,
+        elevation: 0,
+        shape: const Border(bottom: BorderSide(color: KColors.border)),
+        title: Row(
+          children: [
+            Image.asset('assets/logos/logo1.png', width: 22, height: 22),
+            const SizedBox(width: 8),
+            Text(
+              'Mon profil',
+              style: KTextStyles.bodySm.copyWith(
+                fontWeight: FontWeight.w700,
+                color: KColors.baseContent,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () => context.push('$prefix/profile/edit'),
+          TextButton(
+            onPressed: () => context.go('$prefix/profile/edit'),
+            child: Text(
+              'Modifier',
+              style: KTextStyles.caption.copyWith(color: KColors.primary),
+            ),
           ),
         ],
       ),
       body: ListView(
+        padding: const EdgeInsets.all(KSpacing.pagePaddingH),
         children: [
-          // En-tête profil
-          Container(
-            color: AppTheme.primaryColor,
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: 44,
-                  backgroundColor: Colors.white,
-                  child: Text(
-                    user.username.substring(0, 1).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 32,
-                      color: AppTheme.primaryColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  user.username,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  user.email,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.star, color: AppTheme.secondaryColor, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${user.note.toStringAsFixed(1)} / 5.0',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: KSpacing.lg),
 
-          // Infos
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Informations personnelles',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Column(
+          // ── Avatar + Nom ───────────────────────────────────────────────
+          KCard(
+            child: Padding(
+              padding: const EdgeInsets.all(KSpacing.xl),
+              child: Column(
+                children: [
+                  KAvatar(
+                    name: user.displayName,
+                    photoUrl: user.photoProfile,
+                    size: 72,
+                  ),
+                  const SizedBox(height: KSpacing.lg),
+                  Text(user.displayName, style: KTextStyles.h2),
+                  const SizedBox(height: 4),
+                  Text(user.email, style: KTextStyles.caption),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _InfoTile(
-                        icon: Icons.person,
-                        label: 'Nom',
-                        value: user.username,
+                      const Icon(
+                        Icons.star_rounded,
+                        color: KColors.warning,
+                        size: 16,
                       ),
-                      const Divider(height: 1),
-                      _InfoTile(
-                        icon: Icons.email,
-                        label: 'Email',
-                        value: user.email,
-                      ),
-                      if (user.phoneNumber != null) ...[
-                        const Divider(height: 1),
-                        _InfoTile(
-                          icon: Icons.phone,
-                          label: 'Téléphone',
-                          value: user.phoneNumber!,
+                      const SizedBox(width: 4),
+                      Text(
+                        '${user.note.toStringAsFixed(1)} / 5.0',
+                        style: KTextStyles.bodySm.copyWith(
+                          color: KColors.baseContent,
                         ),
-                      ],
-                      const Divider(height: 1),
-                      _InfoTile(
-                        icon: Icons.badge,
-                        label: 'Rôle',
-                        value: _roleLabel(user.role, user.peutConduire),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: KColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          user.role == 'conducteur' ? 'Conducteur' : 'Passager',
+                          style: KTextStyles.caption.copyWith(
+                            color: KColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text(
-                  'Vérification',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: ListTile(
-                    leading: Icon(
-                      _statutIcon(user.statutValidation),
-                      color: _statutColor(user.statutValidation),
-                    ),
-                    title: const Text('Documents d\'identité'),
-                    subtitle: Text(
-                      _statutLabel(user.statutValidation),
-                      style: TextStyle(
-                        color: _statutColor(user.statutValidation),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                    onTap: () => context.push('$prefix/profile/documents'),
-                  ),
-                ),
-
-                if (user.contactUrgenceNom != null) ...[
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Contact d\'urgence',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  Card(
-                    child: Column(
-                      children: [
-                        _InfoTile(
-                          icon: Icons.contact_emergency,
-                          label: 'Nom',
-                          value: user.contactUrgenceNom!,
-                        ),
-                        if (user.contactUrgenceTelephone != null) ...[
-                          const Divider(height: 1),
-                          _InfoTile(
-                            icon: Icons.phone,
-                            label: 'Téléphone',
-                            value: user.contactUrgenceTelephone!,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: KSpacing.xl),
+
+          // ── Informations ───────────────────────────────────────────────
+          KCard(
+            child: Column(
+              children: [
+                const KCardHeader(title: 'Informations personnelles'),
+                KDataRow(label: 'Prénom', value: user.firstName ?? '—'),
+                const Divider(color: KColors.border, height: 0),
+                KDataRow(label: 'Nom', value: user.lastName ?? '—'),
+                const Divider(color: KColors.border, height: 0),
+                KDataRow(label: 'Email', value: user.email),
+                const Divider(color: KColors.border, height: 0),
+                KDataRow(label: 'Téléphone', value: user.phoneNumber ?? '—'),
+                const Divider(color: KColors.border, height: 0),
+                KDataRow(
+                  label: 'Rôle',
+                  value: _roleLabel(user.role, user.peutConduire),
+                ),
               ],
             ),
           ),
+          const SizedBox(height: KSpacing.xl),
+
+          // ── Vérification ──────────────────────────────────────────────
+          KCard(
+            child: Column(
+              children: [
+                const KCardHeader(title: 'Vérification'),
+                KListTile(
+                  title: "Documents d'identité",
+                  subtitle: _statutLabel(user.statutValidation),
+                  leading: Icon(
+                    _statutIcon(user.statutValidation),
+                    color: _statutColor(user.statutValidation),
+                    size: 20,
+                  ),
+                  titleColor: KColors.baseContent,
+                  onTap: () => context.go('$prefix/profile/documents'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: KSpacing.xl),
+
+          // ── Navigation ─────────────────────────────────────────────────
+          KCard(
+            child: Column(
+              children: [
+                const KCardHeader(title: 'Menu'),
+                KListTile(
+                  title: 'Mes documents',
+                  onTap: () => context.go('$prefix/profile/documents'),
+                ),
+                const Divider(color: KColors.border, height: 0),
+                if (user.role == 'conducteur') ...[
+                  KListTile(
+                    title: 'Mes véhicules',
+                    onTap: () => context.go('/conducteur/vehicules'),
+                  ),
+                  const Divider(color: KColors.border, height: 0),
+                  KListTile(
+                    title: 'Vérification du compte',
+                    onTap: () => context.go('/conducteur/verification'),
+                  ),
+                  const Divider(color: KColors.border, height: 0),
+                ],
+                KListTile(
+                  title: 'Modifier le profil',
+                  onTap: () => context.go('$prefix/profile/edit'),
+                ),
+                const Divider(color: KColors.border, height: 0),
+                KListTile(
+                  title: 'Déconnexion',
+                  titleColor: KColors.error,
+                  showChevron: false,
+                  onTap: () async {
+                    await ref.read(authProvider.notifier).deconnexion();
+                    if (context.mounted) context.go('/login');
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: KSpacing.xxl),
         ],
       ),
     );
@@ -188,63 +210,42 @@ class ProfilePage extends ConsumerWidget {
     return 'Passager';
   }
 
-  IconData _statutIcon(String statut) {
-    switch (statut) {
+  IconData _statutIcon(String s) {
+    switch (s) {
       case 'valide':
-        return Icons.verified;
+        return Icons.verified_outlined;
       case 'en_attente':
-        return Icons.hourglass_empty;
+        return Icons.hourglass_empty_outlined;
       case 'rejete':
-        return Icons.cancel;
+        return Icons.cancel_outlined;
       default:
-        return Icons.upload_file;
+        return Icons.upload_file_outlined;
     }
   }
 
-  Color _statutColor(String statut) {
-    switch (statut) {
+  Color _statutColor(String s) {
+    switch (s) {
       case 'valide':
-        return AppTheme.successColor;
+        return KColors.success;
       case 'en_attente':
-        return AppTheme.warningColor;
+        return KColors.warning;
       case 'rejete':
-        return AppTheme.errorColor;
+        return KColors.error;
       default:
-        return Colors.grey;
+        return KColors.baseContentMid;
     }
   }
 
-  String _statutLabel(String statut) {
-    switch (statut) {
+  String _statutLabel(String s) {
+    switch (s) {
       case 'valide':
         return 'Documents validés ✓';
       case 'en_attente':
-        return 'En cours de vérification...';
+        return 'En cours de vérification…';
       case 'rejete':
-        return 'Documents rejetés - Renvoyez';
+        return 'Documents rejetés — Renvoyez';
       default:
-        return 'Documents non soumis - Cliquez pour soumettre';
+        return 'Non soumis — Cliquez pour soumettre';
     }
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, color: AppTheme.primaryColor, size: 20),
-      title: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      subtitle: Text(value, style: const TextStyle(fontSize: 14, color: Colors.black87)),
-    );
   }
 }

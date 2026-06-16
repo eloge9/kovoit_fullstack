@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/src/hooks/useAuth";
-import { deconnexion } from "@/src/services/auth.service";
+import { changerMode, deconnexion } from "@/src/services/auth.service";
 import { getMediaUrl } from "@/src/utils/imageUtils";
 
 const navItems = [
@@ -25,8 +25,33 @@ const moreItems = [
 export default function PassagerLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
-    const { user, logout } = useAuth();
+    const { user, logout, updateUser } = useAuth();
     const [menuOpen, setMenuOpen] = useState(false);
+    const [switching, setSwitching] = useState(false);
+
+    // Logique de bascule vers le mode conducteur
+    const handleSwitchToConducteur = async () => {
+        // Aucun profil conducteur jamais créé → wizard
+        const hasDriverProfile = user?.is_driver || user?.driver_profile_id;
+        if (!hasDriverProfile) {
+            router.push("/passager/devenir-conducteur");
+            return;
+        }
+        // Profil existant (validé ou en cours) → bascule directe via API
+        setSwitching(true);
+        try {
+            const res = await changerMode();
+            updateUser(res.utilisateur, res.tokens?.access, res.tokens?.refresh);
+            router.push("/conducteur/dashboard");
+        } catch (e: any) {
+            // Cas extrême : profil introuvable côté serveur → wizard
+            if (e?.response?.data?.code === "NO_DRIVER_PROFILE") {
+                router.push("/passager/devenir-conducteur");
+            }
+        } finally {
+            setSwitching(false);
+        }
+    };
 
     const handleLogout = async () => {
         try {
@@ -143,12 +168,13 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                         </Link>
                                     </li>
                                     <li>
-                                        <Link
-                                            href="/conducteur/dashboard"
-                                            className="block px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors"
-                                        >
-                                            Passer en mode Conducteur
-                                        </Link>
+                                        <button onClick={handleSwitchToConducteur} disabled={switching}
+                                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors flex items-center gap-2">
+                                            {switching && <span className="loading loading-spinner loading-xs" />}
+                                            {user?.is_driver || user?.driver_profile_id
+                                                ? "Passer en mode Conducteur"
+                                                : "Devenir conducteur"}
+                                        </button>
                                     </li>
                                     <li className="border-t border-base-200 mt-1 pt-1">
                                         <button
@@ -196,13 +222,13 @@ export default function PassagerLayout({ children }: { children: React.ReactNode
                                 </Link>
                             ))}
                             <div className="border-t border-base-200 mt-2 pt-2 space-y-1">
-                                <Link
-                                    href="/conducteur/dashboard"
-                                    onClick={() => setMenuOpen(false)}
-                                    className="block px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5"
-                                >
-                                    Passer en mode Conducteur
-                                </Link>
+                                <button onClick={() => { setMenuOpen(false); handleSwitchToConducteur(); }} disabled={switching}
+                                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-primary hover:bg-primary/5 flex items-center gap-2">
+                                    {switching && <span className="loading loading-spinner loading-xs" />}
+                                    {user?.is_driver || user?.driver_profile_id
+                                        ? "Passer en mode Conducteur"
+                                        : "Devenir conducteur"}
+                                </button>
                                 <button
                                     onClick={handleLogout}
                                     className="w-full text-left px-3 py-2.5 rounded-xl text-sm text-error hover:bg-error/5"

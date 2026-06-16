@@ -62,4 +62,15 @@ class ApiConstants {
   static const String statsResume = '/statistiques/resume/';
   static const String mesEconomies = '/economie/mes_economies/';
   static const String calculerEconomie = '/economie/calculer_economie_trajet/';
+
+  // Admin
+  static const String adminUtilisateurs = '/utilisateurs/admin/utilisateurs/';
+  static const String adminConducteurs = '/utilisateurs/admin/conducteurs/';
+  static const String adminReservations = '/reservations/admin/';
+  static const String adminPaiements = '/paiements/admin/';
+  static const String adminStats = '/verification/admin/drivers/stats/';
+  static const String adminPlaintes = '/plaintes/';
+
+  // Notifications WebSocket
+  static const String wsNotifications = '/ws/notifications/';
 }
