@@ -110,9 +110,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
         'numero_telephone': _phoneCtrl.text.trim(),
       if (_role == 'conducteur') ...{
         'numero_permis': _permisCtrl.text.trim(),
-        'experience_annees': _expCtrl.text.trim().isEmpty
-            ? '0'
-            : _expCtrl.text.trim(),
+        'experience_annees': int.tryParse(_expCtrl.text.trim()) ?? 0,
         'type_vehicule': _typeVehicule,
         'marque': _marqueCtrl.text.trim(),
         'modele': _modeleCtrl.text.trim(),

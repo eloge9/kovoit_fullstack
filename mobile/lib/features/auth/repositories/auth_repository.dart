@@ -139,7 +139,7 @@ class AuthRepository {
   Future<void> demanderCodeReset(String email) async {
     try {
       await DioClient.post(
-        '/utilisateurs/auth/demander-code/',
+        ApiConstants.demanderCodeReset,
         data: {'email': email},
         requireAuth: false,
       );
@@ -156,7 +156,7 @@ class AuthRepository {
   }) async {
     try {
       await DioClient.post(
-        '/utilisateurs/auth/reinitialisation/',
+        ApiConstants.reinitialisation,
         data: {
           'email': email,
           'code': code,

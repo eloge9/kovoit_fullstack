@@ -69,10 +69,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isPublic = publicRoutes.contains(location);
 
       if (!isAuth && !isPublic) return '/login';
-      if (isAuth && isPublic && location != '/splash') {
+      if (isAuth && isPublic) {
+        if (location == '/splash') return null; // SplashScreen gère sa propre navigation
         final user = authState.user;
-        if (user?.role == 'conducteur') return '/conducteur';
         if (user?.role == 'admin')      return '/admin';
+        if (user?.role == 'conducteur') return '/conducteur';
         return '/passager';
       }
       return null;
@@ -118,10 +119,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/passager/messages',
               builder: (_, _) => const MessageriePage()),
           GoRoute(
-            path: '/passager/messages/:userId',
+            path: '/passager/messages/:convId',
             builder: (_, state) => ConversationPage(
-              userId: state.pathParameters['userId'] ?? '',
+              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
               userName: state.uri.queryParameters['name'] ?? '',
+              userId: state.uri.queryParameters['userId'],
             ),
           ),
           GoRoute(path: '/passager/profile',
@@ -174,10 +176,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/conducteur/messages',
               builder: (_, _) => const MessageriePage()),
           GoRoute(
-            path: '/conducteur/messages/:userId',
+            path: '/conducteur/messages/:convId',
             builder: (_, state) => ConversationPage(
-              userId: state.pathParameters['userId'] ?? '',
+              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
               userName: state.uri.queryParameters['name'] ?? '',
+              userId: state.uri.queryParameters['userId'],
             ),
           ),
           GoRoute(path: '/conducteur/profile',

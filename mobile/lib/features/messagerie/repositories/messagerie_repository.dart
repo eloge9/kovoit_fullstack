@@ -18,17 +18,12 @@ class MessagerieRepository {
     }
   }
 
-  Future<List<MessageModel>> getHistorique(String userId) async {
+  Future<List<MessageModel>> getMessages(int convId) async {
     try {
-      final response = await DioClient.get('/messagerie/messages/$userId/');
+      final response = await DioClient.get('/messagerie/conversations/$convId/messages/');
       final data = response.data;
       if (data is List) {
         return data.map((e) => MessageModel.fromJson(e as Map<String, dynamic>)).toList();
-      }
-      if (data is Map && data['results'] is List) {
-        return (data['results'] as List)
-            .map((e) => MessageModel.fromJson(e as Map<String, dynamic>))
-            .toList();
       }
       return [];
     } on DioException catch (e) {
@@ -36,10 +31,10 @@ class MessagerieRepository {
     }
   }
 
-  Future<MessageModel> envoyerMessage(String userId, String contenu) async {
+  Future<MessageModel> envoyerMessage(int convId, String contenu) async {
     try {
       final response = await DioClient.post(
-        '/messagerie/messages/$userId/envoyer/',
+        '/messagerie/conversations/$convId/envoyer/',
         data: {'contenu': contenu},
       );
       return MessageModel.fromJson(response.data as Map<String, dynamic>);

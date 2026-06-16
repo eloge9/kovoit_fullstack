@@ -64,7 +64,7 @@ class MessageriePage extends ConsumerWidget {
               const SizedBox(height: 8),
               Text(e.toString(), style: KTextStyles.caption),
               TextButton(
-                onPressed: () => ref.refresh(_conversationsProvider),
+                onPressed: () => ref.invalidate(_conversationsProvider),
                 child: Text(
                   'Réessayer',
                   style: KTextStyles.bodySm.copyWith(color: KColors.primary),
@@ -82,7 +82,7 @@ class MessageriePage extends ConsumerWidget {
           }
           return RefreshIndicator(
             color: KColors.primary,
-            onRefresh: () async => ref.refresh(_conversationsProvider),
+            onRefresh: () async => ref.invalidate(_conversationsProvider),
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: KSpacing.lg),
               itemCount: conversations.length,
@@ -93,7 +93,9 @@ class MessageriePage extends ConsumerWidget {
                 return _ConvTile(
                   conv: conv,
                   onTap: () => context.push(
-                    '$prefix/messages/${conv.userId}?name=${Uri.encodeComponent(conv.userName)}',
+                    '$prefix/messages/${conv.convId}'
+                    '?name=${Uri.encodeComponent(conv.userName)}'
+                    '&userId=${conv.userId}',
                   ),
                 );
               },

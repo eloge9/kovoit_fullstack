@@ -40,7 +40,7 @@ class EvaluationModel {
       commentaire: json['commentaire'],
       signalement: json['signalement'] ?? false,
       motifSignalement: json['motif_signalement'],
-      dateEvaluation: DateTime.parse(json['date_evaluation'] as String),
+      dateEvaluation: DateTime.tryParse(json['date_evaluation']?.toString() ?? '') ?? DateTime.now(),
     );
   }
 }

@@ -14,13 +14,16 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/k_avatar.dart';
 
 class ConversationPage extends ConsumerStatefulWidget {
-  final String userId;
+  final int convId;
   final String userName;
+  // userId is the interlocutor's UUID, used only for the WebSocket channel
+  final String? userId;
 
   const ConversationPage({
     super.key,
-    required this.userId,
+    required this.convId,
     required this.userName,
+    this.userId,
   });
 
   @override
@@ -44,7 +47,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Future<void> _loadMessages() async {
     try {
-      final messages = await _repo.getHistorique(widget.userId);
+      final messages = await _repo.getMessages(widget.convId);
       setState(() {
         _messages = messages;
         _isLoading = false;
@@ -60,9 +63,14 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
     final myId = await StorageService.getUserId();
     if (token == null || myId == null) return;
 
+    // WebSocket uses conv_id channel; fall back to user-pair channel if userId available
+    final channelId = widget.userId != null
+        ? '$myId/${widget.userId}'
+        : 'conv/${widget.convId}';
+
     try {
       final uri = Uri.parse(
-        '${ApiConstants.wsBaseUrl}/chat/$myId/${widget.userId}/?token=$token',
+        '${ApiConstants.wsBaseUrl}/chat/$channelId/?token=$token',
       );
       _wsChannel = WebSocketChannel.connect(uri);
       _wsChannel!.stream.listen(
@@ -73,7 +81,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             setState(() => _messages.add(msg));
             _scrollToBottom();
             // Notify only if message is from the other user (app may be backgrounded)
-            if (msg.expediteurId.toString() == widget.userId) {
+            if (widget.userId != null && msg.expediteurId == widget.userId) {
               NotificationService.nouveauMessage(
                 widget.userName,
                 msg.contenu.length > 60
@@ -116,7 +124,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
     // Fallback REST
     try {
-      final msg = await _repo.envoyerMessage(widget.userId, text);
+      final msg = await _repo.envoyerMessage(widget.convId, text);
       setState(() => _messages.add(msg));
       _scrollToBottom();
     } catch (e) {

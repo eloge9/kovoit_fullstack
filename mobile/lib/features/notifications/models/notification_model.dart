@@ -20,7 +20,7 @@ class NotificationModel {
       type: type,
       data: data,
       timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ?? DateTime.now(),
-      isRead: json['isRead'] as bool? ?? false,
+      isRead: json['is_read'] as bool? ?? json['isRead'] as bool? ?? false,
     );
   }
 

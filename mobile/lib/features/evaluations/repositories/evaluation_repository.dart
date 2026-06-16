@@ -55,14 +55,14 @@ class EvaluationRepository {
     }
   }
 
-  Future<void> signalerUtilisateur({
-    required String userId,
+  Future<void> signalerEvaluation({
+    required String evaluationId,
     required String motif,
   }) async {
     try {
       await DioClient.post(
         ApiConstants.signaler,
-        data: {'user_id': userId, 'motif': motif},
+        data: {'evaluation_id': evaluationId, 'motif': motif},
       );
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);

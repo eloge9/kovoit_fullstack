@@ -22,13 +22,22 @@ class MessageModel {
   factory MessageModel.fromJson(Map<String, dynamic> json) {
     return MessageModel(
       id: json['id'] as int,
-      expediteurId: json['expediteur_id']?.toString() ?? json['expediteur']?.toString() ?? '',
-      expediteurNom: json['expediteur_nom'] ?? '',
-      expediteurPhoto: json['expediteur_photo'],
-      destinataireId: json['destinataire_id']?.toString() ?? json['destinataire']?.toString() ?? '',
-      contenu: json['contenu'] ?? '',
-      lu: json['lu'] ?? false,
-      timestamp: DateTime.parse(json['timestamp'] as String),
+      // Django returns 'auteur_id' and 'username'; support legacy field names too
+      expediteurId: json['auteur_id']?.toString() ??
+          json['expediteur_id']?.toString() ??
+          json['expediteur']?.toString() ??
+          '',
+      expediteurNom: json['username'] as String? ??
+          json['expediteur_nom'] as String? ??
+          '',
+      expediteurPhoto: json['expediteur_photo'] as String?,
+      // Django does not return a destinataire field at message level
+      destinataireId: json['destinataire_id']?.toString() ??
+          json['destinataire']?.toString() ??
+          '',
+      contenu: json['contenu'] as String? ?? '',
+      lu: json['lu'] as bool? ?? false,
+      timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ?? DateTime.now(),
     );
   }
 
@@ -46,8 +55,17 @@ class MessageModel {
   }
 }
 
+// Django response shape for a conversation:
+// {
+//   "id": <int conv_id>,
+//   "interlocuteurs": [{"id": "uuid", "nom": "...", "username": "...", "photo_profil": "..."}],
+//   "dernier_message": {"contenu": "...", "timestamp": "...", ...} | null,
+//   "non_lus": <int>,
+//   "updated_at": "..."
+// }
 class ConversationModel {
-  final String userId;
+  final int convId;       // conversation ID (Django pk)
+  final String userId;    // interlocutor's user UUID (for WebSocket)
   final String userName;
   final String? userPhoto;
   final String? lastMessage;
@@ -55,6 +73,7 @@ class ConversationModel {
   final int unreadCount;
 
   const ConversationModel({
+    required this.convId,
     required this.userId,
     required this.userName,
     this.userPhoto,
@@ -64,13 +83,23 @@ class ConversationModel {
   });
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
+    final interlocuteurs = json['interlocuteurs'] as List?;
+    final first = (interlocuteurs != null && interlocuteurs.isNotEmpty)
+        ? interlocuteurs.first as Map<String, dynamic>
+        : null;
+
+    final dernierMsg = json['dernier_message'] as Map<String, dynamic>?;
+
     return ConversationModel(
-      userId: json['user_id']?.toString() ?? json['id']?.toString() ?? '',
-      userName: json['username'] ?? json['nom'] ?? '',
-      userPhoto: json['photo_profile'] ?? json['photo'],
-      lastMessage: json['dernier_message'],
-      lastMessageTime: json['dernier_message_time'] != null
-          ? DateTime.parse(json['dernier_message_time'] as String)
+      convId: json['id'] as int,
+      userId: first?['id']?.toString() ?? '',
+      userName: first?['nom']?.toString() ??
+          first?['username']?.toString() ??
+          '',
+      userPhoto: first?['photo_profil']?.toString(),
+      lastMessage: dernierMsg?['contenu'] as String?,
+      lastMessageTime: dernierMsg?['timestamp'] != null
+          ? DateTime.parse(dernierMsg!['timestamp'] as String)
           : null,
       unreadCount: json['non_lus'] as int? ?? 0,
     );

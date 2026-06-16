@@ -81,7 +81,7 @@ class TrajetDetailPage extends ConsumerWidget {
               KButton(
                 label: 'Réessayer',
                 variant: KButtonVariant.outline,
-                onPressed: () => ref.refresh(_trajetDetailProvider(trajetId)),
+                onPressed: () => ref.invalidate(_trajetDetailProvider(trajetId)),
               ),
             ],
           ),
@@ -89,7 +89,7 @@ class TrajetDetailPage extends ConsumerWidget {
         data: (trajet) => _Body(
           trajet: trajet,
           isConducteur: isConducteur,
-          onRefresh: () => ref.refresh(_trajetDetailProvider(trajetId)),
+          onRefresh: () => ref.invalidate(_trajetDetailProvider(trajetId)),
         ),
       ),
     );
@@ -315,9 +315,8 @@ class _BodyState extends ConsumerState<_Body> {
                         Icons.message_outlined,
                         color: KColors.primary,
                       ),
-                      onPressed: () => context.push(
-                        '/passager/messages/${t.conducteurId}?name=${Uri.encodeComponent(t.conducteurNom)}',
-                      ),
+                      // Navigate to conversations list; conv_id is available after reserving
+                      onPressed: () => context.push('/passager/messages'),
                     ),
                   ],
                 ),

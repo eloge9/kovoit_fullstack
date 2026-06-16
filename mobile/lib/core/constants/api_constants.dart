@@ -1,24 +1,22 @@
 class ApiConstants {
-  // Pour emulateur Android: 10.0.2.2 = localhost machine hôte
-  // Pour device réel: mettre l'IP de votre machine (ex: 192.168.1.x)
-  static const String baseUrl = 'http://10.0.2.2:8000/api';
-
-  // WebSocket
-  static const String wsBaseUrl = 'ws://10.0.2.2:8000/ws';
+  static const String baseUrl = 'http://192.168.0.111:8000/api';
+  static const String wsBaseUrl = 'ws://192.168.0.111:8000/ws';
 
   // Auth
   static const String inscription = '/utilisateurs/auth/inscription/';
   static const String connexion = '/utilisateurs/auth/connexion/';
   static const String deconnexion = '/utilisateurs/auth/deconnexion/';
   static const String refreshToken = '/utilisateurs/auth/refresh/';
+  static const String demanderCodeReset = '/utilisateurs/auth/demander-code/';
+  static const String reinitialisation = '/utilisateurs/auth/reinitialisation/';
 
   // Profil
   static const String profil = '/utilisateurs/ko/profil/';
   static const String changePassword = '/utilisateurs/ko/profil/change-password/';
-  static const String uploadDocuments = '/utilisateurs/ko/upload-documents';
-  static const String basculerRole = '/utilisateurs/ko/basculer-role';
-  static const String changerMode = '/utilisateurs/ko/changer-mode';
-  static const String sos = '/utilisateurs/ko/sos';
+  static const String uploadDocuments = '/utilisateurs/ko/upload-documents/';
+  static const String basculerRole = '/utilisateurs/ko/basculer-role/';
+  static const String changerMode = '/utilisateurs/ko/changer-mode/';
+  static const String sos = '/utilisateurs/ko/sos/';
 
   // Véhicules
   static const String vehicules = '/utilisateurs/ko/vehicules/';
