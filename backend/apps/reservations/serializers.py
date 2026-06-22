@@ -40,7 +40,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'prix_par_place', 'prix_passager',
             'conducteur', 'conducteur_note', 'conducteur_telephone',
             'passager_id', 'passager_nom', 'passager_telephone', 'passager_note',
-            'statut', 'date_reservation',
+            'statut', 'places_reservees', 'date_reservation',
             # Embarquement
             'code_embarquement', 'statut_embarquement',
             'heure_embarquement', 'heure_depose',

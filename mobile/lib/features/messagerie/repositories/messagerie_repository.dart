@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/api_interceptor.dart';
 import '../../../core/network/dio_client.dart';
@@ -9,11 +10,16 @@ class MessagerieRepository {
     try {
       final response = await DioClient.get(ApiConstants.conversations);
       final data = response.data;
+      debugPrint('[MessagerieRepo] getConversations raw type: ${data.runtimeType}');
       if (data is List) {
+        debugPrint('[MessagerieRepo] getConversations: ${data.length} conversations');
+        if (data.isNotEmpty) debugPrint('[MessagerieRepo] première conv: ${data.first}');
         return data.map((e) => ConversationModel.fromJson(e as Map<String, dynamic>)).toList();
       }
+      debugPrint('[MessagerieRepo] getConversations: réponse inattendue: $data');
       return [];
     } on DioException catch (e) {
+      debugPrint('[MessagerieRepo] getConversations error: $e');
       throw ApiException.fromDioException(e);
     }
   }
@@ -22,11 +28,15 @@ class MessagerieRepository {
     try {
       final response = await DioClient.get('/messagerie/conversations/$convId/messages/');
       final data = response.data;
+      debugPrint('[MessagerieRepo] getMessages($convId) raw type: ${data.runtimeType}');
       if (data is List) {
+        debugPrint('[MessagerieRepo] getMessages: ${data.length} messages');
         return data.map((e) => MessageModel.fromJson(e as Map<String, dynamic>)).toList();
       }
+      debugPrint('[MessagerieRepo] getMessages: réponse inattendue: $data');
       return [];
     } on DioException catch (e) {
+      debugPrint('[MessagerieRepo] getMessages error: $e');
       throw ApiException.fromDioException(e);
     }
   }

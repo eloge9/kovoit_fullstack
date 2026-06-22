@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -15,12 +16,20 @@ class ConducteurGpsPage extends ConsumerStatefulWidget {
   final int trajetId;
   final String depart;
   final String destination;
+  final double? departLat;
+  final double? departLng;
+  final double? destinationLat;
+  final double? destinationLng;
 
   const ConducteurGpsPage({
     super.key,
     required this.trajetId,
     required this.depart,
     required this.destination,
+    this.departLat,
+    this.departLng,
+    this.destinationLat,
+    this.destinationLng,
   });
 
   @override
@@ -31,6 +40,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
   final _locationService = LocationService();
   final _mapController = MapController();
   Position? _currentPosition;
+  List<LatLng> _routePoints = [];
   bool _isTracking = false;
   bool _isEnding = false;
 
@@ -38,6 +48,29 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
   void initState() {
     super.initState();
     _startTracking();
+    if (widget.departLat != null &&
+        widget.departLng != null &&
+        widget.destinationLat != null &&
+        widget.destinationLng != null) {
+      _chargerRoute();
+    }
+  }
+
+  Future<void> _chargerRoute() async {
+    final route = await OsrmService.getRoute(
+      widget.departLat!,
+      widget.departLng!,
+      widget.destinationLat!,
+      widget.destinationLng!,
+    );
+    if (!mounted || route == null) return;
+    setState(() => _routePoints = route.points);
+    if (_currentPosition == null && _routePoints.isNotEmpty) {
+      final bounds = LatLngBounds.fromPoints(_routePoints);
+      _mapController.fitCamera(
+        CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
+      );
+    }
   }
 
   Future<void> _startTracking() async {
@@ -55,7 +88,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
 
     await _locationService.startSendingLocation(widget.trajetId);
 
-    // Update position in real-time on the map
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     ).listen((position) {
@@ -97,7 +129,9 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
     final hasPosition = _currentPosition != null;
     final center = hasPosition
         ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
-        : const LatLng(6.1375, 1.2123); // Lomé par défaut
+        : const LatLng(6.1375, 1.2123);
+    final hasDepart = widget.departLat != null && widget.departLng != null;
+    final hasDest = widget.destinationLat != null && widget.destinationLng != null;
 
     return Scaffold(
       backgroundColor: KColors.base200,
@@ -161,7 +195,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
       ),
       body: Stack(
         children: [
-          // ── Carte ──────────────────────────────────────────────────────
+          // ── Carte ────────────────────────────────────────────────────────
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -173,9 +207,57 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.kovoit.mobile',
               ),
-              if (hasPosition)
-                MarkerLayer(
-                  markers: [
+              // Polyline route OSRM
+              if (_routePoints.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 4,
+                      color: KColors.primary.withValues(alpha: 0.7),
+                    ),
+                  ],
+                ),
+              // Markers départ, destination, position conducteur
+              MarkerLayer(
+                markers: [
+                  if (hasDepart)
+                    Marker(
+                      point: LatLng(widget.departLat!, widget.departLng!),
+                      width: 36,
+                      height: 36,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: KColors.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(
+                          Icons.trip_origin,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  if (hasDest)
+                    Marker(
+                      point: LatLng(widget.destinationLat!, widget.destinationLng!),
+                      width: 36,
+                      height: 36,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: KColors.error,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(
+                          Icons.location_on,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  if (hasPosition)
                     Marker(
                       point: center,
                       width: 48,
@@ -200,12 +282,12 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
                         ),
                       ),
                     ),
-                  ],
-                ),
+                ],
+              ),
             ],
           ),
 
-          // ── Info panneau en bas ──────────────────────────────────────
+          // ── Panneau infos en bas ──────────────────────────────────────────
           Positioned(
             left: 0,
             right: 0,
@@ -233,7 +315,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Barre de drag
                   Container(
                     width: 40,
                     height: 4,
@@ -243,8 +324,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-
-                  // Infos position
                   if (hasPosition) ...[
                     Row(
                       children: [
@@ -274,8 +353,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage> {
                     const Divider(color: KColors.border),
                     const SizedBox(height: KSpacing.lg),
                   ],
-
-                  // Bouton terminer
                   KButton(
                     label: 'Terminer le trajet',
                     icon: Icons.flag_rounded,

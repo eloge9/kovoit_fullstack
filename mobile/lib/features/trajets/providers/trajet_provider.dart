@@ -10,22 +10,26 @@ class TrajetsState {
   final List<TrajetModel> trajets;
   final bool isLoading;
   final String? error;
+  final int? lastCreatedId;
 
   const TrajetsState({
     this.trajets = const [],
     this.isLoading = false,
     this.error,
+    this.lastCreatedId,
   });
 
   TrajetsState copyWith({
     List<TrajetModel>? trajets,
     bool? isLoading,
     String? error,
+    int? lastCreatedId,
   }) {
     return TrajetsState(
       trajets: trajets ?? this.trajets,
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      lastCreatedId: lastCreatedId ?? this.lastCreatedId,
     );
   }
 }
@@ -72,6 +76,7 @@ class TrajetsNotifier extends StateNotifier<TrajetsState> {
       state = state.copyWith(
         isLoading: false,
         trajets: [trajet, ...state.trajets],
+        lastCreatedId: trajet.id,
       );
       return true;
     } catch (e) {
@@ -123,6 +128,32 @@ class TrajetsNotifier extends StateNotifier<TrajetsState> {
           .map((t) => t.id == updated.id ? updated : t)
           .toList(),
     );
+  }
+
+  Future<void> rechercherItineraire({
+    required double pickupLat,
+    required double pickupLng,
+    required double dropoffLat,
+    required double dropoffLng,
+    String? date,
+    int? places,
+    double toleranceKm = 2.0,
+  }) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final trajets = await _repo.rechercherParItineraire(
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        dropoffLat: dropoffLat,
+        dropoffLng: dropoffLng,
+        date: date,
+        places: places,
+        toleranceKm: toleranceKm,
+      );
+      state = state.copyWith(isLoading: false, trajets: trajets);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
   }
 
   void clearError() => state = state.copyWith(error: null);

@@ -228,6 +228,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ],
                   ),
                 ),
+
+                // Accès aux paramètres serveur (utile en dev)
+                const SizedBox(height: KSpacing.lg),
+                GestureDetector(
+                  onTap: () => context.push('/server-settings'),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.settings_ethernet_rounded,
+                        size: 14,
+                        color: KColors.baseContentLow,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Paramètres du serveur',
+                        style: KTextStyles.caption.copyWith(
+                          color: KColors.baseContentLow,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

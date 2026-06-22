@@ -11,14 +11,23 @@ final _adminReservationsProvider = FutureProvider<List<dynamic>>((ref) async {
   try {
     final res = await DioClient.get('/reservations/admin/');
     final data = res.data;
-    if (data is List) return data;
+    debugPrint('[AdminReservations] raw type: ${data.runtimeType}');
+    if (data is List) {
+      debugPrint('[AdminReservations] ${data.length} réservations');
+      return data;
+    }
     if (data is Map && data['results'] is List) return data['results'] as List;
     return [];
-  } catch (_) {
-    final res = await DioClient.get('/reservations/mes_reservations/');
-    final data = res.data;
-    if (data is List) return data;
-    if (data is Map && data['results'] is List) return data['results'] as List;
+  } catch (e) {
+    debugPrint('[AdminReservations] /reservations/admin/ error: $e');
+    try {
+      final res = await DioClient.get('/reservations/mes_reservations/');
+      final data = res.data;
+      if (data is List) return data;
+      if (data is Map && data['results'] is List) return data['results'] as List;
+    } catch (e2) {
+      debugPrint('[AdminReservations] fallback error: $e2');
+    }
     return [];
   }
 });

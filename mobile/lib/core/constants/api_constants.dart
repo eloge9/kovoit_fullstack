@@ -1,6 +1,36 @@
 class ApiConstants {
-  static const String baseUrl = 'http://192.168.0.111:8000/api';
-  static const String wsBaseUrl = 'ws://192.168.0.111:8000/ws';
+  // Mis à jour dynamiquement par ServerProvider au démarrage
+  static String baseUrl = 'http://192.168.1.1:8000/api';
+  static String wsBaseUrl = 'ws://192.168.1.1:8000/ws';
+
+  static const int port = 8000;
+  static const String pingPath = '/api/ping/';
+
+  // Sous-réseaux à scanner (dans l'ordre de priorité)
+  static const List<String> scanSubnets = [
+    '192.168.1',
+    '192.168.0',
+    '192.168.43',
+    '10.0.0',
+    '10.0.2',
+    '172.16.0',
+  ];
+
+  // IPs prioritaires testées en premier (gateway, émulateur Android)
+  static const List<String> quickCandidates = [
+    '10.0.2.2',      // émulateur Android -> machine hôte
+    '192.168.1.1',
+    '192.168.0.1',
+    '192.168.43.1',
+    '10.0.0.1',
+    '172.16.0.1',
+  ];
+
+  static void updateServerUrl(String serverUrl) {
+    // serverUrl ex: 'http://192.168.1.100:8000'
+    baseUrl = '$serverUrl/api';
+    wsBaseUrl = '${serverUrl.replaceFirst('http://', 'ws://')}/ws';
+  }
 
   // Auth
   static const String inscription = '/utilisateurs/auth/inscription/';
@@ -26,6 +56,7 @@ class ApiConstants {
   static const String trajets = '/trajets/';
   static const String mesTrajets = '/trajets/mes_trajets/';
   static const String rechercherTrajets = '/trajets/rechercher/';
+  static const String rechercherParItineraire = '/trajets/rechercher-itineraire/';
 
   // Réservations
   static const String reserver = '/reservations/reserver/';
@@ -63,7 +94,7 @@ class ApiConstants {
 
   // Admin
   static const String adminUtilisateurs = '/utilisateurs/admin/utilisateurs/';
-  static const String adminConducteurs = '/utilisateurs/admin/conducteurs/';
+  static const String adminConducteurs = '/verification/admin/drivers/';
   static const String adminReservations = '/reservations/admin/';
   static const String adminPaiements = '/paiements/admin/';
   static const String adminStats = '/verification/admin/drivers/stats/';

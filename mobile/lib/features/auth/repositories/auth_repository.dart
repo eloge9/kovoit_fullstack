@@ -176,14 +176,12 @@ class AuthRepository {
     int? trajetId,
   }) async {
     try {
-      await DioClient.post(
-        ApiConstants.sos,
-        data: {
-          'latitude': latitude,
-          'longitude': longitude,
-          'trajet_id': ?trajetId,
-        },
-      );
+      final body = <String, dynamic>{
+        'latitude': latitude,
+        'longitude': longitude,
+      };
+      if (trajetId != null) body['trajet_id'] = trajetId;
+      await DioClient.post(ApiConstants.sos, data: body);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

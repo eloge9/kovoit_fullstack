@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/api_interceptor.dart';
 import '../../../core/network/dio_client.dart';
@@ -6,12 +7,22 @@ import '../models/reservation_model.dart';
 import '../models/paiement_model.dart';
 
 class ReservationRepository {
-  Future<ReservationModel> reserver(int trajetId) async {
+  Future<ReservationModel> reserver(
+    int trajetId, {
+    int placesReservees = 1,
+    String? priseEnCharge,
+    double? priseEnChargeLat,
+    double? priseEnChargeLng,
+  }) async {
     try {
-      final response = await DioClient.post(
-        ApiConstants.reserver,
-        data: {'trajet_id': trajetId},
-      );
+      final body = <String, dynamic>{
+        'trajet_id': trajetId,
+        'places_reservees': placesReservees,
+      };
+      if (priseEnCharge != null) body['prise_en_charge'] = priseEnCharge;
+      if (priseEnChargeLat != null) body['prise_en_charge_lat'] = priseEnChargeLat;
+      if (priseEnChargeLng != null) body['prise_en_charge_lng'] = priseEnChargeLng;
+      final response = await DioClient.post(ApiConstants.reserver, data: body);
       return ReservationModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
@@ -22,18 +33,25 @@ class ReservationRepository {
     try {
       final response = await DioClient.get(ApiConstants.mesReservations);
       final data = response.data;
+      debugPrint('[ReservationRepo] mesReservations raw type: ${data.runtimeType}');
       if (data is List) {
+        debugPrint('[ReservationRepo] mesReservations: ${data.length} éléments');
+        if (data.isNotEmpty) debugPrint('[ReservationRepo] premier élément: ${data.first}');
         return data
             .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
       if (data is Map && data['results'] is List) {
-        return (data['results'] as List)
+        final list = data['results'] as List;
+        debugPrint('[ReservationRepo] mesReservations (paginated): ${list.length} éléments');
+        return list
             .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
+      debugPrint('[ReservationRepo] mesReservations: réponse inattendue: $data');
       return [];
     } on DioException catch (e) {
+      debugPrint('[ReservationRepo] mesReservations error: $e');
       throw ApiException.fromDioException(e);
     }
   }
@@ -42,18 +60,24 @@ class ReservationRepository {
     try {
       final response = await DioClient.get(ApiConstants.reservationsRecues);
       final data = response.data;
+      debugPrint('[ReservationRepo] reservationsRecues raw type: ${data.runtimeType}');
       if (data is List) {
+        debugPrint('[ReservationRepo] reservationsRecues: ${data.length} éléments');
         return data
             .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
       if (data is Map && data['results'] is List) {
-        return (data['results'] as List)
+        final list = data['results'] as List;
+        debugPrint('[ReservationRepo] reservationsRecues (paginated): ${list.length} éléments');
+        return list
             .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
+      debugPrint('[ReservationRepo] reservationsRecues: réponse inattendue: $data');
       return [];
     } on DioException catch (e) {
+      debugPrint('[ReservationRepo] reservationsRecues error: $e');
       throw ApiException.fromDioException(e);
     }
   }
@@ -143,6 +167,35 @@ class ReservationRepository {
           'network': network,
         },
       );
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> getCodeEmbarquement(int reservationId) async {
+    try {
+      final response = await DioClient.get('/reservations/$reservationId/code-embarquement/');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> embarquer(String codeEmbarquement) async {
+    try {
+      final response = await DioClient.post(
+        '/reservations/embarquer/',
+        data: {'code_embarquement': codeEmbarquement},
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<void> debarquer(int reservationId) async {
+    try {
+      await DioClient.post('/reservations/$reservationId/debarquer/');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

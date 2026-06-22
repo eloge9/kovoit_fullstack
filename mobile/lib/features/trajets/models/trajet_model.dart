@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'vehicule_model.dart';
 
 class TrajetModel {
@@ -22,6 +23,7 @@ class TrajetModel {
   final String statut;
   final bool estRegulier;
   final List<String>? joursSemaine;
+  final String? polylineOsrm;
 
   const TrajetModel({
     required this.id,
@@ -45,7 +47,14 @@ class TrajetModel {
     required this.statut,
     this.estRegulier = false,
     this.joursSemaine,
+    this.polylineOsrm,
   });
+
+  static double _toDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
 
   factory TrajetModel.fromJson(Map<String, dynamic> json) {
     VehiculeModel? vehicule;
@@ -53,31 +62,53 @@ class TrajetModel {
       vehicule = VehiculeModel.fromJson(json['vehicule'] as Map<String, dynamic>);
     }
 
-    return TrajetModel(
+    // Backend retourne 'conducteur' (UUID) et non 'conducteur_id'
+    // Support des deux formes
+    final conducteurId = json['conducteur_id']?.toString()
+        ?? json['conducteur']?.toString()
+        ?? '';
+
+    // conducteur_nom peut être un objet (ancien) ou une string (nouveau serializer)
+    String conducteurNom = '';
+    if (json['conducteur_nom'] is String) {
+      conducteurNom = json['conducteur_nom'] as String;
+    } else if (json['conducteur'] is Map) {
+      conducteurNom = (json['conducteur'] as Map)['username']?.toString() ?? '';
+    }
+
+    // Backend retourne 'polyline_stored' ou 'polyline', pas 'polyline_osrm'
+    final polyline = json['polyline_osrm']?.toString()
+        ?? json['polyline_stored']?.toString()
+        ?? json['polyline']?.toString();
+
+    final trajet = TrajetModel(
       id: json['id'] as int,
-      conducteurId: json['conducteur_id']?.toString() ?? '',
-      conducteurNom: json['conducteur_nom'] ?? json['conducteur']?['username'] ?? '',
-      conducteurNote: (json['conducteur_note'] as num?)?.toDouble() ?? 0.0,
-      conducteurPhoto: json['conducteur_photo'],
+      conducteurId: conducteurId,
+      conducteurNom: conducteurNom,
+      conducteurNote: _toDouble(json['conducteur_note']),
+      conducteurPhoto: json['conducteur_photo']?.toString(),
       vehicule: vehicule,
-      depart: json['depart'] ?? '',
-      destination: json['destination'] ?? '',
-      departLat: (json['depart_lat'] as num?)?.toDouble(),
-      departLng: (json['depart_lng'] as num?)?.toDouble(),
-      destinationLat: (json['destination_lat'] as num?)?.toDouble(),
-      destinationLng: (json['destination_lng'] as num?)?.toDouble(),
-      distanceKm: (json['distance_km'] as num?)?.toDouble() ?? 0.0,
-      coutTotal: (json['cout_total'] as num?)?.toDouble() ?? 0.0,
-      prixParPlace: (json['prix_par_place'] as num?)?.toDouble() ?? 0.0,
-      dateHeureDepart: DateTime.parse(json['date_heure_depart'] as String),
+      depart: json['depart']?.toString() ?? '',
+      destination: json['destination']?.toString() ?? '',
+      departLat: json['depart_lat'] != null ? _toDouble(json['depart_lat']) : null,
+      departLng: json['depart_lng'] != null ? _toDouble(json['depart_lng']) : null,
+      destinationLat: json['destination_lat'] != null ? _toDouble(json['destination_lat']) : null,
+      destinationLng: json['destination_lng'] != null ? _toDouble(json['destination_lng']) : null,
+      distanceKm: _toDouble(json['distance_km']),
+      coutTotal: _toDouble(json['cout_total']),
+      prixParPlace: _toDouble(json['prix_par_place']),
+      dateHeureDepart: DateTime.tryParse(json['date_heure_depart']?.toString() ?? '') ?? DateTime.now(),
       placesDisponibles: json['places_disponibles'] as int? ?? 0,
       placesRestantes: json['places_restantes'] as int? ?? 0,
-      statut: json['statut'] ?? 'ouvert',
-      estRegulier: json['est_regulier'] ?? false,
+      statut: json['statut']?.toString() ?? 'ouvert',
+      estRegulier: json['est_regulier'] as bool? ?? false,
       joursSemaine: json['jours_semaine'] != null
           ? List<String>.from(json['jours_semaine'] as List)
           : null,
+      polylineOsrm: polyline,
     );
+    debugPrint('[TrajetModel] parsed id=${trajet.id} conducteurId=$conducteurId ${trajet.depart}→${trajet.destination} prix=${trajet.prixParPlace} statut=${trajet.statut}');
+    return trajet;
   }
 
   Map<String, dynamic> toJson() => {
@@ -119,6 +150,7 @@ class TrajetModel {
     String? statut,
     bool? estRegulier,
     List<String>? joursSemaine,
+    String? polylineOsrm,
   }) {
     return TrajetModel(
       id: id ?? this.id,
@@ -142,6 +174,7 @@ class TrajetModel {
       statut: statut ?? this.statut,
       estRegulier: estRegulier ?? this.estRegulier,
       joursSemaine: joursSemaine ?? this.joursSemaine,
+      polylineOsrm: polylineOsrm ?? this.polylineOsrm,
     );
   }
 

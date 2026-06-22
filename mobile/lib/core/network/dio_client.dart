@@ -15,8 +15,8 @@ class DioClient {
     final dio = Dio(
       BaseOptions(
         baseUrl: ApiConstants.baseUrl,
-        connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 15),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -35,6 +35,12 @@ class DioClient {
     ]);
 
     return dio;
+  }
+
+  // Appeler après ApiConstants.updateServerUrl() pour recréer l'instance
+  static void reset() {
+    _instance?.close();
+    _instance = null;
   }
 
   static void debugLog(String message) {
@@ -110,10 +116,9 @@ class DioClient {
     );
   }
 
-  static Future<Options> _authOptions() async {
+  static Future<Options?> _authOptions() async {
     final token = await StorageService.getAccessToken();
-    return Options(
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    if (token == null) return null;
+    return Options(headers: {'Authorization': 'Bearer $token'});
   }
 }

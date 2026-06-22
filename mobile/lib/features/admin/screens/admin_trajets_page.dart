@@ -17,9 +17,16 @@ final _adminTrajetsProvider =
           queryParams: statut.isEmpty ? null : {'statut': statut},
         );
         final data = res.data;
-        if (data is Map) return Map<String, dynamic>.from(data);
+        debugPrint('[AdminTrajets] raw type: ${data.runtimeType}');
+        if (data is Map) {
+          final m = Map<String, dynamic>.from(data);
+          final list = m['resultats'] ?? m['results'] ?? m['trajets'];
+          debugPrint('[AdminTrajets] ${list is List ? list.length : '?'} trajets (statut=$statut)');
+          return m;
+        }
         return {'resultats': [], 'total': 0};
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[AdminTrajets] error (statut=$statut): $e');
         return {'resultats': [], 'total': 0};
       }
     });
@@ -202,7 +209,8 @@ class _AdminTrajetsPageState extends ConsumerState<AdminTrajetsPage> {
           ),
         );
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AdminTrajets] annulation error: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

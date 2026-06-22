@@ -9,20 +9,62 @@ import '../../../core/widgets/k_card.dart';
 import '../../../core/widgets/k_empty_state.dart';
 
 final _conducteurEconomieProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  Map<String, dynamic> stats = {};
+
   try {
     final statsRes = await DioClient.get('/statistiques/conducteur/');
-    final ecoRes   = await DioClient.get('/economie/mes_economies/');
-    return {
-      'stats': statsRes.data is Map ? Map<String, dynamic>.from(statsRes.data as Map) : {},
-      'economies': ecoRes.data,
-    };
-  } catch (_) {
-    return {'stats': {}, 'economies': null};
+    debugPrint('[ConducteurEconomie] stats raw: ${statsRes.data}');
+    if (statsRes.data is Map) {
+      stats = Map<String, dynamic>.from(statsRes.data as Map);
+    }
+  } catch (e) {
+    debugPrint('[ConducteurEconomie] stats error: $e');
   }
+
+  return {'stats': stats};
 });
 
 class ConducteurEconomiePage extends ConsumerWidget {
   const ConducteurEconomiePage({super.key});
+
+  // Gère les Decimal Django retournés en string et les num normaux
+  static double _toDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
+
+  double _num(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      if (m.containsKey(k) && m[k] != null) {
+        return _toDouble(m[k]);
+      }
+    }
+    return 0;
+  }
+
+  double _double(Map<String, dynamic> m, List<String> keys) => _num(m, keys);
+
+  // Backend retourne evolution_mensuelle = [{mois, mois_nom, revenus, trajets}, ...]
+  List<MapEntry<String, double>> _extractParMois(Map<String, dynamic> stats) {
+    if (stats['evolution_mensuelle'] is List) {
+      final list = stats['evolution_mensuelle'] as List;
+      return list
+          .map((e) {
+            if (e is! Map) return null;
+            final m = e as Map<String, dynamic>;
+            final nom = (m['mois_nom']?.toString() ?? 'M${m['mois']}');
+            // Prendre les 3 premiers caractères du nom du mois
+            final label = nom.length >= 3 ? nom.substring(0, 3) : nom;
+            final rev = _toDouble(m['revenus']);
+            return MapEntry(label, rev);
+          })
+          .whereType<MapEntry<String, double>>()
+          .where((e) => e.value > 0)
+          .toList();
+    }
+    return [];
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,12 +94,27 @@ class ConducteurEconomiePage extends ConsumerWidget {
         ),
         data: (data) {
           final stats = data['stats'] as Map<String, dynamic>;
-          final totalRevenus = _num(stats, ['total_revenus', 'revenus_total', 'montant_total']);
-          final nombreTrajets = _num(stats, ['nombre_trajets', 'total_trajets', 'trajets_completes']);
+
+          debugPrint('[ConducteurEconomie] stats keys: ${stats.keys.toList()}');
+
+          // Backend /statistiques/conducteur/ retourne:
+          //   total_revenus (Decimal→string), total_trajets (int),
+          //   total_km (float), note_moyenne (float), evolution_mensuelle (list)
+          final totalRevenus = _num(stats, ['total_revenus']);
+          final nombreTrajets = _num(stats, ['total_trajets', 'nombre_trajets']).toInt();
           final noteMoyenne = _double(stats, ['note_moyenne', 'note']);
-          final tauxAcceptation = _double(stats, ['taux_acceptation', 'taux']);
+          final distanceKm = _num(stats, ['total_km', 'distance_totale', 'km_total']);
+
+          // Revenu moyen par trajet (calculé localement si pas disponible)
+          final revenuMoyenTrajet = nombreTrajets > 0
+              ? _num(stats, ['revenu_moyen_trajet']) > 0
+                  ? _num(stats, ['revenu_moyen_trajet'])
+                  : totalRevenus / nombreTrajets
+              : 0.0;
 
           final parMois = _extractParMois(stats);
+
+          debugPrint('[ConducteurEconomie] revenus=$totalRevenus trajets=$nombreTrajets note=$noteMoyenne km=$distanceKm mois=${parMois.length}');
 
           return RefreshIndicator(
             color: KColors.primary,
@@ -88,7 +145,7 @@ class ConducteurEconomiePage extends ConsumerWidget {
                         Row(children: [
                           _MiniStat(
                             label: 'Trajets effectués',
-                            value: nombreTrajets.toInt().toString(),
+                            value: nombreTrajets.toString(),
                             icon: Icons.route_outlined,
                             color: KColors.primary,
                           ),
@@ -101,10 +158,10 @@ class ConducteurEconomiePage extends ConsumerWidget {
                           ),
                           const SizedBox(width: KSpacing.lg),
                           _MiniStat(
-                            label: 'Taux acceptation',
-                            value: '${tauxAcceptation.toStringAsFixed(0)}%',
-                            icon: Icons.check_circle_outline,
-                            color: KColors.success,
+                            label: 'Distance totale',
+                            value: '${distanceKm.toStringAsFixed(0)} km',
+                            icon: Icons.map_outlined,
+                            color: KColors.info,
                           ),
                         ]),
                       ],
@@ -139,25 +196,20 @@ class ConducteurEconomiePage extends ConsumerWidget {
                   child: Column(children: [
                     const KCardHeader(title: 'Statistiques détaillées'),
                     KDataRow(
-                      label: 'Revenus ce mois',
-                      value: '${_num(stats, ['revenus_mois', 'revenus_ce_mois']).toStringAsFixed(0)} FCFA',
-                    ),
-                    const Divider(color: KColors.border, height: 0),
-                    KDataRow(
-                      label: 'Passagers transportés',
-                      value: _num(stats, ['total_passagers', 'passagers']).toInt().toString(),
-                    ),
-                    const Divider(color: KColors.border, height: 0),
-                    KDataRow(
                       label: 'Distance parcourue',
-                      value: '${_num(stats, ['distance_totale', 'km_total']).toStringAsFixed(0)} km',
+                      value: '${distanceKm.toStringAsFixed(0)} km',
                     ),
                     const Divider(color: KColors.border, height: 0),
                     KDataRow(
                       label: 'Revenu moyen / trajet',
                       value: nombreTrajets > 0
-                          ? '${(totalRevenus / nombreTrajets).toStringAsFixed(0)} FCFA'
+                          ? '${revenuMoyenTrajet.toStringAsFixed(0)} FCFA'
                           : '—',
+                    ),
+                    const Divider(color: KColors.border, height: 0),
+                    KDataRow(
+                      label: 'Revenu mensuel moyen',
+                      value: '${_num(stats, ['revenu_moyen_mensuel']).toStringAsFixed(0)} FCFA',
                     ),
                   ]),
                 ),
@@ -168,36 +220,6 @@ class ConducteurEconomiePage extends ConsumerWidget {
         },
       ),
     );
-  }
-
-  double _num(Map<String, dynamic> m, List<String> keys) {
-    for (final k in keys) {
-      if (m.containsKey(k) && m[k] != null) {
-        return (m[k] as num).toDouble();
-      }
-    }
-    return 0;
-  }
-
-  double _double(Map<String, dynamic> m, List<String> keys) => _num(m, keys);
-
-  List<MapEntry<String, double>> _extractParMois(Map<String, dynamic> stats) {
-    for (final k in ['revenus_par_mois', 'par_mois', 'monthly']) {
-      if (stats[k] is Map) {
-        final map = stats[k] as Map;
-        return map.entries
-            .map((e) => MapEntry(e.key.toString(),
-                (e.value as num).toDouble()))
-            .toList();
-      }
-      if (stats[k] is List) {
-        final list = stats[k] as List;
-        return list.asMap().entries.map((e) =>
-            MapEntry('M${e.key + 1}', (e.value as num).toDouble()))
-            .toList();
-      }
-    }
-    return [];
   }
 }
 

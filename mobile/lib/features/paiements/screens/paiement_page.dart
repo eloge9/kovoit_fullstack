@@ -96,7 +96,9 @@ class _PaiementPageState extends ConsumerState<PaiementPage> {
           setState(() => _success = true);
           return;
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[Paiement] poll[$i] verifierPaiement error: $e');
+      }
     }
   }
 

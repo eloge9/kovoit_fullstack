@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/theme/text_styles.dart';
 import '../../../core/widgets/k_button.dart';
 import '../../../core/widgets/k_text_field.dart';
 
@@ -80,7 +81,19 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     final isLoading = ref.watch(authProvider).isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifier le profil')),
+      appBar: AppBar(
+        backgroundColor: KColors.base100,
+        elevation: 0,
+        shape: const Border(bottom: BorderSide(color: KColors.border)),
+        iconTheme: const IconThemeData(color: KColors.baseContent),
+        title: Text(
+          'Modifier le profil',
+          style: KTextStyles.bodySm.copyWith(
+            fontWeight: FontWeight.w700,
+            color: KColors.baseContent,
+          ),
+        ),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(

@@ -10,24 +10,52 @@ import '../../../core/widgets/k_empty_state.dart';
 final _passagerEconomieProvider = FutureProvider<Map<String, dynamic>>((
   ref,
 ) async {
+  Map<String, dynamic> stats = {};
+  Map<String, dynamic> economies = {};
+
+  // Requête statistiques passager
   try {
     final statsRes = await DioClient.get('/statistiques/passager/');
-    final ecoRes = await DioClient.get('/economie/mes_economies/');
-    return {
-      'stats': statsRes.data is Map
-          ? Map<String, dynamic>.from(statsRes.data as Map)
-          : {},
-      'economies': ecoRes.data is Map
-          ? Map<String, dynamic>.from(ecoRes.data as Map)
-          : {},
-    };
-  } catch (_) {
-    return {'stats': {}, 'economies': {}};
+    debugPrint('[PassagerEconomie] stats raw: ${statsRes.data}');
+    if (statsRes.data is Map) {
+      stats = Map<String, dynamic>.from(statsRes.data as Map);
+    }
+  } catch (e) {
+    debugPrint('[PassagerEconomie] stats error: $e');
   }
+
+  // Requête économies passager
+  try {
+    final ecoRes = await DioClient.get('/economie/mes_economies/');
+    debugPrint('[PassagerEconomie] economies raw: ${ecoRes.data}');
+    if (ecoRes.data is Map) {
+      economies = Map<String, dynamic>.from(ecoRes.data as Map);
+    }
+  } catch (e) {
+    debugPrint('[PassagerEconomie] economies error: $e');
+  }
+
+  return {'stats': stats, 'economies': economies};
 });
 
 class PassagerEconomiePage extends ConsumerWidget {
   const PassagerEconomiePage({super.key});
+
+  // Convertit n'importe quelle valeur numérique, y compris les Decimal Django (string)
+  static double _toDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
+
+  double _num(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      if (m.containsKey(k) && m[k] != null) {
+        return _toDouble(m[k]);
+      }
+    }
+    return 0;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,7 +85,7 @@ class PassagerEconomiePage extends ConsumerWidget {
         loading: () => const Center(
           child: CircularProgressIndicator(color: KColors.primary),
         ),
-        error: (_, _) => KEmptyState(
+        error: (e, _) => KEmptyState(
           icon: Icons.error_outline,
           message: 'Impossible de charger les statistiques',
           actionLabel: 'Réessayer',
@@ -67,26 +95,40 @@ class PassagerEconomiePage extends ConsumerWidget {
           final stats = data['stats'] as Map<String, dynamic>;
           final eco = data['economies'] as Map<String, dynamic>;
 
-          final economiesRealisees = _num(eco, [
-            'economies_realisees',
-            'montant_economise',
-            'economie_total',
-          ]);
-          final co2Economise = _num(eco, [
-            'co2_economise',
-            'co2',
-            'emission_evitee',
-          ]);
-          final distanceTotale = _num(stats, [
-            'distance_totale',
-            'km_total',
-            'distance',
-          ]);
-          final nombreTrajets = _num(stats, [
-            'nombre_trajets',
-            'total_trajets',
-            'trajets',
-          ]);
+          debugPrint('[PassagerEconomie] stats keys: ${stats.keys.toList()}');
+          debugPrint('[PassagerEconomie] eco keys: ${eco.keys.toList()}');
+
+          // Backend /economie/mes_economies/ retourne:
+          //   total_economie, total_depense_kovoit, total_depense_reference,
+          //   nombre_reservations, economie_moyenne_reservation, details_reservations
+          final economiesRealisees = _num(eco, ['total_economie', 'economies_realisees', 'montant_economise']);
+
+          // Backend /statistiques/passager/ retourne:
+          //   total_economies (Decimal→string), total_reservations, co2_total_evite (float)
+          final co2Economise = _num(stats, ['co2_total_evite', 'co2_economise', 'co2']);
+          final nombreReservations = _num(eco, ['nombre_reservations']).toInt()
+              .clamp(0, 9999)
+              .toInt();
+
+          // Distance totale : calculée depuis details_reservations
+          double distanceTotale = 0;
+          if (eco['details_reservations'] is List) {
+            for (final d in eco['details_reservations'] as List) {
+              if (d is Map) {
+                distanceTotale += _toDouble(d['distance_km']);
+              }
+            }
+          }
+
+          // Économie vs taxi = total_depense_reference - total_depense_kovoit
+          final totalRef = _num(eco, ['total_depense_reference']);
+          final totalKovoit = _num(eco, ['total_depense_kovoit']);
+          final economieVsTaxi = totalRef > 0 ? totalRef - totalKovoit : economiesRealisees;
+
+          // Carburant estimé (1L ~ 200 FCFA en Afrique de l'Ouest)
+          final carburantEconomise = economieVsTaxi > 0 ? economieVsTaxi / 200 : 0.0;
+
+          debugPrint('[PassagerEconomie] economiesRealisees=$economiesRealisees co2=$co2Economise km=$distanceTotale nb=$nombreReservations');
 
           return RefreshIndicator(
             color: KColors.primary,
@@ -152,8 +194,8 @@ class PassagerEconomiePage extends ConsumerWidget {
                   children: [
                     _EcoCard(
                       emoji: '🚗',
-                      label: 'Trajets effectués',
-                      value: nombreTrajets.toInt().toString(),
+                      label: 'Réservations',
+                      value: nombreReservations.toString(),
                       color: KColors.primary,
                     ),
                     _EcoCard(
@@ -170,9 +212,8 @@ class PassagerEconomiePage extends ConsumerWidget {
                     ),
                     _EcoCard(
                       emoji: '💰',
-                      label: 'Vs taxi',
-                      value:
-                          '${_num(eco, ['economie_vs_taxi', 'economie_taxi']).toStringAsFixed(0)} FCFA',
+                      label: 'Vs taxi/Gozem',
+                      value: '${economieVsTaxi.toStringAsFixed(0)} FCFA',
                       color: KColors.warning,
                     ),
                   ],
@@ -191,24 +232,22 @@ class PassagerEconomiePage extends ConsumerWidget {
                             _ImpactRow(
                               emoji: '🌍',
                               label: 'CO₂ non émis',
-                              value:
-                                  '${co2Economise.toStringAsFixed(2)} kg CO₂',
+                              value: '${co2Economise.toStringAsFixed(2)} kg CO₂',
                               color: KColors.success,
                             ),
                             const SizedBox(height: KSpacing.lg),
                             _ImpactRow(
                               emoji: '⛽',
-                              label: 'Carburant économisé',
-                              value:
-                                  '${_num(eco, ['carburant_economise', 'litres_economises']).toStringAsFixed(1)} L',
+                              label: 'Carburant économisé (estimé)',
+                              value: '${carburantEconomise.toStringAsFixed(1)} L',
                               color: KColors.warning,
                             ),
                             const SizedBox(height: KSpacing.lg),
                             _ImpactRow(
                               emoji: '🚦',
                               label: 'Véhicules retirés de la route',
-                              value: nombreTrajets > 0
-                                  ? '~${(nombreTrajets * 0.8).toInt()} trajets éliminés'
+                              value: nombreReservations > 0
+                                  ? '~${(nombreReservations * 0.8).toInt()} trajets éliminés'
                                   : '—',
                               color: KColors.info,
                             ),
@@ -225,15 +264,6 @@ class PassagerEconomiePage extends ConsumerWidget {
         },
       ),
     );
-  }
-
-  double _num(Map<String, dynamic> m, List<String> keys) {
-    for (final k in keys) {
-      if (m.containsKey(k) && m[k] != null) {
-        return (m[k] as num).toDouble();
-      }
-    }
-    return 0;
   }
 }
 

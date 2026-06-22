@@ -30,6 +30,7 @@ import '../features/admin/screens/admin_statistiques_page.dart';
 import '../features/admin/screens/admin_messagerie_page.dart';
 import '../features/admin/screens/admin_notifications_page.dart';
 import '../features/admin/screens/admin_plaintes_page.dart';
+import '../features/admin/screens/admin_conducteur_detail_page.dart';
 
 // Features partagées
 import '../features/trajets/screens/trajets_list_page.dart';
@@ -52,11 +53,17 @@ import '../features/evaluations/screens/evaluation_list_page.dart';
 import '../features/passager/screens/devenir_conducteur_page.dart';
 import '../features/conducteur/screens/verification_page.dart';
 import '../features/notifications/screens/notifications_page.dart';
+import '../features/reservations/screens/code_embarquement_page.dart';
+import '../features/reservations/screens/embarquement_conducteur_page.dart';
+import '../features/settings/screens/server_settings_screen.dart';
+
+final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
 
   return GoRouter(
+    navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
     redirect: (context, state) {
       final isAuth    = authState.isAuthenticated;
@@ -81,137 +88,48 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       // ── Splash ──────────────────────────────────────────────────────────
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
+      GoRoute(path: '/server-settings', builder: (_, _) => const ServerSettingsScreen()),
 
       // ── Auth ─────────────────────────────────────────────────────────────
       GoRoute(path: '/login',          builder: (_, _) => const LoginPage()),
       GoRoute(path: '/register',       builder: (_, _) => const RegisterPage()),
       GoRoute(path: '/forgot-password',builder: (_, _) => const ForgotPasswordPage()),
 
-      // ── Passager (shell avec Bottom Nav) ─────────────────────────────────
+      // ── Passager shell — UNIQUEMENT les 4 onglets ────────────────────────
       ShellRoute(
-        builder: (context, state, child) => const PassagerShell(),
+        builder: (context, state, child) => PassagerShell(
+          key: const ValueKey('passager-shell'),
+          child: child,
+        ),
         routes: [
           GoRoute(path: '/passager',
               builder: (_, _) => const PassagerDashboardPage()),
           GoRoute(path: '/passager/trajets',
-              builder: (_, _) => const TrajetsListPage(isMesTrajets: false)),
-          GoRoute(
-            path: '/passager/trajet/:id',
-            builder: (_, state) => TrajetDetailPage(
-              trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-            ),
-          ),
+              builder: (_, _) => const TrajetsListPage(isMesTrajets: false, hideAppBar: true)),
           GoRoute(path: '/passager/reservations',
-              builder: (_, _) => const ReservationsPage(isConducteur: false)),
-          GoRoute(
-            path: '/passager/paiement/:id',
-            builder: (_, state) => PaiementPage(
-              reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-            ),
-          ),
-          GoRoute(
-            path: '/passager/evaluation/:trajetId/:cibleId',
-            builder: (_, state) => EvaluationPage(
-              trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-              cibleId: state.pathParameters['cibleId'] ?? '',
-            ),
-          ),
+              builder: (_, _) => const ReservationsPage(isConducteur: false, hideAppBar: true)),
           GoRoute(path: '/passager/messages',
-              builder: (_, _) => const MessageriePage()),
-          GoRoute(
-            path: '/passager/messages/:convId',
-            builder: (_, state) => ConversationPage(
-              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
-              userName: state.uri.queryParameters['name'] ?? '',
-              userId: state.uri.queryParameters['userId'],
-            ),
-          ),
-          GoRoute(path: '/passager/profile',
-              builder: (_, _) => const ProfilePage()),
-          GoRoute(path: '/passager/profile/edit',
-              builder: (_, _) => const EditProfilePage()),
-          GoRoute(path: '/passager/profile/documents',
-              builder: (_, _) => const DocumentsPage()),
-          GoRoute(path: '/passager/devenir-conducteur',
-              builder: (_, _) => const DevenirConducteurPage()),
-          GoRoute(path: '/passager/evaluations',
-              builder: (_, _) => const EvaluationListPage()),
-          GoRoute(path: '/passager/economie',
-              builder: (_, _) => const PassagerEconomiePage()),
-          GoRoute(
-            path: '/passager/trajet/:id/suivi',
-            builder: (_, state) => PassagerSuiviPage(
-              trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-              depart: state.uri.queryParameters['depart'] ?? '',
-              destination: state.uri.queryParameters['destination'] ?? '',
-              conducteurNom: state.uri.queryParameters['conducteur'] ?? 'Conducteur',
-            ),
-          ),
-          GoRoute(path: '/passager/notifications',
-              builder: (_, _) => const NotificationsPage()),
+              builder: (_, _) => const MessageriePage(hideAppBar: true)),
         ],
       ),
 
-      // ── Conducteur (shell avec Bottom Nav) ───────────────────────────────
+      // ── Conducteur shell — UNIQUEMENT les onglets ─────────────────────────
       ShellRoute(
-        builder: (context, state, child) => const ConducteurShell(),
+        builder: (context, state, child) => ConducteurShell(
+          key: const ValueKey('conducteur-shell'),
+          child: child,
+        ),
         routes: [
           GoRoute(path: '/conducteur',
               builder: (_, _) => const ConducteurDashboardPage()),
           GoRoute(path: '/conducteur/trajets',
-              builder: (_, _) => const TrajetsListPage(isMesTrajets: true)),
-          GoRoute(
-            path: '/conducteur/trajet/:id',
-            builder: (_, state) => TrajetDetailPage(
-              trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-              isConducteur: true,
-            ),
-          ),
-          GoRoute(path: '/conducteur/create-trajet',
-              builder: (_, _) => const CreateTrajetPage()),
+              builder: (_, _) => const TrajetsListPage(isMesTrajets: true, hideAppBar: true)),
+          GoRoute(path: '/conducteur/historique',
+              builder: (_, _) => const TrajetsListPage(isMesTrajets: true, hideAppBar: true)),
           GoRoute(path: '/conducteur/reservations',
-              builder: (_, _) => const ReservationsPage(isConducteur: true)),
-          GoRoute(path: '/conducteur/vehicules',
-              builder: (_, _) => const VehiculesPage()),
+              builder: (_, _) => const ReservationsPage(isConducteur: true, hideAppBar: true)),
           GoRoute(path: '/conducteur/messages',
-              builder: (_, _) => const MessageriePage()),
-          GoRoute(
-            path: '/conducteur/messages/:convId',
-            builder: (_, state) => ConversationPage(
-              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
-              userName: state.uri.queryParameters['name'] ?? '',
-              userId: state.uri.queryParameters['userId'],
-            ),
-          ),
-          GoRoute(path: '/conducteur/profile',
-              builder: (_, _) => const ProfilePage()),
-          GoRoute(path: '/conducteur/profile/edit',
-              builder: (_, _) => const EditProfilePage()),
-          GoRoute(path: '/conducteur/documents',
-              builder: (_, _) => const DocumentsPage()),
-          GoRoute(path: '/conducteur/verification',
-              builder: (_, _) => const VerificationPage()),
-          GoRoute(path: '/conducteur/economie',
-              builder: (_, _) => const ConducteurEconomiePage()),
-          GoRoute(path: '/conducteur/evaluations',
-              builder: (_, _) => const EvaluationListPage()),
-          GoRoute(
-            path: '/conducteur/trajet/:id/gps',
-            builder: (_, state) => ConducteurGpsPage(
-              trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-              depart: state.uri.queryParameters['depart'] ?? '',
-              destination: state.uri.queryParameters['destination'] ?? '',
-            ),
-          ),
-          GoRoute(
-            path: '/conducteur/evaluation/:trajetId/:cibleId',
-            builder: (_, state) => EvaluationPage(
-              trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-              cibleId: state.pathParameters['cibleId'] ?? '',
-            ),
-          ),
-          GoRoute(path: '/conducteur/notifications',
-              builder: (_, _) => const NotificationsPage()),
+              builder: (_, _) => const MessageriePage(hideAppBar: true)),
         ],
       ),
 
@@ -231,7 +149,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (_, _) => const AdminAuditPage()),
           GoRoute(path: '/admin/settings',
               builder: (_, _) => const AdminSettingsPage()),
-          // Nouvelles pages admin
           GoRoute(path: '/admin/reservations',
               builder: (_, _) => const AdminReservationsPage()),
           GoRoute(path: '/admin/paiements',
@@ -240,12 +157,127 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (_, _) => const AdminStatistiquesPage()),
           GoRoute(path: '/admin/messagerie',
               builder: (_, _) => const AdminMessageriePage()),
+          GoRoute(
+            path: '/admin/messagerie/:convId',
+            builder: (_, state) => ConversationPage(
+              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+              userName: state.uri.queryParameters['name'] ?? '',
+              userId: state.uri.queryParameters['userId'],
+            ),
+          ),
           GoRoute(path: '/admin/notifications',
               builder: (_, _) => const AdminNotificationsPage()),
           GoRoute(path: '/admin/plaintes',
               builder: (_, _) => const AdminPlaintesPage()),
+          GoRoute(
+            path: '/admin/conducteur/:id',
+            builder: (_, state) => AdminConducteurDetailPage(
+              conducteurId: state.pathParameters['id'] ?? '',
+            ),
+          ),
         ],
       ),
+
+      // ── Routes détail passager (plein écran, hors shell) ─────────────────
+      GoRoute(
+        path: '/passager/trajet/:id',
+        builder: (_, state) => TrajetDetailPage(
+          trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+        ),
+      ),
+      GoRoute(
+        path: '/passager/trajet/:id/suivi',
+        builder: (_, state) => PassagerSuiviPage(
+          trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          depart: state.uri.queryParameters['depart'] ?? '',
+          destination: state.uri.queryParameters['destination'] ?? '',
+          conducteurNom: state.uri.queryParameters['conducteur'] ?? 'Conducteur',
+          departLat: double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
+          departLng: double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
+          destinationLat: double.tryParse(state.uri.queryParameters['destinationLat'] ?? ''),
+          destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
+        ),
+      ),
+      GoRoute(
+        path: '/passager/paiement/:id',
+        builder: (_, state) => PaiementPage(
+          reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+        ),
+      ),
+      GoRoute(
+        path: '/passager/evaluation/:trajetId/:cibleId',
+        builder: (_, state) => EvaluationPage(
+          trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
+          cibleId: state.pathParameters['cibleId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/passager/messages/:convId',
+        builder: (_, state) => ConversationPage(
+          convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+          userName: state.uri.queryParameters['name'] ?? '',
+          userId: state.uri.queryParameters['userId'],
+        ),
+      ),
+      GoRoute(path: '/passager/profile',          builder: (_, _) => const ProfilePage()),
+      GoRoute(path: '/passager/profile/edit',     builder: (_, _) => const EditProfilePage()),
+      GoRoute(path: '/passager/profile/documents',builder: (_, _) => const DocumentsPage()),
+      GoRoute(path: '/passager/devenir-conducteur',builder: (_, _) => const DevenirConducteurPage()),
+      GoRoute(path: '/passager/evaluations',      builder: (_, _) => const EvaluationListPage()),
+      GoRoute(path: '/passager/economie',         builder: (_, _) => const PassagerEconomiePage()),
+      GoRoute(path: '/passager/notifications',    builder: (_, _) => const NotificationsPage()),
+      GoRoute(
+        path: '/passager/reservation/:id/code-embarquement',
+        builder: (_, state) => CodeEmbarquementPage(
+          reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+        ),
+      ),
+
+      // ── Routes détail conducteur (plein écran, hors shell) ───────────────
+      GoRoute(
+        path: '/conducteur/trajet/:id',
+        builder: (_, state) => TrajetDetailPage(
+          trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          isConducteur: true,
+        ),
+      ),
+      GoRoute(
+        path: '/conducteur/trajet/:id/gps',
+        builder: (_, state) => ConducteurGpsPage(
+          trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          depart: state.uri.queryParameters['depart'] ?? '',
+          destination: state.uri.queryParameters['destination'] ?? '',
+          departLat: double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
+          departLng: double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
+          destinationLat: double.tryParse(state.uri.queryParameters['destinationLat'] ?? ''),
+          destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
+        ),
+      ),
+      GoRoute(path: '/conducteur/create-trajet',  builder: (_, _) => const CreateTrajetPage()),
+      GoRoute(path: '/conducteur/vehicules',       builder: (_, _) => const VehiculesPage()),
+      GoRoute(
+        path: '/conducteur/messages/:convId',
+        builder: (_, state) => ConversationPage(
+          convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+          userName: state.uri.queryParameters['name'] ?? '',
+          userId: state.uri.queryParameters['userId'],
+        ),
+      ),
+      GoRoute(path: '/conducteur/profile',          builder: (_, _) => const ProfilePage()),
+      GoRoute(path: '/conducteur/profile/edit',     builder: (_, _) => const EditProfilePage()),
+      GoRoute(path: '/conducteur/documents',        builder: (_, _) => const DocumentsPage()),
+      GoRoute(path: '/conducteur/verification',     builder: (_, _) => const VerificationPage()),
+      GoRoute(path: '/conducteur/economie',         builder: (_, _) => const ConducteurEconomiePage()),
+      GoRoute(path: '/conducteur/evaluations',      builder: (_, _) => const EvaluationListPage()),
+      GoRoute(
+        path: '/conducteur/evaluation/:trajetId/:cibleId',
+        builder: (_, state) => EvaluationPage(
+          trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
+          cibleId: state.pathParameters['cibleId'] ?? '',
+        ),
+      ),
+      GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),
+      GoRoute(path: '/conducteur/embarquement',    builder: (_, _) => const EmbarquementConducteurPage()),
     ],
 
     errorBuilder: (context, state) => Scaffold(

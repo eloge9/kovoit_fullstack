@@ -12,11 +12,16 @@ final _auditProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   try {
     final res = await DioClient.get('/utilisateurs/admin/audit/');
     final data = res.data;
+    debugPrint('[AdminAudit] raw type: ${data.runtimeType}');
     if (data is Map && data['resultats'] is List) {
-      return List<Map<String, dynamic>>.from(data['resultats'] as List);
+      final list = data['resultats'] as List;
+      debugPrint('[AdminAudit] ${list.length} entrées audit');
+      return List<Map<String, dynamic>>.from(list);
     }
+    debugPrint('[AdminAudit] réponse inattendue: $data');
     return [];
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[AdminAudit] error: $e');
     return [];
   }
 });

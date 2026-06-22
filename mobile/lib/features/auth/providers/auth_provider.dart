@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
+import '../../../core/network/api_interceptor.dart';
 import '../../../core/services/storage_service.dart';
+import '../../../core/services/session_service.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
 
@@ -34,9 +37,19 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repo;
+  late final StreamSubscription<void> _sessionSub;
 
   AuthNotifier(this._repo) : super(const AuthState(isLoading: true)) {
+    _sessionSub = SessionService.sessionExpiredStream.listen((_) {
+      state = const AuthState(isAuthenticated: false);
+    });
     _init();
+  }
+
+  @override
+  void dispose() {
+    _sessionSub.cancel();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -88,8 +101,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final user = await _repo.getProfil();
       state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
     } catch (e) {
-      await StorageService.clearAll();
-      state = state.copyWith(isLoading: false, isAuthenticated: false, user: null);
+      // Supprimer les tokens UNIQUEMENT sur erreur d'authentification (401/403)
+      // Pas sur erreur réseau (serveur pas encore découvert, timeout, etc.)
+      final isAuthFailure = e is ApiException &&
+          (e.statusCode == 401 || e.statusCode == 403);
+      if (isAuthFailure) {
+        await StorageService.clearAll();
+        state = state.copyWith(isLoading: false, isAuthenticated: false, user: null);
+      } else {
+        // Erreur réseau temporaire : garder les tokens, le profil sera rechargé
+        state = state.copyWith(isLoading: false, isAuthenticated: true);
+      }
     }
   }
 

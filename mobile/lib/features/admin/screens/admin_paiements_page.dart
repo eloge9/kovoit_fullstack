@@ -11,14 +11,23 @@ final _adminPaiementsProvider = FutureProvider<List<dynamic>>((ref) async {
   try {
     final res = await DioClient.get('/paiements/admin/');
     final data = res.data;
-    if (data is List) return data;
+    debugPrint('[AdminPaiements] /paiements/admin/ raw type: ${data.runtimeType}');
+    if (data is List) {
+      debugPrint('[AdminPaiements] ${data.length} paiements');
+      return data;
+    }
     if (data is Map && data['results'] is List) return data['results'] as List;
     return [];
-  } catch (_) {
-    final res = await DioClient.get('/paiements/mes_paiements/');
-    final data = res.data;
-    if (data is List) return data;
-    if (data is Map && data['results'] is List) return data['results'] as List;
+  } catch (e) {
+    debugPrint('[AdminPaiements] /paiements/admin/ error: $e');
+    try {
+      final res = await DioClient.get('/paiements/mes_paiements/');
+      final data = res.data;
+      if (data is List) return data;
+      if (data is Map && data['results'] is List) return data['results'] as List;
+    } catch (e2) {
+      debugPrint('[AdminPaiements] fallback error: $e2');
+    }
     return [];
   }
 });

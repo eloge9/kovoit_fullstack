@@ -18,7 +18,8 @@ final _conversationsProvider = FutureProvider<List<ConversationModel>>((
 });
 
 class MessageriePage extends ConsumerWidget {
-  const MessageriePage({super.key});
+  final bool hideAppBar;
+  const MessageriePage({super.key, this.hideAppBar = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -28,7 +29,7 @@ class MessageriePage extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: KColors.base200,
-      appBar: AppBar(
+      appBar: hideAppBar ? null : AppBar(
         backgroundColor: KColors.base100,
         elevation: 0,
         shape: const Border(bottom: BorderSide(color: KColors.border)),

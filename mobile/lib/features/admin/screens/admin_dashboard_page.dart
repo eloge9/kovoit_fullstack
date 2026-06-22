@@ -12,13 +12,19 @@ import '../../../features/auth/providers/auth_provider.dart';
 
 final _adminStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   try {
-    final res = await DioClient.get('/utilisateurs/admin/stats/');
+    final res = await DioClient.get('/utilisateurs/admin/dashboard/');
+    debugPrint('[AdminDash] dashboard raw: ${res.data}');
     if (res.data is Map) return Map<String, dynamic>.from(res.data as Map);
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('[AdminDash] dashboard error: $e');
+  }
   try {
-    final res = await DioClient.get('/statistiques/resume/');
+    final res = await DioClient.get('/statistiques/globales/');
+    debugPrint('[AdminDash] globales raw: ${res.data}');
     if (res.data is Map) return Map<String, dynamic>.from(res.data as Map);
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('[AdminDash] globales error: $e');
+  }
   return {};
 });
 

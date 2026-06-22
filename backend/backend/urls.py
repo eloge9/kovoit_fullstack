@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
 
 admin.site.site_url = getattr(
     settings,
@@ -9,7 +11,14 @@ admin.site.site_url = getattr(
     "http://localhost:3000/admin/dashboard",
 )
 
+
+@require_GET
+def ping(request):
+    return JsonResponse({'status': 'ok', 'service': 'backend', 'version': '1.0'})
+
+
 urlpatterns = [
+    path('api/ping/', ping, name='ping'),
     path('admin/', admin.site.urls),
     path('api/utilisateurs/',  include('apps.utilisateurs.urls')),
     path('api/trajets/',       include('apps.trajets.urls')),

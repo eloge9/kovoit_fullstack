@@ -76,9 +76,8 @@ class AdminMessageriePage extends ConsumerWidget {
 
                 return InkWell(
                   onTap: () {
-                    if (convId.isNotEmpty && participants.isNotEmpty) {
-                      final otherId = (participants.first as Map<String, dynamic>)['id']?.toString() ?? '';
-                      context.go('/admin/messagerie/$otherId?name=$noms');
+                    if (convId.isNotEmpty) {
+                      context.push('/admin/messagerie/$convId?name=$noms');
                     }
                   },
                   child: Container(

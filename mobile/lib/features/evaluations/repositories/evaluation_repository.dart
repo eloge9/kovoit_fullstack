@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/api_interceptor.dart';
 import '../../../core/network/dio_client.dart';
@@ -12,15 +13,13 @@ class EvaluationRepository {
     String? commentaire,
   }) async {
     try {
-      final response = await DioClient.post(
-        ApiConstants.evaluer,
-        data: {
-          'trajet_id': trajetId,
-          'cible_id': cibleId,
-          'note': note,
-          'commentaire': ?commentaire,
-        },
-      );
+      final body = <String, dynamic>{
+        'trajet_id': trajetId,
+        'cible_id': cibleId,
+        'note': note,
+      };
+      if (commentaire != null) body['commentaire'] = commentaire;
+      final response = await DioClient.post(ApiConstants.evaluer, data: body);
       return EvaluationModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
@@ -31,13 +30,24 @@ class EvaluationRepository {
     try {
       final response = await DioClient.get(ApiConstants.mesEvaluations);
       final data = response.data;
+      debugPrint('[EvalRepo] mesEvaluations raw type: ${data.runtimeType}');
       if (data is List) {
+        debugPrint('[EvalRepo] mesEvaluations: ${data.length} évaluations');
         return data
             .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
+      if (data is Map && data['results'] is List) {
+        final list = data['results'] as List;
+        debugPrint('[EvalRepo] mesEvaluations (paginated): ${list.length} évaluations');
+        return list
+            .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      debugPrint('[EvalRepo] mesEvaluations réponse inattendue: $data');
       return [];
     } on DioException catch (e) {
+      debugPrint('[EvalRepo] mesEvaluations error: $e');
       throw ApiException.fromDioException(e);
     }
   }

@@ -12,21 +12,24 @@ final _plaintesProvider = FutureProvider<List<dynamic>>((ref) async {
   try {
     final res = await DioClient.get('/plaintes/');
     final data = res.data;
-    if (data is List) return data;
+    debugPrint('[AdminPlaintes] /plaintes/ raw type: ${data.runtimeType}');
+    if (data is List) {
+      debugPrint('[AdminPlaintes] ${data.length} plaintes');
+      return data;
+    }
     if (data is Map && data['results'] is List) return data['results'] as List;
     return [];
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[AdminPlaintes] /plaintes/ error: $e');
     try {
       final res = await DioClient.get('/evaluations/signaler/');
       final data = res.data;
       if (data is List) return data;
-      if (data is Map && data['results'] is List) {
-        return data['results'] as List;
-      }
-      return [];
-    } catch (_) {
-      return [];
+      if (data is Map && data['results'] is List) return data['results'] as List;
+    } catch (e2) {
+      debugPrint('[AdminPlaintes] fallback /evaluations/signaler/ error: $e2');
     }
+    return [];
   }
 });
 

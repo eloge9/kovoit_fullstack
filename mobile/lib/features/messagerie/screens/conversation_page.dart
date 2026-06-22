@@ -60,27 +60,20 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
 
   Future<void> _connectWebSocket() async {
     final token = await StorageService.getAccessToken();
-    final myId = await StorageService.getUserId();
-    if (token == null || myId == null) return;
-
-    // WebSocket uses conv_id channel; fall back to user-pair channel if userId available
-    final channelId = widget.userId != null
-        ? '$myId/${widget.userId}'
-        : 'conv/${widget.convId}';
+    if (token == null || widget.convId == 0) return;
 
     try {
       final uri = Uri.parse(
-        '${ApiConstants.wsBaseUrl}/chat/$channelId/?token=$token',
+        '${ApiConstants.wsBaseUrl}/conv/${widget.convId}/?token=$token',
       );
       _wsChannel = WebSocketChannel.connect(uri);
       _wsChannel!.stream.listen(
         (data) {
           final json = jsonDecode(data as String) as Map<String, dynamic>;
           if (json['type'] == 'message') {
-            final msg = MessageModel.fromJson(json['message'] as Map<String, dynamic>);
+            final msg = MessageModel.fromJson(json);
             setState(() => _messages.add(msg));
             _scrollToBottom();
-            // Notify only if message is from the other user (app may be backgrounded)
             if (widget.userId != null && msg.expediteurId == widget.userId) {
               NotificationService.nouveauMessage(
                 widget.userName,
@@ -91,11 +84,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
             }
           }
         },
-        onError: (e) => debugPrint('WS Error: $e'),
-        onDone: () => debugPrint('WS Closed'),
+        onError: (e) {
+          debugPrint('WS Error: $e');
+          setState(() => _wsChannel = null);
+        },
+        onDone: () {
+          debugPrint('WS Closed');
+          setState(() => _wsChannel = null);
+        },
       );
     } catch (e) {
       debugPrint('WS Connect Error: $e');
+      _wsChannel = null;
     }
   }
 

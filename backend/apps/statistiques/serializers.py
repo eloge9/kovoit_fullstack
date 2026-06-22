@@ -76,9 +76,9 @@ class StatistiqueConducteurSerializer(serializers.Serializer):
     total_km = serializers.FloatField()
     revenu_moyen_trajet = serializers.DecimalField(max_digits=10, decimal_places=2)
     revenu_moyen_mensuel = serializers.DecimalField(max_digits=10, decimal_places=2)
-    meilleur_mois = serializers.DictField()
+    meilleur_mois = serializers.DictField(allow_null=True)
     evolution_mensuelle = serializers.ListField()
-    dernier_trajet = serializers.DictField()
+    dernier_trajet = serializers.DictField(allow_null=True)
     note_moyenne = serializers.FloatField()
 
 
@@ -89,10 +89,10 @@ class StatistiquePassagerSerializer(serializers.Serializer):
     total_reservations = serializers.IntegerField()
     economie_moyenne_reservation = serializers.DecimalField(max_digits=10, decimal_places=2)
     economie_mensuelle_moyenne = serializers.DecimalField(max_digits=10, decimal_places=2)
-    meilleur_mois = serializers.DictField()
+    meilleur_mois = serializers.DictField(allow_null=True)
     evolution_mensuelle = serializers.ListField()
-    derniere_reservation = serializers.DictField()
-    co2_total_evite = serializers.FloatField()  # en kg
+    derniere_reservation = serializers.DictField(allow_null=True)
+    co2_total_evite = serializers.FloatField()
 
 
 class ResumeEconomieSerializer(serializers.Serializer):

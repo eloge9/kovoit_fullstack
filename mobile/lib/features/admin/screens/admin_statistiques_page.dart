@@ -16,10 +16,12 @@ final _statsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
 
 final _resumeProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   try {
-    final res = await DioClient.get('/statistiques/resume/');
-    if (res.data is Map<String, dynamic>) return res.data as Map<String, dynamic>;
+    final res = await DioClient.get('/statistiques/globales/');
+    debugPrint('[AdminStats] globales raw: ${res.data}');
+    if (res.data is Map) return Map<String, dynamic>.from(res.data as Map);
     return {};
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[AdminStats] globales error: $e');
     return {};
   }
 });

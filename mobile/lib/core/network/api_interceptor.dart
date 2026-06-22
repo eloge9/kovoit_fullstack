@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../constants/api_constants.dart';
 import '../services/storage_service.dart';
+import '../services/session_service.dart';
 
 class AuthInterceptor extends Interceptor {
   final Dio _dio;
@@ -30,6 +31,7 @@ class AuthInterceptor extends Interceptor {
       final refreshToken = await StorageService.getRefreshToken();
       if (refreshToken == null) {
         await StorageService.clearAll();
+        SessionService.signalExpired();
         handler.next(err);
         return;
       }
@@ -49,6 +51,11 @@ class AuthInterceptor extends Interceptor {
 
         final newAccess = response.data['access'] as String;
         await StorageService.saveAccessToken(newAccess);
+        // Sauvegarder le nouveau refresh token (ROTATE_REFRESH_TOKENS=True côté backend)
+        final newRefresh = response.data['refresh'] as String?;
+        if (newRefresh != null) {
+          await StorageService.saveRefreshToken(newRefresh);
+        }
 
         // Retenter la requête originale
         err.requestOptions.headers['Authorization'] = 'Bearer $newAccess';
@@ -70,6 +77,7 @@ class AuthInterceptor extends Interceptor {
         _pendingRequests.clear();
       } catch (_) {
         await StorageService.clearAll();
+        SessionService.signalExpired();
         for (final pending in _pendingRequests) {
           pending.handler.next(
             DioException(requestOptions: pending.options),

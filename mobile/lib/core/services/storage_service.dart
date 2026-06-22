@@ -6,6 +6,8 @@ class StorageService {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
+  static const String _serverUrlKey = 'server_url';
+
   // Tokens JWT
   static Future<void> saveAccessToken(String token) =>
       _storage.write(key: AppConstants.accessTokenKey, value: token);
@@ -37,4 +39,14 @@ class StorageService {
     final token = await getAccessToken();
     return token != null && token.isNotEmpty;
   }
+
+  // URL du serveur Django
+  static Future<void> saveServerUrl(String url) =>
+      _storage.write(key: _serverUrlKey, value: url);
+
+  static Future<String?> getServerUrl() =>
+      _storage.read(key: _serverUrlKey);
+
+  static Future<void> clearServerUrl() =>
+      _storage.delete(key: _serverUrlKey);
 }

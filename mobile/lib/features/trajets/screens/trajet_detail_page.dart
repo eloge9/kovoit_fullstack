@@ -342,7 +342,11 @@ class _BodyState extends ConsumerState<_Body> {
                   '/passager/trajet/${t.id}/suivi'
                   '?depart=${Uri.encodeComponent(t.depart)}'
                   '&destination=${Uri.encodeComponent(t.destination)}'
-                  '&conducteur=${Uri.encodeComponent(t.conducteurNom)}',
+                  '&conducteur=${Uri.encodeComponent(t.conducteurNom)}'
+                  '&departLat=${t.departLat ?? ""}'
+                  '&departLng=${t.departLng ?? ""}'
+                  '&destinationLat=${t.destinationLat ?? ""}'
+                  '&destinationLng=${t.destinationLng ?? ""}',
                 ),
               ),
           ],
@@ -364,7 +368,11 @@ class _BodyState extends ConsumerState<_Body> {
                 onPressed: () => context.push(
                   '/conducteur/trajet/${t.id}/gps'
                   '?depart=${Uri.encodeComponent(t.depart)}'
-                  '&destination=${Uri.encodeComponent(t.destination)}',
+                  '&destination=${Uri.encodeComponent(t.destination)}'
+                  '&departLat=${t.departLat ?? ""}'
+                  '&departLng=${t.departLng ?? ""}'
+                  '&destinationLat=${t.destinationLat ?? ""}'
+                  '&destinationLng=${t.destinationLng ?? ""}',
                 ),
               ),
               const SizedBox(height: KSpacing.md),
@@ -442,7 +450,11 @@ class _BodyState extends ConsumerState<_Body> {
       context.push(
         '/conducteur/trajet/${t.id}/gps'
         '?depart=${Uri.encodeComponent(t.depart)}'
-        '&destination=${Uri.encodeComponent(t.destination)}',
+        '&destination=${Uri.encodeComponent(t.destination)}'
+        '&departLat=${t.departLat ?? ""}'
+        '&departLng=${t.departLng ?? ""}'
+        '&destinationLat=${t.destinationLat ?? ""}'
+        '&destinationLng=${t.destinationLng ?? ""}',
       );
     }
   }

@@ -3,7 +3,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import '../../trajets/models/escale_model.dart';
+import '../../trajets/providers/trajet_provider.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -14,6 +17,10 @@ class PassagerSuiviPage extends ConsumerStatefulWidget {
   final String depart;
   final String destination;
   final String conducteurNom;
+  final double? departLat;
+  final double? departLng;
+  final double? destinationLat;
+  final double? destinationLng;
 
   const PassagerSuiviPage({
     super.key,
@@ -21,6 +28,10 @@ class PassagerSuiviPage extends ConsumerStatefulWidget {
     required this.depart,
     required this.destination,
     required this.conducteurNom,
+    this.departLat,
+    this.departLng,
+    this.destinationLat,
+    this.destinationLng,
   });
 
   @override
@@ -31,12 +42,33 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
   final _locationService = LocationService();
   final _mapController = MapController();
   LatLng? _conducteurPosition;
+  List<LatLng> _routePoints = [];
+  List<EscaleModel> _escales = [];
   bool _isConnected = false;
 
   @override
   void initState() {
     super.initState();
     _connect();
+    if (widget.departLat != null &&
+        widget.departLng != null &&
+        widget.destinationLat != null &&
+        widget.destinationLng != null) {
+      _chargerRoute();
+    }
+    _chargerEscales();
+  }
+
+  Future<void> _chargerEscales() async {
+    try {
+      final escales = await ref
+          .read(trajetRepositoryProvider)
+          .getEscales(widget.trajetId);
+      if (!mounted) return;
+      setState(() => _escales = escales);
+    } catch (e) {
+      debugPrint('[PassagerSuivi] chargerEscales error: $e');
+    }
   }
 
   Future<void> _connect() async {
@@ -51,6 +83,23 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
     });
   }
 
+  Future<void> _chargerRoute() async {
+    final route = await OsrmService.getRoute(
+      widget.departLat!,
+      widget.departLng!,
+      widget.destinationLat!,
+      widget.destinationLng!,
+    );
+    if (!mounted || route == null) return;
+    setState(() => _routePoints = route.points);
+    if (_conducteurPosition == null && _routePoints.isNotEmpty) {
+      final bounds = LatLngBounds.fromPoints(_routePoints);
+      _mapController.fitCamera(
+        CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _locationService.dispose();
@@ -60,6 +109,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
   @override
   Widget build(BuildContext context) {
     final center = _conducteurPosition ?? const LatLng(6.1375, 1.2123);
+    final hasDepart = widget.departLat != null && widget.departLng != null;
+    final hasDest = widget.destinationLat != null && widget.destinationLng != null;
 
     return Scaffold(
       backgroundColor: KColors.base200,
@@ -89,11 +140,10 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
             margin: const EdgeInsets.only(right: 16),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color:
-                  (_isConnected && _conducteurPosition != null
-                          ? KColors.success
-                          : KColors.warning)
-                      .withValues(alpha: 0.1),
+              color: (_isConnected && _conducteurPosition != null
+                      ? KColors.success
+                      : KColors.warning)
+                  .withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(99),
             ),
             child: Row(
@@ -126,7 +176,7 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
       ),
       body: Stack(
         children: [
-          // ── Carte ──────────────────────────────────────────────────────
+          // ── Carte ────────────────────────────────────────────────────────
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(initialCenter: center, initialZoom: 13),
@@ -135,9 +185,57 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.kovoit.mobile',
               ),
-              if (_conducteurPosition != null)
-                MarkerLayer(
-                  markers: [
+              // Polyline route OSRM
+              if (_routePoints.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 4,
+                      color: KColors.primary.withValues(alpha: 0.7),
+                    ),
+                  ],
+                ),
+              // Markers départ, destination, conducteur
+              MarkerLayer(
+                markers: [
+                  if (hasDepart)
+                    Marker(
+                      point: LatLng(widget.departLat!, widget.departLng!),
+                      width: 36,
+                      height: 36,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: KColors.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(
+                          Icons.trip_origin,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  if (hasDest)
+                    Marker(
+                      point: LatLng(widget.destinationLat!, widget.destinationLng!),
+                      width: 36,
+                      height: 36,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: KColors.error,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(
+                          Icons.location_on,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  if (_conducteurPosition != null)
                     Marker(
                       point: _conducteurPosition!,
                       width: 52,
@@ -162,12 +260,42 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  // Marqueurs escales (orange)
+                  for (final e in _escales)
+                    if (e.lat != null && e.lng != null)
+                      Marker(
+                        point: LatLng(e.lat!, e.lng!),
+                        width: 32,
+                        height: 32,
+                        child: Tooltip(
+                          message: e.nom,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: e.isParti
+                                  ? Colors.green
+                                  : e.isArrive
+                                      ? Colors.orange
+                                      : const Color(0xFFFF8C00),
+                              shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Icon(
+                              e.isParti
+                                  ? Icons.check
+                                  : Icons.location_on_outlined,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
+              ),
             ],
           ),
 
-          // ── État de connexion si pas de position ─────────────────────
+          // ── Attente position ──────────────────────────────────────────────
           if (_conducteurPosition == null)
             Center(
               child: Container(
@@ -194,7 +322,7 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
               ),
             ),
 
-          // ── Info route en bas ─────────────────────────────────────────
+          // ── Info route en bas ─────────────────────────────────────────────
           Positioned(
             left: 0,
             right: 0,
@@ -279,6 +407,60 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage> {
                       ),
                     ],
                   ),
+                  // ── Liste escales ──────────────────────────────────────
+                  if (_escales.isNotEmpty) ...[
+                    const SizedBox(height: KSpacing.lg),
+                    const Divider(color: KColors.border),
+                    const SizedBox(height: KSpacing.md),
+                    Text('ÉTAPES (${_escales.length})',
+                        style: KTextStyles.label),
+                    const SizedBox(height: KSpacing.sm),
+                    ...(_escales.map((e) => Padding(
+                          padding:
+                              const EdgeInsets.only(bottom: KSpacing.sm),
+                          child: Row(children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: e.isParti
+                                    ? Colors.green
+                                    : e.isArrive
+                                        ? Colors.orange
+                                        : const Color(0xFFFF8C00),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                e.isParti
+                                    ? Icons.check
+                                    : e.isArrive
+                                        ? Icons.pause_circle_outline
+                                        : Icons.radio_button_unchecked,
+                                color: Colors.white,
+                                size: 12,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                                child: Text(e.nom,
+                                    style: KTextStyles.bodySm)),
+                            Text(
+                              e.isParti
+                                  ? 'Parti'
+                                  : e.isArrive
+                                      ? 'À l\'étape'
+                                      : 'En attente',
+                              style: KTextStyles.caption.copyWith(
+                                color: e.isParti
+                                    ? Colors.green
+                                    : e.isArrive
+                                        ? Colors.orange
+                                        : KColors.baseContentMid,
+                              ),
+                            ),
+                          ]),
+                        ))),
+                  ],
                   const SizedBox(height: KSpacing.lg),
                   KButton(
                     label: 'Retour',

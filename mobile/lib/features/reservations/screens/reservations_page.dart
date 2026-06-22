@@ -16,7 +16,12 @@ import '../../../core/services/notification_service.dart';
 
 class ReservationsPage extends ConsumerStatefulWidget {
   final bool isConducteur;
-  const ReservationsPage({super.key, this.isConducteur = false});
+  final bool hideAppBar;
+  const ReservationsPage({
+    super.key,
+    this.isConducteur = false,
+    this.hideAppBar = false,
+  });
 
   @override
   ConsumerState<ReservationsPage> createState() => _ReservationsPageState();
@@ -50,7 +55,7 @@ class _ReservationsPageState extends ConsumerState<ReservationsPage> {
 
     return Scaffold(
       backgroundColor: KColors.base200,
-      appBar: AppBar(
+      appBar: widget.hideAppBar ? null : AppBar(
         backgroundColor: KColors.base100,
         elevation: 0,
         shape: const Border(bottom: BorderSide(color: KColors.border)),
@@ -220,6 +225,7 @@ class _ReservationCard extends StatelessWidget {
 
   bool get _hasActions {
     if (isConducteur && r.isEnAttente) return true;
+    if (isConducteur && r.trajet?.statut == 'en_cours') return true;
     if (!isConducteur && r.isConfirmee) return true;
     if (!isConducteur && r.isEnAttente) return true;
     if (!isConducteur && r.isTerminee) return true;
@@ -249,12 +255,29 @@ class _ReservationCard extends StatelessWidget {
       ]);
     }
 
-    // Passager : payer
+    // Conducteur : embarquer si trajet en cours
+    if (isConducteur && r.trajet?.statut == 'en_cours') {
+      return KButton(
+        label: 'Embarquer un passager',
+        icon: Icons.how_to_reg_rounded,
+        onPressed: () => context.push('/conducteur/embarquement'),
+      );
+    }
+
+    // Passager : code embarquement + payer
     if (!isConducteur && r.isConfirmee) {
       return Column(children: [
         KButton(
+          label: 'Mon code d\'embarquement',
+          icon: Icons.confirmation_number_outlined,
+          onPressed: () => context.push(
+              '$prefix/reservation/${r.id}/code-embarquement'),
+        ),
+        const SizedBox(height: KSpacing.md),
+        KButton(
           label: 'Payer ma place',
           icon: Icons.payments_rounded,
+          variant: KButtonVariant.outline,
           onPressed: () => context.push('$prefix/paiement/${r.id}'),
         ),
         if (r.trajet?.statut == 'en_cours') ...[
@@ -262,7 +285,7 @@ class _ReservationCard extends StatelessWidget {
           KButton(
             label: 'Suivre le trajet en direct',
             icon: Icons.location_on_rounded,
-            variant: KButtonVariant.outline,
+            variant: KButtonVariant.ghost,
             onPressed: () => context.push(
               '$prefix/trajet/${r.trajetId}/suivi'
               '?depart=${Uri.encodeComponent(r.trajet?.depart ?? '')}'
