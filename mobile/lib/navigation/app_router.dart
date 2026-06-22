@@ -59,43 +59,69 @@ import '../features/settings/screens/server_settings_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+// ── RouterNotifier — reçoit les changements d'auth sans recréer GoRouter ─────
+
+class _RouterNotifier extends ChangeNotifier {
+  final Ref _ref;
+  AuthState _authState;
+
+  _RouterNotifier(this._ref) : _authState = _ref.read(authProvider) {
+    _ref.listen<AuthState>(authProvider, (_, next) {
+      _authState = next;
+      notifyListeners();
+    });
+  }
+
+  AuthState get authState => _authState;
+}
+
+// Provider du notifier (singleton par session)
+final _routerNotifierProvider =
+    ChangeNotifierProvider<_RouterNotifier>((ref) => _RouterNotifier(ref));
+
+// ── GoRouter créé une seule fois ──────────────────────────────────────────────
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authProvider);
+  final notifier = ref.watch(_routerNotifierProvider);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
+    refreshListenable: notifier,
+
     redirect: (context, state) {
-      final isAuth    = authState.isAuthenticated;
-      final isLoading = authState.isLoading;
+      final auth      = notifier.authState;
+      final isAuth    = auth.isAuthenticated;
+      final isLoading = auth.isLoading;
       final location  = state.matchedLocation;
 
       if (isLoading) return '/splash';
 
-      final publicRoutes = ['/login', '/register', '/forgot-password', '/splash'];
+      const publicRoutes = ['/login', '/register', '/forgot-password', '/splash'];
       final isPublic = publicRoutes.contains(location);
 
       if (!isAuth && !isPublic) return '/login';
       if (isAuth && isPublic) {
-        if (location == '/splash') return null; // SplashScreen gère sa propre navigation
-        final user = authState.user;
+        if (location == '/splash') return null; // SplashScreen gère la navigation
+        final user = auth.user;
         if (user?.role == 'admin')      return '/admin';
         if (user?.role == 'conducteur') return '/conducteur';
         return '/passager';
       }
       return null;
     },
+
     routes: [
       // ── Splash ──────────────────────────────────────────────────────────
-      GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
-      GoRoute(path: '/server-settings', builder: (_, _) => const ServerSettingsScreen()),
+      GoRoute(path: '/splash',         builder: (_, _) => const SplashScreen()),
+      GoRoute(path: '/server-settings',builder: (_, _) => const ServerSettingsScreen()),
 
       // ── Auth ─────────────────────────────────────────────────────────────
-      GoRoute(path: '/login',          builder: (_, _) => const LoginPage()),
-      GoRoute(path: '/register',       builder: (_, _) => const RegisterPage()),
-      GoRoute(path: '/forgot-password',builder: (_, _) => const ForgotPasswordPage()),
+      GoRoute(path: '/login',           builder: (_, _) => const LoginPage()),
+      GoRoute(path: '/register',        builder: (_, _) => const RegisterPage()),
+      GoRoute(path: '/forgot-password', builder: (_, _) => const ForgotPasswordPage()),
 
-      // ── Passager shell — UNIQUEMENT les 4 onglets ────────────────────────
+      // ── Passager shell ────────────────────────────────────────────────────
       ShellRoute(
         builder: (context, state, child) => PassagerShell(
           key: const ValueKey('passager-shell'),
@@ -113,7 +139,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // ── Conducteur shell — UNIQUEMENT les onglets ─────────────────────────
+      // ── Conducteur shell ──────────────────────────────────────────────────
       ShellRoute(
         builder: (context, state, child) => ConducteurShell(
           key: const ValueKey('conducteur-shell'),
@@ -133,7 +159,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // ── Admin (shell avec Bottom Nav + Drawer) ───────────────────────────
+      // ── Admin shell ───────────────────────────────────────────────────────
       ShellRoute(
         builder: (context, state, child) => const AdminShell(),
         routes: [
@@ -178,7 +204,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // ── Routes détail passager (plein écran, hors shell) ─────────────────
+      // ── Routes détail passager (plein écran) ──────────────────────────────
       GoRoute(
         path: '/passager/trajet/:id',
         builder: (_, state) => TrajetDetailPage(
@@ -189,11 +215,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/passager/trajet/:id/suivi',
         builder: (_, state) => PassagerSuiviPage(
           trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-          depart: state.uri.queryParameters['depart'] ?? '',
-          destination: state.uri.queryParameters['destination'] ?? '',
+          depart:        state.uri.queryParameters['depart'] ?? '',
+          destination:   state.uri.queryParameters['destination'] ?? '',
           conducteurNom: state.uri.queryParameters['conducteur'] ?? 'Conducteur',
-          departLat: double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
-          departLng: double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
+          departLat:      double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
+          departLng:      double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
           destinationLat: double.tryParse(state.uri.queryParameters['destinationLat'] ?? ''),
           destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
         ),
@@ -208,24 +234,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/passager/evaluation/:trajetId/:cibleId',
         builder: (_, state) => EvaluationPage(
           trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-          cibleId: state.pathParameters['cibleId'] ?? '',
+          cibleId:  state.pathParameters['cibleId'] ?? '',
         ),
       ),
       GoRoute(
         path: '/passager/messages/:convId',
         builder: (_, state) => ConversationPage(
-          convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+          convId:   int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
           userName: state.uri.queryParameters['name'] ?? '',
-          userId: state.uri.queryParameters['userId'],
+          userId:   state.uri.queryParameters['userId'],
         ),
       ),
-      GoRoute(path: '/passager/profile',          builder: (_, _) => const ProfilePage()),
-      GoRoute(path: '/passager/profile/edit',     builder: (_, _) => const EditProfilePage()),
-      GoRoute(path: '/passager/profile/documents',builder: (_, _) => const DocumentsPage()),
+      GoRoute(path: '/passager/profile',           builder: (_, _) => const ProfilePage()),
+      GoRoute(path: '/passager/profile/edit',      builder: (_, _) => const EditProfilePage()),
+      GoRoute(path: '/passager/profile/documents', builder: (_, _) => const DocumentsPage()),
       GoRoute(path: '/passager/devenir-conducteur',builder: (_, _) => const DevenirConducteurPage()),
-      GoRoute(path: '/passager/evaluations',      builder: (_, _) => const EvaluationListPage()),
-      GoRoute(path: '/passager/economie',         builder: (_, _) => const PassagerEconomiePage()),
-      GoRoute(path: '/passager/notifications',    builder: (_, _) => const NotificationsPage()),
+      GoRoute(path: '/passager/evaluations',       builder: (_, _) => const EvaluationListPage()),
+      GoRoute(path: '/passager/economie',          builder: (_, _) => const PassagerEconomiePage()),
+      GoRoute(path: '/passager/notifications',     builder: (_, _) => const NotificationsPage()),
       GoRoute(
         path: '/passager/reservation/:id/code-embarquement',
         builder: (_, state) => CodeEmbarquementPage(
@@ -233,7 +259,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      // ── Routes détail conducteur (plein écran, hors shell) ───────────────
+      // ── Routes détail conducteur (plein écran) ────────────────────────────
       GoRoute(
         path: '/conducteur/trajet/:id',
         builder: (_, state) => TrajetDetailPage(
@@ -244,23 +270,23 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/conducteur/trajet/:id/gps',
         builder: (_, state) => ConducteurGpsPage(
-          trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
-          depart: state.uri.queryParameters['depart'] ?? '',
-          destination: state.uri.queryParameters['destination'] ?? '',
-          departLat: double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
-          departLng: double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
+          trajetId:       int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          depart:         state.uri.queryParameters['depart'] ?? '',
+          destination:    state.uri.queryParameters['destination'] ?? '',
+          departLat:      double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
+          departLng:      double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
           destinationLat: double.tryParse(state.uri.queryParameters['destinationLat'] ?? ''),
           destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
         ),
       ),
-      GoRoute(path: '/conducteur/create-trajet',  builder: (_, _) => const CreateTrajetPage()),
-      GoRoute(path: '/conducteur/vehicules',       builder: (_, _) => const VehiculesPage()),
+      GoRoute(path: '/conducteur/create-trajet',   builder: (_, _) => const CreateTrajetPage()),
+      GoRoute(path: '/conducteur/vehicules',        builder: (_, _) => const VehiculesPage()),
       GoRoute(
         path: '/conducteur/messages/:convId',
         builder: (_, state) => ConversationPage(
-          convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+          convId:   int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
           userName: state.uri.queryParameters['name'] ?? '',
-          userId: state.uri.queryParameters['userId'],
+          userId:   state.uri.queryParameters['userId'],
         ),
       ),
       GoRoute(path: '/conducteur/profile',          builder: (_, _) => const ProfilePage()),
@@ -273,7 +299,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/conducteur/evaluation/:trajetId/:cibleId',
         builder: (_, state) => EvaluationPage(
           trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-          cibleId: state.pathParameters['cibleId'] ?? '',
+          cibleId:  state.pathParameters['cibleId'] ?? '',
         ),
       ),
       GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),
@@ -286,8 +312,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.error_outline, size: 48, color: Color(0xFF8EA4BC)),
           const SizedBox(height: 16),
-          Text('Page introuvable',
-              style: const TextStyle(
+          const Text('Page introuvable',
+              style: TextStyle(
                 fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF394E6A),
               )),
           TextButton(

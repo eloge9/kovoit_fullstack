@@ -65,7 +65,7 @@ class TrajetCard extends StatelessWidget {
               _InfoChip(icon: Icons.calendar_today_outlined,
                   label: Formatters.dateTime(trajet.dateHeureDepart)),
               _InfoChip(icon: Icons.payments_outlined,
-                  label: Formatters.currency(trajet.prixParPlace),
+                  label: Formatters.currency(trajet.prixAffiche),
                   color: KColors.primary, isBold: true),
               _InfoChip(
                 icon: Icons.people_outline,

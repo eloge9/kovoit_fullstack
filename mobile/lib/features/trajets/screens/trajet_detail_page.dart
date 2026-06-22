@@ -218,6 +218,12 @@ class _BodyState extends ConsumerState<_Body> {
           ),
           const SizedBox(height: KSpacing.xl),
 
+          // ── Infos matching (si résultat de recherche géo) ─────────────
+          if (t.matching != null) ...[
+            _MatchingCard(matching: t.matching!),
+            const SizedBox(height: KSpacing.xl),
+          ],
+
           // ── Infos principales ──────────────────────────────────────────
           KCard(
             child: Column(
@@ -239,15 +245,28 @@ class _BodyState extends ConsumerState<_Body> {
                       ),
                       _InfoRow(
                         icon: Icons.straighten_rounded,
-                        label: 'Distance',
+                        label: 'Distance totale',
                         value: Formatters.distance(t.distanceKm),
                       ),
+                      if (t.matching != null && t.matching!.distancePassagerKm > 0)
+                        _InfoRow(
+                          icon: Icons.route_outlined,
+                          label: 'Votre segment',
+                          value: Formatters.distance(t.matching!.distancePassagerKm),
+                          valueColor: KColors.info,
+                        ),
                       _InfoRow(
                         icon: Icons.payments_outlined,
-                        label: 'Prix par place',
-                        value: Formatters.currency(t.prixParPlace),
+                        label: t.matching != null ? 'Prix votre trajet' : 'Prix par place',
+                        value: Formatters.currency(t.prixAffiche),
                         valueColor: KColors.primary,
                       ),
+                      if (t.matching != null && t.matching!.prixPassager != t.prixParPlace.toInt())
+                        _InfoRow(
+                          icon: Icons.info_outline,
+                          label: 'Prix conducteur/place',
+                          value: Formatters.currency(t.prixParPlace),
+                        ),
                       _InfoRow(
                         icon: Icons.people_outline,
                         label: 'Places disponibles',
@@ -261,6 +280,12 @@ class _BodyState extends ConsumerState<_Body> {
                           icon: Icons.directions_car_outlined,
                           label: 'Véhicule',
                           value: t.vehicule!.displayName,
+                        )
+                      else if (t.typeVehicule != null)
+                        _InfoRow(
+                          icon: Icons.directions_car_outlined,
+                          label: 'Type véhicule',
+                          value: t.typeVehicule!,
                         ),
                     ],
                   ),
@@ -494,6 +519,136 @@ class _BodyState extends ConsumerState<_Body> {
       widget.onRefresh();
       context.pop();
     }
+  }
+}
+
+// ── Carte matching géo ────────────────────────────────────────────────────────
+
+class _MatchingCard extends StatelessWidget {
+  final MatchingInfo matching;
+  const _MatchingCard({required this.matching});
+
+  @override
+  Widget build(BuildContext context) {
+    final score = matching.score;
+    final color = score >= 70
+        ? KColors.success
+        : score >= 50
+            ? KColors.warning
+            : KColors.error;
+
+    return KCard(
+      child: Padding(
+        padding: const EdgeInsets.all(KSpacing.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.radar, size: 16, color: KColors.primary),
+              const SizedBox(width: 8),
+              const Text('Compatibilité avec votre trajet',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  '$score%',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: score / 100,
+              backgroundColor: KColors.base300,
+              color: color,
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            const SizedBox(height: 12),
+            if (matching.distancePickupKm != null)
+              _MatchingRow(
+                icon: Icons.near_me_outlined,
+                label: 'Distance à votre point de départ',
+                value: _formatDist(matching.distancePickupKm!),
+                color: KColors.info,
+              ),
+            if (matching.distanceDropoffKm != null)
+              _MatchingRow(
+                icon: Icons.flag_outlined,
+                label: 'Distance à votre point d\'arrivée',
+                value: _formatDist(matching.distanceDropoffKm!),
+                color: KColors.info,
+              ),
+            if (matching.distancePassagerKm > 0)
+              _MatchingRow(
+                icon: Icons.route_outlined,
+                label: 'Votre segment de trajet',
+                value: '${matching.distancePassagerKm.toStringAsFixed(1)} km',
+              ),
+            if (matching.prixPassager > 0)
+              _MatchingRow(
+                icon: Icons.payments_outlined,
+                label: 'Prix pour votre trajet',
+                value: Formatters.currency(matching.prixPassager.toDouble()),
+                color: KColors.primary,
+              ),
+            if (matching.raison.isNotEmpty && matching.raison != 'Trajet compatible')
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(matching.raison,
+                    style: KTextStyles.caption
+                        .copyWith(color: KColors.baseContentMid)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDist(double km) {
+    if (km < 1) return '${(km * 1000).toInt()} m';
+    return '${km.toStringAsFixed(1)} km';
+  }
+}
+
+class _MatchingRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? color;
+
+  const _MatchingRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Icon(icon, size: 14, color: color ?? KColors.baseContentMid),
+        const SizedBox(width: 8),
+        Expanded(child: Text(label, style: KTextStyles.caption)),
+        Text(value,
+            style: KTextStyles.caption.copyWith(
+              fontWeight: FontWeight.w600,
+              color: color ?? KColors.baseContent,
+            )),
+      ]),
+    );
   }
 }
 

@@ -8,11 +8,14 @@ import '../../reservations/models/reservation_model.dart';
 import '../../reservations/repositories/reservation_repository.dart';
 import '../../messagerie/models/message_model.dart';
 import '../../messagerie/repositories/messagerie_repository.dart';
+import '../../trajets/models/trajet_model.dart';
+import '../../trajets/repositories/trajet_repository.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/k_avatar.dart';
 import '../../../core/widgets/k_badge.dart';
 import '../../../core/widgets/k_card.dart';
@@ -26,7 +29,6 @@ class _DashData {
   final List<ConversationModel> conversations;
   final Map<String, dynamic> stats;
   final Map<String, dynamic> eco;
-
   _DashData({
     required this.reservations,
     required this.conversations,
@@ -34,6 +36,19 @@ class _DashData {
     required this.eco,
   });
 }
+
+// Provider trajets disponibles (rechargé indépendamment)
+final _trajetsDispoProvider = FutureProvider.autoDispose<List<TrajetModel>>((ref) async {
+  try {
+    final repo = TrajetRepository();
+    final trajets = await repo.getTrajets();
+    debugPrint('[PassagerDash] ${trajets.length} trajets disponibles chargés');
+    return trajets;
+  } catch (e) {
+    debugPrint('[PassagerDash] trajets error: $e');
+    return [];
+  }
+});
 
 final _passagerDashProvider = FutureProvider.autoDispose<_DashData>((ref) async {
   List<ReservationModel> reservations = [];
@@ -109,11 +124,16 @@ class PassagerDashboardPage extends ConsumerWidget {
     final dateStr =
         DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(DateTime.now());
 
+    final trajetsAsync = ref.watch(_trajetsDispoProvider);
+
     return Scaffold(
       backgroundColor: KColors.base200,
       body: RefreshIndicator(
         color: KColors.primary,
-        onRefresh: () => ref.refresh(_passagerDashProvider.future),
+        onRefresh: () async {
+          ref.invalidate(_passagerDashProvider);
+          ref.invalidate(_trajetsDispoProvider);
+        },
         child: CustomScrollView(
           slivers: [
             SliverToBoxAdapter(
@@ -147,9 +167,13 @@ class PassagerDashboardPage extends ConsumerWidget {
                         ),
                         const SizedBox(height: KSpacing.xl),
 
+                        // Trajets disponibles (chargés automatiquement)
+                        _TrajetsDispoSection(trajetsAsync: trajetsAsync),
+                        const SizedBox(height: KSpacing.xl),
+
                         // Prochains trajets
                         dashAsync.when(
-                          loading: () => _SectionSkeleton('Prochains trajets', 3),
+                          loading: () => _SectionSkeleton('Mes réservations', 3),
                           error: (_, _) => const SizedBox.shrink(),
                           data: (d) => _UpcomingCard(reservations: d.reservations),
                         ),
@@ -305,7 +329,6 @@ class _PassagerStatsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final stats = data.stats;
     final reservations = data.reservations;
-    final now = DateTime.now();
 
     // Total: préférer la liste complète (toutes périodes, tous statuts)
     final statTotal = stats['total_reservations'];
@@ -502,6 +525,166 @@ class _EcoCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Section trajets disponibles ───────────────────────────────────────────────
+
+class _TrajetsDispoSection extends StatelessWidget {
+  final AsyncValue<List<TrajetModel>> trajetsAsync;
+  const _TrajetsDispoSection({required this.trajetsAsync});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text('Trajets disponibles',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            const Spacer(),
+            TextButton(
+              onPressed: () => context.go('/passager/trajets'),
+              child: const Text('Voir tout',
+                  style: TextStyle(color: KColors.primary, fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        trajetsAsync.when(
+          loading: () => SizedBox(
+            height: 110,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: 3,
+              itemBuilder: (_, _) => _TrajetCardMiniSkeleton(),
+            ),
+          ),
+          error: (e, _) {
+            debugPrint('[PassagerDash] trajets error: $e');
+            return const SizedBox.shrink();
+          },
+          data: (trajets) {
+            if (trajets.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: KColors.base100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: KColors.border),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.directions_car_outlined,
+                      color: KColors.baseContentLow, size: 24),
+                  const SizedBox(width: 12),
+                  Text('Aucun trajet disponible en ce moment',
+                      style: KTextStyles.caption),
+                ]),
+              );
+            }
+            return SizedBox(
+              height: 130,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: trajets.length.clamp(0, 8),
+                itemBuilder: (_, i) => _TrajetCardMini(
+                  trajet: trajets[i],
+                  onTap: () =>
+                      context.push('/passager/trajet/${trajets[i].id}'),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _TrajetCardMini extends StatelessWidget {
+  final TrajetModel trajet;
+  final VoidCallback onTap;
+  const _TrajetCardMini({required this.trajet, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 200,
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: KColors.base100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: KColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(
+                child: Text(
+                  '${trajet.depart} → ${trajet.destination}',
+                  style: KTextStyles.bodySm
+                      .copyWith(fontWeight: FontWeight.w700, fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Text(
+              Formatters.dateTime(trajet.dateHeureDepart),
+              style: KTextStyles.meta,
+              maxLines: 1,
+            ),
+            const Spacer(),
+            Row(children: [
+              Text(
+                Formatters.currency(trajet.prixParPlace),
+                style: KTextStyles.bodySm.copyWith(
+                    color: KColors.primary, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: trajet.placesRestantes > 0
+                      ? KColors.success.withValues(alpha: 0.1)
+                      : KColors.error.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${trajet.placesRestantes} pl.',
+                  style: KTextStyles.meta.copyWith(
+                      color: trajet.placesRestantes > 0
+                          ? KColors.success
+                          : KColors.error),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrajetCardMiniSkeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 200,
+      margin: const EdgeInsets.only(right: 10),
+      decoration: BoxDecoration(
+        color: KColors.base100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: KColors.border),
       ),
     );
   }

@@ -451,7 +451,6 @@ class _UpcomingTrajetsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
     // Inclure trajets ouverts et en cours (passés ou futurs)
     final upcoming = trajets
         .where((t) => t.statut == 'ouvert' || t.statut == 'en_cours')
