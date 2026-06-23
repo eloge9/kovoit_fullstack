@@ -49,4 +49,39 @@ class StorageService {
 
   static Future<void> clearServerUrl() =>
       _storage.delete(key: _serverUrlKey);
+
+  // Identifiants sauvegardés ("Se souvenir de moi")
+  static const _savedEmailKey = 'saved_email';
+  static const _savedPasswordKey = 'saved_password';
+  static const _rememberMeKey = 'remember_me';
+
+  static Future<void> saveCredentials(String email, String password) async {
+    await _storage.write(key: _savedEmailKey, value: email);
+    await _storage.write(key: _savedPasswordKey, value: password);
+    await _storage.write(key: _rememberMeKey, value: 'true');
+  }
+
+  static Future<({String email, String password})?> getSavedCredentials() async {
+    final remember = await _storage.read(key: _rememberMeKey);
+    if (remember != 'true') return null;
+    final email = await _storage.read(key: _savedEmailKey);
+    final password = await _storage.read(key: _savedPasswordKey);
+    if (email == null || password == null) return null;
+    return (email: email, password: password);
+  }
+
+  static Future<void> clearSavedCredentials() async {
+    await _storage.delete(key: _savedEmailKey);
+    await _storage.delete(key: _savedPasswordKey);
+    await _storage.delete(key: _rememberMeKey);
+  }
+
+  // Mode actif (conducteur / passager)
+  static const _activeModeKey = 'active_mode';
+
+  static Future<void> saveActiveMode(String mode) =>
+      _storage.write(key: _activeModeKey, value: mode);
+
+  static Future<String?> getActiveMode() =>
+      _storage.read(key: _activeModeKey);
 }

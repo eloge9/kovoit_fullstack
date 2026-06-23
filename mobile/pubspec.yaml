@@ -57,6 +57,9 @@ dependencies:
   # Permissions
   permission_handler: ^11.3.1
 
+  # Guidage vocal navigation
+  flutter_tts: ^4.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

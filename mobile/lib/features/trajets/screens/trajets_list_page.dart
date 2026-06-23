@@ -1056,11 +1056,12 @@ class _AutocompleteFieldState extends State<_AutocompleteField> {
 
   void _onChanged(String q) {
     _debounce?.cancel();
-    if (q.trim().length < 2) {
-      if (mounted) setState(() => _suggestions = []);
+    if (q.trim().isEmpty) {
+      _loadInitialSuggestions();
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 400), () async {
+    if (q.trim().length < 2) return;
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
       if (!mounted) return;
       setState(() => _loading = true);
       final results = await NominatimService.autocomplete(q);
@@ -1072,8 +1073,28 @@ class _AutocompleteFieldState extends State<_AutocompleteField> {
     });
   }
 
-  void _select(LocationSuggestion s) {
+  void _loadInitialSuggestions() {
+    setState(() => _suggestions = [
+      LocationSuggestion.currentPosition,
+      ...NominatimService.recentHistory.take(4),
+    ]);
+  }
+
+  Future<void> _select(LocationSuggestion s) async {
+    if (s.isCurrentPosition) {
+      setState(() { _loading = true; _suggestions = []; });
+      final resolved = await NominatimService.resolveCurrentPosition();
+      if (!mounted) return;
+      setState(() => _loading = false);
+      if (resolved != null) {
+        widget.controller.text = resolved.shortName;
+        NominatimService.addToHistory(resolved);
+        widget.onSelected(resolved);
+      }
+      return;
+    }
     widget.controller.text = s.shortName;
+    NominatimService.addToHistory(s);
     setState(() => _suggestions = []);
     widget.onSelected(s);
   }
@@ -1086,6 +1107,7 @@ class _AutocompleteFieldState extends State<_AutocompleteField> {
         TextField(
           controller: widget.controller,
           style: KTextStyles.bodySm,
+          onTap: _loadInitialSuggestions,
           decoration: InputDecoration(
             hintText: widget.hint,
             hintStyle:
@@ -1153,17 +1175,30 @@ class _AutocompleteFieldState extends State<_AutocompleteField> {
                   const Divider(height: 1, color: KColors.border),
               itemBuilder: (_, i) {
                 final s = _suggestions[i];
+                final isPos = s.isCurrentPosition;
+                final isHist = s.isHistory;
                 return ListTile(
                   dense: true,
-                  leading: const Icon(Icons.location_on_outlined,
-                      color: KColors.primary, size: 18),
+                  leading: Icon(
+                    isPos
+                        ? Icons.my_location_rounded
+                        : isHist
+                            ? Icons.history
+                            : Icons.location_on_outlined,
+                    color: isPos ? KColors.success : KColors.primary,
+                    size: 18,
+                  ),
                   title: Text(s.shortName,
-                      style: KTextStyles.bodySm
-                          .copyWith(fontWeight: FontWeight.w600)),
-                  subtitle: Text(s.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: KTextStyles.caption),
+                      style: KTextStyles.bodySm.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: isPos ? KColors.success : KColors.baseContent,
+                      )),
+                  subtitle: isPos
+                      ? null
+                      : Text(s.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: KTextStyles.caption),
                   onTap: () => _select(s),
                 );
               },

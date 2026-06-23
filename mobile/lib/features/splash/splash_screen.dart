@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../auth/providers/auth_provider.dart';
 import '../../core/theme/colors.dart';
 import '../../core/providers/server_provider.dart';
+import '../../core/services/storage_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -85,17 +86,40 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final user = authState.user;
     if (user == null) {
-      // Profil non chargé malgré isAuthenticated: true — tokens invalides ou serveur instable
       context.go('/login');
       return;
     }
+
     if (user.role == 'admin') {
       context.go('/admin');
-    } else if (user.role == 'conducteur' || user.peutConduire) {
-      context.go('/conducteur');
-    } else {
-      context.go('/passager');
+      return;
     }
+
+    debugPrint('[Splash] Role: ${user.role}, modeCourant: ${user.modeCourant}, peutConduire: ${user.peutConduire}');
+
+    if (!mounted) return;
+
+    // Un conducteur va toujours sur son dashboard
+    if (user.role == 'conducteur') {
+      context.go('/conducteur');
+      return;
+    }
+
+    // Passager avec droits conducteur : utiliser le dernier mode choisi
+    if (user.peutConduire) {
+      String? mode = user.modeCourant;
+      if (mode == null || mode.isEmpty) {
+        mode = await StorageService.getActiveMode();
+      }
+      if (!mounted) return;
+      debugPrint('[Splash] Mode actif passager/conducteur: $mode');
+      if (mode == 'conducteur') {
+        context.go('/conducteur');
+        return;
+      }
+    }
+
+    context.go('/passager');
   }
 
   Future<void> _retry() async {

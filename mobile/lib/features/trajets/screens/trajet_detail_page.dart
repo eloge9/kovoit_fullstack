@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 import '../providers/trajet_provider.dart';
 import '../models/trajet_model.dart';
 import '../../reservations/providers/reservation_provider.dart';
+import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -217,6 +220,13 @@ class _BodyState extends ConsumerState<_Body> {
             ),
           ),
           const SizedBox(height: KSpacing.xl),
+
+          // ── Carte interactive ──────────────────────────────────────────
+          if (t.departLat != null && t.destinationLat != null)
+            _TrajetMapCard(trajet: t),
+
+          if (t.departLat != null && t.destinationLat != null)
+            const SizedBox(height: KSpacing.xl),
 
           // ── Infos matching (si résultat de recherche géo) ─────────────
           if (t.matching != null) ...[
@@ -687,4 +697,155 @@ class _InfoRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Carte interactive trajet ──────────────────────────────────────────────────
+
+class _TrajetMapCard extends StatefulWidget {
+  final TrajetModel trajet;
+  const _TrajetMapCard({required this.trajet});
+
+  @override
+  State<_TrajetMapCard> createState() => _TrajetMapCardState();
+}
+
+class _TrajetMapCardState extends State<_TrajetMapCard> {
+  final _mapController = MapController();
+  List<LatLng> _routePoints = [];
+  bool _loaded = false;
+
+  TrajetModel get t => widget.trajet;
+
+  @override
+  void initState() {
+    super.initState();
+    _chargerRoute();
+  }
+
+  Future<void> _chargerRoute() async {
+    if (t.polylineOsrm != null && t.polylineOsrm!.isNotEmpty) {
+      try {
+        final points = OsrmService.decodePolyline(t.polylineOsrm!);
+        if (!mounted) return;
+        setState(() { _routePoints = points; _loaded = true; });
+        _fitRoute();
+        return;
+      } catch (_) {}
+    }
+    if (t.departLat == null || t.destinationLat == null) return;
+    final route = await OsrmService.getRoute(
+      t.departLat!, t.departLng!,
+      t.destinationLat!, t.destinationLng!,
+    );
+    if (!mounted) return;
+    if (route != null) {
+      setState(() { _routePoints = route.points; _loaded = true; });
+      _fitRoute();
+    }
+  }
+
+  void _fitRoute() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _routePoints.isEmpty) return;
+      _mapController.fitCamera(CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(_routePoints),
+        padding: const EdgeInsets.all(40),
+      ));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final departPoint = t.departLat != null
+        ? LatLng(t.departLat!, t.departLng!)
+        : null;
+    final destPoint = t.destinationLat != null
+        ? LatLng(t.destinationLat!, t.destinationLng!)
+        : null;
+    final center = departPoint ?? const LatLng(6.1375, 1.2123);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        height: 200,
+        decoration: BoxDecoration(
+          border: Border.all(color: KColors.border),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Stack(children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: center,
+              initialZoom: 11,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.kovoit.mobile',
+              ),
+              if (_routePoints.isNotEmpty)
+                PolylineLayer(polylines: [
+                  Polyline(points: _routePoints, strokeWidth: 4,
+                      color: KColors.primary),
+                ]),
+              MarkerLayer(markers: [
+                if (departPoint != null)
+                  Marker(point: departPoint, width: 30, height: 30,
+                      child: _Pin(color: KColors.primary,
+                          icon: Icons.trip_origin)),
+                if (destPoint != null)
+                  Marker(point: destPoint, width: 30, height: 30,
+                      child: _Pin(color: KColors.error,
+                          icon: Icons.location_on)),
+              ]),
+            ],
+          ),
+          if (!_loaded)
+            Container(
+              color: KColors.base200,
+              child: const Center(child: CircularProgressIndicator(
+                  color: KColors.primary, strokeWidth: 2)),
+            ),
+          Positioned(
+            top: 8, left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)],
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.map_outlined, size: 12, color: KColors.primary),
+                const SizedBox(width: 4),
+                Text('Itinéraire',
+                    style: KTextStyles.meta.copyWith(
+                        fontWeight: FontWeight.w600)),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _Pin extends StatelessWidget {
+  final Color color;
+  final IconData icon;
+  const _Pin({required this.color, required this.icon});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: color, shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+        child: Icon(icon, color: Colors.white, size: 13),
+      );
 }

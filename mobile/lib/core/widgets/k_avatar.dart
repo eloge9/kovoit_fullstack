@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../constants/api_constants.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 
-/// Avatar KoVoit — reproduit l'avatar du Web (initiale sur fond primary/10)
+/// Avatar KoVoit — affiche la photo de profil ou l'initiale.
+/// Construit automatiquement l'URL absolue si le chemin est relatif.
 class KAvatar extends StatelessWidget {
   final String? photoUrl;
   final String? name;
@@ -21,6 +23,7 @@ class KAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initiale = name?.isNotEmpty == true ? name![0].toUpperCase() : '?';
+    final url = ApiConstants.buildMediaUrl(photoUrl);
 
     return Container(
       width: size,
@@ -30,24 +33,27 @@ class KAvatar extends StatelessWidget {
         color: backgroundColor ?? KColors.primary.withValues(alpha: 0.12),
       ),
       clipBehavior: Clip.antiAlias,
-      child: photoUrl != null && photoUrl!.isNotEmpty
+      child: url.isNotEmpty
           ? CachedNetworkImage(
-              imageUrl: photoUrl!,
+              imageUrl: url,
               fit: BoxFit.cover,
+              fadeInDuration: const Duration(milliseconds: 200),
               errorWidget: (_, _, _) => _initiale(initiale),
-              placeholder: (_, _) => _initiale(initiale),
+              placeholder: (_, _) => _shimmer(),
             )
           : _initiale(initiale),
     );
   }
 
   Widget _initiale(String c) => Center(
-    child: Text(
-      c,
-      style: KTextStyles.button.copyWith(
-        color: KColors.primary,
-        fontSize: size * 0.38,
-      ),
-    ),
-  );
+        child: Text(
+          c,
+          style: KTextStyles.button.copyWith(
+            color: KColors.primary,
+            fontSize: size * 0.38,
+          ),
+        ),
+      );
+
+  Widget _shimmer() => Container(color: KColors.base300);
 }

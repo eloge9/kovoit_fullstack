@@ -240,16 +240,16 @@ class _ConvSkeleton extends StatelessWidget {
                 Container(
                   height: 12,
                   width: 120,
-                  color: KColors.base300,
                   decoration: BoxDecoration(
+                    color: KColors.base300,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
                 const SizedBox(height: 6),
                 Container(
                   height: 10,
-                  color: KColors.base300,
                   decoration: BoxDecoration(
+                    color: KColors.base300,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),

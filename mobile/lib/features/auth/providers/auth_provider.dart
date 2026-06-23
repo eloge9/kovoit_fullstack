@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
@@ -134,13 +135,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<bool> changerMode(String mode) async {
     try {
+      debugPrint('[Auth] Switch vers: $mode');
       final res = await _repo.changerMode(mode);
       final utilisateurJson = res['utilisateur'] as Map<String, dynamic>?;
-      if (utilisateurJson != null && state.user != null) {
+      if (utilisateurJson != null) {
         state = state.copyWith(user: UserModel.fromJson(utilisateurJson));
+      } else if (state.user != null) {
+        state = state.copyWith(user: state.user!.copyWith(modeCourant: mode));
       }
+      await StorageService.saveActiveMode(mode);
+      debugPrint('[Auth] Mode sauvegardé: $mode');
       return true;
     } catch (e) {
+      debugPrint('[Auth] Erreur changerMode: $e');
       state = state.copyWith(error: _parseError(e));
       return false;
     }

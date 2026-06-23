@@ -94,8 +94,17 @@ class _ConducteurShellState extends ConsumerState<ConducteurShell> {
         },
         onPasserEnPassager: () async {
           Navigator.of(sheetCtx).pop();
-          await ref.read(authProvider.notifier).changerMode('passager');
-          if (shellCtx.mounted) { shellCtx.go('/passager'); }
+          final ok = await ref.read(authProvider.notifier).changerMode('passager');
+          if (!shellCtx.mounted) return;
+          if (ok) {
+            debugPrint('[ConducteurShell] Switch → passager OK');
+            shellCtx.go('/passager');
+          } else {
+            final err = ref.read(authProvider).error ?? 'Impossible de passer en mode passager.';
+            ScaffoldMessenger.of(shellCtx).showSnackBar(
+              SnackBar(content: Text(err), backgroundColor: Colors.red.shade700),
+            );
+          }
         },
         onLogout: () {
           Navigator.of(sheetCtx).pop();

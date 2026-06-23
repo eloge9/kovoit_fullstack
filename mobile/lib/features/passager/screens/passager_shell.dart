@@ -89,6 +89,20 @@ class _PassagerShellState extends ConsumerState<PassagerShell> {
           Navigator.of(sheetCtx).pop();
           _goToTab(shellCtx, index);
         },
+        onPasserEnConducteur: () async {
+          Navigator.of(sheetCtx).pop();
+          final ok = await ref.read(authProvider.notifier).changerMode('conducteur');
+          if (!shellCtx.mounted) return;
+          if (ok) {
+            debugPrint('[PassagerShell] Switch → conducteur OK');
+            shellCtx.go('/conducteur');
+          } else {
+            final err = ref.read(authProvider).error ?? 'Impossible de passer en mode conducteur.';
+            ScaffoldMessenger.of(shellCtx).showSnackBar(
+              SnackBar(content: Text(err), backgroundColor: Colors.red.shade700),
+            );
+          }
+        },
         onLogout: () {
           Navigator.of(sheetCtx).pop();
           ref.read(authProvider.notifier).deconnexion().then((_) {
@@ -349,18 +363,20 @@ class _AccountMenuSheet extends StatelessWidget {
   final UserModel? user;
   final void Function(String) onNavigate;
   final void Function(int) onSwitchTab;
+  final Future<void> Function() onPasserEnConducteur;
   final VoidCallback onLogout;
 
   const _AccountMenuSheet({
     required this.user,
     required this.onNavigate,
     required this.onSwitchTab,
+    required this.onPasserEnConducteur,
     required this.onLogout,
   });
 
   @override
   Widget build(BuildContext context) {
-    final canBecomeDriver = !(user?.peutConduire ?? false);
+    final isConducteur = user?.peutBasculerEnConducteur ?? false;
 
     return Container(
       decoration: const BoxDecoration(
@@ -465,7 +481,14 @@ class _AccountMenuSheet extends StatelessWidget {
             label: 'Mes évaluations',
             onTap: () => onNavigate('/passager/evaluations'),
           ),
-          if (canBecomeDriver)
+          if (isConducteur)
+            _MenuItem(
+              icon: Icons.swap_horiz_rounded,
+              label: 'Passer en mode Conducteur',
+              onTap: onPasserEnConducteur,
+              highlight: true,
+            )
+          else
             _MenuItem(
               icon: Icons.drive_eta_outlined,
               label: 'Devenir conducteur',

@@ -30,6 +30,21 @@ class ApiConstants {
     // serverUrl ex: 'http://192.168.1.100:8000'
     baseUrl = '$serverUrl/api';
     wsBaseUrl = '${serverUrl.replaceFirst('http://', 'ws://')}/ws';
+    _serverBase = serverUrl;
+  }
+
+  // Base du serveur sans '/api' (pour construire les URLs media)
+  static String _serverBase = 'http://192.168.1.1:8000';
+
+  /// Construit une URL absolue pour un fichier media Django.
+  /// Django retourne des chemins relatifs comme /media/photos/xxx.jpg
+  static String buildMediaUrl(String? path) {
+    if (path == null || path.isEmpty) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    final base = _serverBase.isEmpty
+        ? baseUrl.replaceFirst(RegExp(r'/api$'), '')
+        : _serverBase;
+    return '$base$path';
   }
 
   // Auth

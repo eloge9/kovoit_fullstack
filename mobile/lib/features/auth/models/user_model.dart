@@ -12,6 +12,7 @@ class UserModel {
   final String? photoPermis;
   final String statutValidation;
   final bool peutConduire;
+  final bool isDriver;
   final String? contactUrgenceNom;
   final String? contactUrgenceTelephone;
   final String? modeCourant;
@@ -33,6 +34,7 @@ class UserModel {
     this.photoPermis,
     this.statutValidation = 'non_soumis',
     this.peutConduire = false,
+    this.isDriver = false,
     this.contactUrgenceNom,
     this.contactUrgenceTelephone,
     this.modeCourant,
@@ -58,6 +60,7 @@ class UserModel {
       photoPermis:            json['photo_permis'],
       statutValidation:       json['statut_validation'] ?? 'non_soumis',
       peutConduire:           json['peut_conduire'] ?? false,
+      isDriver:               json['is_driver'] ?? false,
       contactUrgenceNom:      json['contact_urgence_nom'],
       contactUrgenceTelephone:json['contact_urgence_telephone'],
       modeCourant:            json['mode_courant'],
@@ -88,7 +91,7 @@ class UserModel {
     String? id, String? username, String? email, String? role,
     String? firstName, String? lastName, String? phoneNumber,
     String? photoProfile, double? note, String? photoCNI, String? photoPermis,
-    String? statutValidation, bool? peutConduire,
+    String? statutValidation, bool? peutConduire, bool? isDriver,
     String? contactUrgenceNom, String? contactUrgenceTelephone,
     String? modeCourant, String? numeroPermis, int? experienceAnnees,
     String? driverStatus,
@@ -107,6 +110,7 @@ class UserModel {
       photoPermis:            photoPermis ?? this.photoPermis,
       statutValidation:       statutValidation ?? this.statutValidation,
       peutConduire:           peutConduire ?? this.peutConduire,
+      isDriver:               isDriver ?? this.isDriver,
       contactUrgenceNom:      contactUrgenceNom ?? this.contactUrgenceNom,
       contactUrgenceTelephone:contactUrgenceTelephone ?? this.contactUrgenceTelephone,
       modeCourant:            modeCourant ?? this.modeCourant,
@@ -116,6 +120,8 @@ class UserModel {
     );
   }
 
+  // Peut conduire = validé OU a déjà un profil conducteur
+  bool get peutBasculerEnConducteur => peutConduire || isDriver || role == 'conducteur';
   bool get isConducteur => role == 'conducteur' || peutConduire;
   bool get isPassager   => role == 'passager';
   bool get isAdmin      => role == 'admin';

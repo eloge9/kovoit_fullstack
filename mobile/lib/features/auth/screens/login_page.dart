@@ -9,6 +9,7 @@ import '../../../core/widgets/k_button.dart';
 import '../../../core/widgets/k_text_field.dart';
 import '../../../core/widgets/k_alert.dart';
 import '../../../core/widgets/k_section_header.dart';
+import '../../../core/services/storage_service.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
@@ -22,7 +23,25 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
+  bool _rememberMe = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final saved = await StorageService.getSavedCredentials();
+    if (saved != null && mounted) {
+      setState(() {
+        _emailCtrl.text = saved.email;
+        _passwordCtrl.text = saved.password;
+        _rememberMe = true;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -35,13 +54,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _error = null);
 
+    final email = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text;
+
     final success = await ref
         .read(authProvider.notifier)
-        .connexion(email: _emailCtrl.text.trim(), password: _passwordCtrl.text);
+        .connexion(email: email, password: password);
 
     if (!mounted) return;
 
     if (success) {
+      if (_rememberMe) {
+        await StorageService.saveCredentials(email, password);
+      } else {
+        await StorageService.clearSavedCredentials();
+      }
+
+      if (!mounted) return;
       final user = ref.read(authProvider).user;
       if (user?.role == 'conducteur') {
         context.go('/conducteur');
@@ -191,6 +220,35 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: KSpacing.md),
+
+                      // Se souvenir de moi
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: Checkbox(
+                              value: _rememberMe,
+                              onChanged: (v) =>
+                                  setState(() => _rememberMe = v ?? false),
+                              activeColor: KColors.primary,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          const SizedBox(width: KSpacing.sm),
+                          GestureDetector(
+                            onTap: () =>
+                                setState(() => _rememberMe = !_rememberMe),
+                            child: Text(
+                              'Se souvenir de moi',
+                              style: KTextStyles.bodySm,
+                            ),
+                          ),
+                        ],
+                      ),
+
                       const SizedBox(height: KSpacing.xl),
 
                       // Bouton connexion
