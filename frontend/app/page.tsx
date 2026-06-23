@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import logoSrc from "@/public/logo/logo1.png";
 
 // ── Hook animation au scroll ──────────────────────────────────────────────
 function useInView(threshold = 0.15) {
@@ -139,7 +139,7 @@ export default function LandingPage() {
       <header className="fixed top-0 left-0 right-0 z-50 bg-base-100/90 backdrop-blur-sm border-b border-base-200">
         <div className="max-w-6xl mx-auto px-4 lg:px-8 flex items-center justify-between h-14">
           <Link href="/" className="flex items-center gap-2">
-            <Image src="/logo/logo1.png" alt="KoVoit" width={28} height={28} />
+            <img src={logoSrc.src} alt="KoVoit" width={28} height={28} className="object-contain" />
             <span className="font-bold text-base tracking-tight text-base-content">KoVoit</span>
           </Link>
           <nav className="hidden md:flex items-center gap-6">
@@ -550,7 +550,7 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-3 gap-8 mb-10">
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Image src="/logo/logo1.png" alt="KoVoit" width={24} height={24} />
+                <img src={logoSrc.src} alt="KoVoit" width={24} height={24} className="object-contain" />
                 <span className="font-bold text-base-content">KoVoit</span>
               </div>
               <p className="text-sm text-base-content/40 leading-relaxed">

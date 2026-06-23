@@ -24,10 +24,10 @@ class AppConstants {
   static const String paiementConfirme = 'CONFIRME';
   static const String paiementAnnule = 'ANNULE';
 
-  // Moyens de paiement
+  // Moyens de paiement — PayPlus Africa
   static const String paiementEspeces = 'ESPECE';
-  static const String paiementFlooz = 'FLOOZ';
-  static const String paiementTmoney = 'TMONEY';
+  static const String paiementFlooz   = 'FLOOZ';   // Moov Flooz (Moov Togo)
+  static const String paiementYas     = 'YAS';     // Mixx by Yas (Yas Togo)
 
   // Statuts validation documents
   static const String validNonSoumis = 'non_soumis';

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import logoSrc from "@/public/logo/logo1.png";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/src/hooks/useAuth";
 import { deconnexion } from "@/src/services/auth.service";
@@ -76,7 +76,7 @@ export default function CommunicationLayout({ children }: { children: React.Reac
 
                         {/* Logo */}
                         <Link href={dashHref} className="flex items-center gap-3 shrink-0">
-                            <Image src="/logo/logo1.png" alt="KoVoit" width={28} height={28} />
+                            <img src={logoSrc.src} alt="KoVoit" width={28} height={28} className="object-contain" />
                             <div className="flex items-center gap-2">
                                 <span className="font-bold text-base text-base-content tracking-tight">KoVoit</span>
                                 <span className="hidden sm:block text-xs text-base-content/30 font-normal border-l border-base-300 pl-2 capitalize">

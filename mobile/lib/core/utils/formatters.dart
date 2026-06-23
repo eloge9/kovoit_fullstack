@@ -71,16 +71,12 @@ class Formatters {
 
   static String reservationStatutLabel(String statut) {
     switch (statut) {
-      case 'en_attente':
-        return 'En attente';
-      case 'confirmee':
-        return 'Confirmée';
-      case 'declinee':
-        return 'Déclinée';
-      case 'terminee':
-        return 'Terminée';
-      default:
-        return capitalize(statut);
+      case 'en_attente': return 'En attente';
+      case 'confirmee':  return 'Confirmée';
+      case 'declinee':   return 'Déclinée';
+      case 'terminee':   return 'Terminée';
+      case 'annulee':    return 'Annulée';
+      default:           return capitalize(statut);
     }
   }
 }

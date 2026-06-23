@@ -72,7 +72,7 @@ class StatistiqueConducteurView(APIView):
             fin = date(annee, 12, 31)
         
         # Calculer les revenus depuis les paiements
-        # CONFIRME (espèces/mobile) → date_confirmation ; PAYEE (PayGate) → date_payement
+        # CONFIRME (espèces) → date_confirmation ; PAYEE (Mobile Money PayPlus) → date_payement
         paiements = Paiement.objects.filter(
             conducteur=conducteur,
             statut__in=[Paiement.Statut.CONFIRME, Paiement.Statut.PAYEE],

@@ -56,6 +56,8 @@ import '../features/notifications/screens/notifications_page.dart';
 import '../features/reservations/screens/code_embarquement_page.dart';
 import '../features/reservations/screens/embarquement_conducteur_page.dart';
 import '../features/settings/screens/server_settings_screen.dart';
+import '../features/verification/screens/driver_status_page.dart';
+import '../features/verification/screens/document_upload_page.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -156,6 +158,8 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (_, _) => const ReservationsPage(isConducteur: true, hideAppBar: true)),
           GoRoute(path: '/conducteur/messages',
               builder: (_, _) => const MessageriePage(hideAppBar: true)),
+          GoRoute(path: '/conducteur/statut',
+              builder: (_, _) => const DriverStatusPage()),
         ],
       ),
 
@@ -304,6 +308,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),
       GoRoute(path: '/conducteur/embarquement',    builder: (_, _) => const EmbarquementConducteurPage()),
+      GoRoute(path: '/conducteur/dossier',         builder: (_, _) => const DocumentUploadPage()),
     ],
 
     errorBuilder: (context, state) => Scaffold(

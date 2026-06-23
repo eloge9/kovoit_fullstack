@@ -139,12 +139,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final res = await _repo.changerMode(mode);
       final utilisateurJson = res['utilisateur'] as Map<String, dynamic>?;
       if (utilisateurJson != null) {
-        state = state.copyWith(user: UserModel.fromJson(utilisateurJson));
+        // Le backend ne change plus le rôle permanent.
+        // On met à jour l'état local avec le mode courant pour la session.
+        final userFromServer = UserModel.fromJson(utilisateurJson);
+        // 'role' côté serveur = rôle permanent. Pour la navigation en session,
+        // on surcharge localement avec le mode choisi (sans toucher au rôle DB).
+        state = state.copyWith(
+          user: userFromServer.copyWith(modeCourant: mode),
+        );
       } else if (state.user != null) {
         state = state.copyWith(user: state.user!.copyWith(modeCourant: mode));
       }
       await StorageService.saveActiveMode(mode);
-      debugPrint('[Auth] Mode sauvegardé: $mode');
+      debugPrint('[Auth] Mode actif: $mode');
       return true;
     } catch (e) {
       debugPrint('[Auth] Erreur changerMode: $e');

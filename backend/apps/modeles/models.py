@@ -91,6 +91,12 @@ class Utilisateur(AbstractUser):
         blank=True,
     )
 
+    # --- Mode courant (passager / conducteur) —— ne modifie pas le rôle principal ---
+    mode_courant = models.CharField(
+        max_length=20, blank=True, null=True,
+        choices=[('passager', 'Passager'), ('conducteur', 'Conducteur')],
+    )
+
     # --- Contact d'urgence (obligatoire pour le bouton SOS) ---
     contact_urgence_nom       = models.CharField(max_length=100, blank=True, default='')
     contact_urgence_telephone = models.CharField(max_length=20,  blank=True, default='')
@@ -220,10 +226,12 @@ class Trajet(models.Model):
 
     def clean(self):
         """Validations additionnelles"""
-        if self.date_heure_depart <= timezone.now():
-            raise ValidationError("Le départ doit être dans le futur.")
-        if self.date_heure_depart > timezone.now() + timezone.timedelta(days=180):
-            raise ValidationError("Le départ ne peut pas être plus de 6 mois à l'avance.")
+        # Ne valider la date que lors de la création (pas lors d'une mise à jour de statut)
+        if not self.pk:
+            if self.date_heure_depart <= timezone.now():
+                raise ValidationError("Le départ doit être dans le futur.")
+            if self.date_heure_depart > timezone.now() + timezone.timedelta(days=180):
+                raise ValidationError("Le départ ne peut pas être plus de 6 mois à l'avance.")
 
     def save(self, *args, **kwargs):
         # Valider avant de sauvegarder
@@ -361,13 +369,12 @@ class Reservation(models.Model):
 # ----------------- Paiement -----------------
 class Paiement(models.Model):
     class Statut(models.TextChoices):
-        EN_ATTENTE_CONFIRMATION = "EN_ATTENTE_CONFIRMATION"
-        CONFIRME = "CONFIRME"
-        ANNULE = "ANNULE"
-        # Anciens statuts pour compatibilité mobile money
-        EN_ATTENTE = "EN_ATTENTE"  # Pour mobile money
-        PAYEE = "PAYEE"           # Pour mobile money
-        ECHOUEE = "ECHOUEE"       # Pour mobile money
+        EN_ATTENTE_CONFIRMATION = "EN_ATTENTE_CONFIRMATION"  # Espèces : en attente conducteur
+        EN_ATTENTE = "EN_ATTENTE"                            # Mobile Money : push envoyé
+        PAYEE      = "PAYEE"                                 # Mobile Money : confirmé par PayPlus
+        CONFIRME   = "CONFIRME"                              # Espèces : confirmé par conducteur
+        ECHOUEE    = "ECHOUEE"                               # Mobile Money : échec/timeout
+        ANNULE     = "ANNULE"                                # Annulé par le passager
     
     reservation = models.OneToOneField(Reservation, on_delete=models.CASCADE, related_name='paiement')
     passager = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements", null=True, blank=True)

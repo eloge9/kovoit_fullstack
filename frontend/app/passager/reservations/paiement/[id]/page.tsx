@@ -7,13 +7,23 @@ import {
     initierPaiement,
     verifierPaiement,
     initierPaiementEspeces,
+    annulerPaiement,
     getStatutPaiementReservation,
+    OPERATEURS_MOBILE_MONEY,
+    type OperateurMobileMoney,
     type PaiementStatut,
     type PaiementReservationResponse,
 } from "@/src/services/paiement.service";
 
+type Methode = "mobile" | "especes";
+
+const ICONS = {
+    FLOOZ: "🔵",
+    YAS:   "🟡",
+};
+
 export default function PaiementPage() {
-    const { id } = useParams(); // reservation_id
+    const { id } = useParams();
     const router = useRouter();
 
     const [reservation, setReservation] = useState<any>(null);
@@ -21,46 +31,37 @@ export default function PaiementPage() {
     const [paying, setPaying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Formulaire paiement mobile
-    const [network, setNetwork] = useState<"FLOOZ" | "TMONEY">("FLOOZ");
+    const [methode, setMethode] = useState<Methode>("mobile");
+    const [network, setNetwork] = useState<OperateurMobileMoney>("FLOOZ");
     const [phone, setPhone] = useState("");
-    const [methode, setMethode] = useState<"mobile" | "especes">("mobile");
 
-    // État du paiement espèces
+    // État espèces
     const [paiementEspeces, setPaiementEspeces] = useState<PaiementReservationResponse | null>(null);
     const [loadingEspeces, setLoadingEspeces] = useState(false);
 
-    // État après initiation mobile money
-    const [identifier, setIdentifier] = useState<string | null>(null);
-    const [txReference, setTxReference] = useState<string | null>(null);
-    const [statut, setStatut] = useState<PaiementStatut | null>(null);
+    // État après initiation Mobile Money
+    const [token, setToken]       = useState<string | null>(null);
+    const [transref, setTransref] = useState<string | null>(null);
+    const [statut, setStatut]     = useState<PaiementStatut | null>(null);
     const [verifying, setVerifying] = useState(false);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Chargement réservation + statut paiement existant
     useEffect(() => {
         const fetch = async () => {
             try {
                 const data = await api(`/reservations/${id}/detail/`, "GET");
                 setReservation(data);
-
-                // Vérifier le statut de paiement
                 try {
-                    const paiementStatut = await getStatutPaiementReservation(Number(id));
-                    console.log("Statut paiement récupéré:", paiementStatut);
-                    setPaiementEspeces(paiementStatut);
+                    const pmt = await getStatutPaiementReservation(Number(id));
+                    setPaiementEspeces(pmt);
                 } catch (err: any) {
-                    console.error("Erreur lors de la récupération du statut de paiement:", err);
-                    // Si erreur 401/403, on ne réinitialise pas le statut
-                    if (err.response?.status === 401 || err.response?.status === 403) {
-                        console.warn("Erreur d'authentification - statut non mis à jour");
-                        // On ne met pas à null pour éviter de permettre un double paiement
-                        return;
+                    if (err.response?.status !== 404) {
+                        console.error("Statut paiement:", err);
                     }
-                    // Pour les autres erreurs (404), on considère qu'il n'y a pas de paiement
                     setPaiementEspeces(null);
                 }
             } catch {
-                // Fallback — charger depuis mes_reservations
                 const all = await api("/reservations/mes_reservations/", "GET");
                 const r = all.find((r: any) => r.id === Number(id));
                 setReservation(r || null);
@@ -71,25 +72,17 @@ export default function PaiementPage() {
         if (id) fetch();
     }, [id]);
 
-    // Polling toutes les 5 secondes après initiation mobile money
+    // Polling toutes les 5 s après initiation Mobile Money
     useEffect(() => {
-        if (!identifier) return;
-        intervalRef.current = setInterval(async () => {
-            await handleVerifier(false);
-        }, 5000);
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
-    }, [identifier]);
+        if (!token) return;
+        intervalRef.current = setInterval(() => handleVerifier(false), 5000);
+        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    }, [token]);
 
-    // Arrêter le polling si paiement mobile money terminé
+    // Arrêter le polling dès confirmation / échec
     useEffect(() => {
         if (statut?.statut === "payee" || statut?.statut === "echouee") {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
+            if (intervalRef.current) clearInterval(intervalRef.current);
         }
     }, [statut]);
 
@@ -101,11 +94,11 @@ export default function PaiementPage() {
         try {
             const data = await initierPaiement({
                 reservation_id: Number(id),
-                phone_number: phone,
+                phone_number: phone.replace(/\s/g, ""),
                 network,
             });
-            setIdentifier(data.identifier);
-            setTxReference(data.tx_reference);
+            setToken(data.token);
+            setTransref(data.transref);
         } catch (err: any) {
             setError(err.response?.data?.error || "Erreur lors de l'initiation du paiement.");
         } finally {
@@ -114,84 +107,56 @@ export default function PaiementPage() {
     };
 
     const handleVerifier = async (manuel = true) => {
-        if (!identifier) return;
+        if (!token) return;
         if (manuel) setVerifying(true);
         try {
-            const data = await verifierPaiement(identifier);
+            const data = await verifierPaiement(token);
             setStatut(data);
-            if (data.statut === "payee") {
-                if (intervalRef.current) {
-                    clearInterval(intervalRef.current);
-                }
-            }
         } catch {
-            // Silencieux pour le polling automatique
+            // Silencieux pour le polling
         } finally {
             if (manuel) setVerifying(false);
         }
     };
 
-    const handleInitierEspeces = async () => {
-        setLoadingEspeces(true);
+    const handleAnnuler = async () => {
+        if (!token) return;
+        try {
+            await annulerPaiement(Number(id));
+        } catch {
+            // ignore
+        }
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        setToken(null);
+        setTransref(null);
+        setStatut(null);
         setError(null);
+    };
 
-        // Double protection : vérifier localement si un paiement existe déjà
-        if (paiementEspeces && paiementEspeces.statut !== 'ANNULE') {
+    const handleInitierEspeces = async () => {
+        if (paiementEspeces && paiementEspeces.statut !== "ANNULE") {
             setError("Un paiement existe déjà pour cette réservation.");
-            setLoadingEspeces(false);
             return;
         }
-
+        setLoadingEspeces(true);
+        setError(null);
         try {
-            const data = await initierPaiementEspeces({
-                reservation_id: Number(id),
-            });
+            const data = await initierPaiementEspeces({ reservation_id: Number(id) });
             setPaiementEspeces({
                 paiement_id: data.paiement_id,
                 statut: data.statut,
-                moyen_paiement: 'ESPECE',
+                moyen_paiement: "ESPECE",
                 montant: data.montant,
                 date_creation: new Date().toISOString(),
             });
         } catch (err: any) {
-            setError(err.response?.data?.error || "Erreur lors de l'initiation du paiement en espèces.");
+            setError(err.response?.data?.error || "Erreur lors du paiement en espèces.");
         } finally {
             setLoadingEspeces(false);
         }
     };
 
-    // Rendu du statut de paiement espèces
-    const renderStatutEspeces = () => {
-        if (!paiementEspeces) return null;
-
-        switch (paiementEspeces.statut) {
-            case 'EN_ATTENTE_CONFIRMATION':
-                return (
-                    <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-warning animate-pulse" />
-                            <p className="text-sm font-medium text-base-content">
-                                🔵 En attente de confirmation du conducteur
-                            </p>
-                        </div>
-                    </div>
-                );
-            case 'CONFIRME':
-                return (
-                    <div className="bg-success/10 border border-success/20 rounded-xl px-4 py-3">
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-success" />
-                            <p className="text-sm font-medium text-base-content">
-                                🟢 Paiement confirmé
-                            </p>
-                        </div>
-                    </div>
-                );
-            default:
-                return null;
-        }
-    };
-
+    // ── Loading ──────────────────────────────────────────────────────────────
     if (loading) {
         return (
             <div className="max-w-lg mx-auto space-y-4 animate-pulse pt-8">
@@ -205,17 +170,15 @@ export default function PaiementPage() {
         return (
             <div className="max-w-lg mx-auto py-16 text-center">
                 <p className="text-base-content/40">Réservation introuvable.</p>
-                <button onClick={() => router.back()} className="btn btn-ghost btn-sm rounded-full mt-4">
-                    Retour
-                </button>
+                <button onClick={() => router.back()} className="btn btn-ghost btn-sm rounded-full mt-4">Retour</button>
             </div>
         );
     }
 
-    const montant = Number(reservation.prix_par_place);
+    const montant    = Number(reservation.prix_par_place) * (reservation.places_reservees || 1);
     const commission = Math.round(montant * 0.10);
 
-    // ── Écran succès ──────────────────────────────────────────────────────
+    // ── Succès Mobile Money ───────────────────────────────────────────────────
     if (statut?.statut === "payee") {
         return (
             <div className="max-w-lg mx-auto py-16 text-center space-y-5">
@@ -225,38 +188,33 @@ export default function PaiementPage() {
                     </svg>
                 </div>
                 <div>
-                    <h2 className="text-2xl font-bold text-base-content">Paiement réussi</h2>
+                    <h2 className="text-2xl font-bold text-base-content">Paiement réussi !</h2>
                     <p className="text-base-content/50 text-sm mt-1">
-                        {montant.toLocaleString("fr-FR")} FCFA débités via {statut.payment_method}
+                        {montant.toLocaleString("fr-FR")} FCFA débités via {OPERATEURS_MOBILE_MONEY[network]?.label}
                     </p>
                 </div>
-                {statut.payment_reference && (
+                {statut.token && (
                     <div className="bg-base-200 rounded-xl px-4 py-3">
                         <p className="text-xs text-base-content/40 uppercase tracking-wide">Référence de paiement</p>
-                        <p className="text-sm font-mono font-semibold text-base-content mt-1">
-                            {statut.payment_reference}
-                        </p>
+                        <p className="text-sm font-mono font-semibold text-base-content mt-1">{statut.token}</p>
                     </div>
                 )}
-                <div className="flex gap-3 justify-center pt-2">
-                    <button
-                        onClick={() => router.push("/passager/reservations")}
-                        className="btn btn-primary rounded-full px-6"
-                    >
-                        Mes réservations
-                    </button>
-                </div>
+                <button
+                    onClick={() => router.push("/passager/reservations")}
+                    className="btn btn-primary rounded-full px-8"
+                >
+                    Voir mes réservations
+                </button>
             </div>
         );
     }
 
     return (
-        <div className="max-w-lg mx-auto space-y-6">
+        <div className="max-w-lg mx-auto space-y-6 pb-10">
 
             {/* EN-TÊTE */}
             <div className="flex items-center gap-3 pb-4 border-b border-base-300">
-                <button onClick={() => router.back()}
-                    className="btn btn-ghost btn-sm btn-square rounded-xl">
+                <button onClick={() => router.back()} className="btn btn-ghost btn-sm btn-square rounded-xl">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
@@ -269,13 +227,14 @@ export default function PaiementPage() {
                 </div>
             </div>
 
-            {/* RÉSUMÉ */}
+            {/* RÉSUMÉ MONTANT */}
             <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden">
                 <div className="divide-y divide-base-200">
                     {[
-                        { label: "Prix par place", value: `${montant.toLocaleString("fr-FR")} FCFA` },
-                        { label: "Commission KoVoit", value: `${commission.toLocaleString("fr-FR")} FCFA` },
-                        { label: "Conducteur reçoit", value: `${(montant - commission).toLocaleString("fr-FR")} FCFA` },
+                        { label: "Places réservées", value: `${reservation.places_reservees || 1}` },
+                        { label: "Prix par place",   value: `${Number(reservation.prix_par_place).toLocaleString("fr-FR")} FCFA` },
+                        { label: "Commission KoVoit (10%)", value: `${commission.toLocaleString("fr-FR")} FCFA` },
+                        { label: "Conducteur reçoit",       value: `${(montant - commission).toLocaleString("fr-FR")} FCFA` },
                     ].map((item) => (
                         <div key={item.label} className="flex justify-between items-center px-5 py-3">
                             <span className="text-xs text-base-content/40 uppercase tracking-wide">{item.label}</span>
@@ -285,40 +244,33 @@ export default function PaiementPage() {
                 </div>
                 <div className="px-5 py-4 bg-primary/5 border-t border-primary/10 flex items-center justify-between">
                     <span className="text-sm font-medium text-base-content/60">Total à payer</span>
-                    <span className="text-2xl font-bold text-primary">
-                        {montant.toLocaleString("fr-FR")} FCFA
-                    </span>
+                    <span className="text-2xl font-bold text-primary">{montant.toLocaleString("fr-FR")} FCFA</span>
                 </div>
             </div>
 
-            {/* Erreur */}
+            {/* ERREUR */}
             {error && (
                 <div className="bg-error/10 border border-error/20 rounded-xl px-4 py-3">
                     <p className="text-sm text-error">{error}</p>
                 </div>
             )}
 
-            {/* ── Avant initiation — choix méthode ── */}
-            {!identifier && (
+            {/* ── FORMULAIRE — avant initiation ── */}
+            {!token && (
                 <div className="space-y-5">
 
                     {/* Choix méthode */}
                     <div className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
-                        <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                            Méthode de paiement
-                        </p>
+                        <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">Méthode de paiement</p>
                         <div className="grid grid-cols-2 gap-3">
-                            {[
-                                { value: "mobile", label: "Mobile Money" },
-                                { value: "especes", label: "Espèces" },
-                            ].map((m) => (
+                            {(["mobile", "especes"] as Methode[]).map((m) => (
                                 <button
-                                    key={m.value}
+                                    key={m}
                                     type="button"
-                                    onClick={() => setMethode(m.value as any)}
-                                    className={`btn rounded-xl ${methode === m.value ? "btn-primary" : "btn-outline"}`}
+                                    onClick={() => { setMethode(m); setError(null); }}
+                                    className={`btn rounded-xl ${methode === m ? "btn-primary" : "btn-outline"}`}
                                 >
-                                    {m.label}
+                                    {m === "mobile" ? "📱 Mobile Money" : "💵 Espèces"}
                                 </button>
                             ))}
                         </div>
@@ -326,48 +278,53 @@ export default function PaiementPage() {
 
                     {/* Mobile Money */}
                     {methode === "mobile" && (
-                        <form onSubmit={handleInitier} className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-4">
+                        <form onSubmit={handleInitier} className="bg-base-100 rounded-2xl border border-base-200 p-5 space-y-5">
                             <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                                Paiement Mobile Money
+                                Paiement Mobile Money — PayPlus Africa
                             </p>
 
-                            {/* Réseau */}
-                            <div className="form-control">
-                                <label className="label py-1">
-                                    <span className="label-text text-sm font-medium">Réseau</span>
-                                </label>
+                            {/* Choix opérateur */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-base-content">Opérateur</label>
                                 <div className="grid grid-cols-2 gap-3">
-                                    {[
-                                        { value: "FLOOZ", label: "Flooz (Moov)" },
-                                        { value: "TMONEY", label: "Mixx by Yas" },
-                                    ].map((n) => (
+                                    {(Object.keys(OPERATEURS_MOBILE_MONEY) as OperateurMobileMoney[]).map((op) => (
                                         <button
-                                            key={n.value}
+                                            key={op}
                                             type="button"
-                                            onClick={() => setNetwork(n.value as any)}
-                                            className={`btn btn-sm rounded-xl ${network === n.value ? "btn-primary" : "btn-outline"}`}
+                                            onClick={() => setNetwork(op)}
+                                            className={`flex flex-col items-center gap-1 p-4 rounded-xl border-2 transition-all ${
+                                                network === op
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-base-200 bg-base-100 hover:border-base-300"
+                                            }`}
                                         >
-                                            {n.label}
+                                            <span className="text-2xl">{ICONS[op]}</span>
+                                            <span className={`text-sm font-bold ${network === op ? "text-primary" : "text-base-content"}`}>
+                                                {OPERATEURS_MOBILE_MONEY[op].label}
+                                            </span>
+                                            <span className="text-xs text-base-content/40">
+                                                {OPERATEURS_MOBILE_MONEY[op].prefix}
+                                            </span>
                                         </button>
                                     ))}
                                 </div>
                             </div>
 
-                            {/* Numéro */}
-                            <div className="form-control">
-                                <label className="label py-1">
-                                    <span className="label-text text-sm font-medium">Numéro de téléphone</span>
+                            {/* Numéro de téléphone */}
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-base-content">
+                                    Numéro {OPERATEURS_MOBILE_MONEY[network].label}
                                 </label>
                                 <input
                                     type="tel"
-                                    placeholder="ex: 90000000"
+                                    placeholder="ex : 90 00 00 00"
                                     className="input input-bordered rounded-xl w-full"
                                     value={phone}
                                     onChange={(e) => setPhone(e.target.value)}
                                     required
                                 />
-                                <p className="text-xs text-base-content/30 mt-1 ml-1">
-                                    Vous recevrez une notification pour confirmer le paiement
+                                <p className="text-xs text-base-content/30 ml-1">
+                                    Vous recevrez une demande de confirmation sur ce numéro.
                                 </p>
                             </div>
 
@@ -378,7 +335,7 @@ export default function PaiementPage() {
                             >
                                 {paying
                                     ? <span className="loading loading-spinner loading-sm" />
-                                    : `Payer ${montant.toLocaleString("fr-FR")} FCFA`
+                                    : `Payer ${montant.toLocaleString("fr-FR")} FCFA via ${OPERATEURS_MOBILE_MONEY[network].label}`
                                 }
                             </button>
                         </form>
@@ -391,23 +348,29 @@ export default function PaiementPage() {
                                 Paiement en espèces
                             </p>
 
-                            {/* Afficher le statut si paiement existe */}
-                            {paiementEspeces && renderStatutEspeces()}
+                            {paiementEspeces && paiementEspeces.statut === "EN_ATTENTE_CONFIRMATION" && (
+                                <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3 flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-warning animate-pulse" />
+                                    <p className="text-sm font-medium text-base-content">En attente de confirmation du conducteur</p>
+                                </div>
+                            )}
 
-                            {/* Afficher le bouton seulement si aucun paiement n'existe */}
+                            {paiementEspeces && paiementEspeces.statut === "CONFIRME" && (
+                                <div className="bg-success/10 border border-success/20 rounded-xl px-4 py-3 flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-success" />
+                                    <p className="text-sm font-medium text-base-content">Paiement confirmé par le conducteur</p>
+                                </div>
+                            )}
+
                             {!paiementEspeces && (
                                 <>
-                                    <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3">
-                                        <p className="text-sm text-base-content/70">
-                                            Le paiement en espèces se fait directement au conducteur lors du trajet.
-                                            Le conducteur devra confirmer la réception du paiement.
-                                        </p>
-                                    </div>
-                                    <div className="divide-y divide-base-200">
-                                        <div className="flex justify-between py-2">
-                                            <span className="text-xs text-base-content/40 uppercase tracking-wide">À remettre au conducteur</span>
-                                            <span className="text-sm font-bold text-base-content">{montant.toLocaleString("fr-FR")} FCFA</span>
-                                        </div>
+                                    <div className="bg-info/10 border border-info/20 rounded-xl px-4 py-3 text-sm text-base-content/70 space-y-1">
+                                        <p className="font-medium">Comment ça fonctionne :</p>
+                                        <ul className="list-disc list-inside space-y-1 text-xs">
+                                            <li>Vous réservez maintenant sans payer.</li>
+                                            <li>Remettez <strong>{montant.toLocaleString("fr-FR")} FCFA</strong> en espèces au conducteur lors du trajet.</li>
+                                            <li>Le conducteur confirmera la réception.</li>
+                                        </ul>
                                     </div>
                                     <button
                                         onClick={handleInitierEspeces}
@@ -416,7 +379,7 @@ export default function PaiementPage() {
                                     >
                                         {loadingEspeces
                                             ? <span className="loading loading-spinner loading-sm" />
-                                            : "Payer en espèces"
+                                            : "Confirmer le paiement en espèces"
                                         }
                                     </button>
                                 </>
@@ -426,33 +389,47 @@ export default function PaiementPage() {
                 </div>
             )}
 
-            {/* ── Après initiation mobile money — attente confirmation ── */}
-            {identifier && (statut?.statut === "en_attente" || statut?.statut === "echouee") && (
+            {/* ── EN ATTENTE Mobile Money ── */}
+            {token && statut?.statut !== "payee" && (
                 <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-5 text-center">
                     <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mx-auto">
-                        <span className="loading loading-spinner loading-lg text-warning" />
+                        {statut?.statut === "echouee"
+                            ? <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            : <span className="loading loading-spinner loading-lg text-warning" />
+                        }
                     </div>
 
                     <div>
-                        <h2 className="font-semibold text-base-content">En attente de confirmation</h2>
+                        <h2 className="font-semibold text-base-content">
+                            {statut?.statut === "echouee" ? "Paiement échoué" : "En attente de confirmation"}
+                        </h2>
                         <p className="text-sm text-base-content/50 mt-1">
-                            Confirmez le paiement de {montant.toLocaleString("fr-FR")} FCFA
-                            sur votre téléphone {phone}
+                            {statut?.statut === "echouee"
+                                ? statut.message || "Le paiement a échoué. Veuillez réessayer."
+                                : `Confirmez le paiement de ${montant.toLocaleString("fr-FR")} FCFA sur votre téléphone ${phone}`
+                            }
                         </p>
                     </div>
 
-                    {statut?.statut === "echouee" && (
-                        <div className="bg-error/10 border border-error/20 rounded-xl px-4 py-3">
-                            <p className="text-sm text-error">{statut.message}</p>
+                    {/* Opérateur et référence */}
+                    <div className="bg-base-200 rounded-xl px-4 py-3 space-y-1 text-left">
+                        <div className="flex justify-between text-xs">
+                            <span className="text-base-content/40">Opérateur</span>
+                            <span className="font-medium">{ICONS[network]} {OPERATEURS_MOBILE_MONEY[network].label}</span>
                         </div>
-                    )}
-
-                    {txReference && (
-                        <div className="bg-base-200 rounded-xl px-4 py-2">
-                            <p className="text-xs text-base-content/40">Référence transaction</p>
-                            <p className="text-xs font-mono text-base-content">{txReference}</p>
+                        <div className="flex justify-between text-xs">
+                            <span className="text-base-content/40">Montant</span>
+                            <span className="font-medium">{montant.toLocaleString("fr-FR")} FCFA</span>
                         </div>
-                    )}
+                        {transref && (
+                            <div className="flex justify-between text-xs">
+                                <span className="text-base-content/40">Référence</span>
+                                <span className="font-mono text-base-content/70">{transref}</span>
+                            </div>
+                        )}
+                    </div>
 
                     <div className="flex gap-3">
                         <button
@@ -462,20 +439,22 @@ export default function PaiementPage() {
                         >
                             {verifying
                                 ? <span className="loading loading-spinner loading-sm" />
-                                : "Vérifier le paiement"
+                                : "Vérifier le statut"
                             }
                         </button>
                         <button
-                            onClick={() => { setIdentifier(null); setStatut(null); setError(null); }}
+                            onClick={handleAnnuler}
                             className="btn btn-ghost rounded-full border border-base-300"
                         >
                             Annuler
                         </button>
                     </div>
 
-                    <p className="text-xs text-base-content/30">
-                        Vérification automatique toutes les 5 secondes...
-                    </p>
+                    {statut?.statut !== "echouee" && (
+                        <p className="text-xs text-base-content/30">
+                            Vérification automatique toutes les 5 secondes…
+                        </p>
+                    )}
                 </div>
             )}
 

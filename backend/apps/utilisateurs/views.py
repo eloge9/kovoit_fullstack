@@ -107,15 +107,25 @@ class AuthViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['post'])
     def refresh(self, request):
-        """Renouvelle l'access token via le refresh token."""
+        """Renouvelle l'access token via le refresh token (avec rotation)."""
+        refresh_str = request.data.get("refresh")
+        if not refresh_str:
+            return Response({"error": "Refresh token requis."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            refresh_token = request.data.get("refresh")
-            token = RefreshToken(refresh_token)
+            token = RefreshToken(refresh_str)
+            # Blackliste l'ancien token puis génère un nouveau refresh token
+            try:
+                token.blacklist()
+            except AttributeError:
+                pass
+            token.set_jti()
+            token.set_exp()
             return Response({
-                "access": str(token.access_token)
+                "access":  str(token.access_token),
+                "refresh": str(token),
             }, status=status.HTTP_200_OK)
         except Exception:
-            return Response({"error": "Refresh token invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Refresh token invalide ou expiré."}, status=status.HTTP_401_UNAUTHORIZED)
 
     @action(detail=False, methods=['post'], url_path='demander-code')
     def demander_code(self, request):
@@ -441,55 +451,57 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'], url_path='changer-mode')
     def changer_mode(self, request):
         """
-        Conducteur → Passager : toujours autorisé (1 clic).
-        Passager → Conducteur : autorisé si peut_conduire=True (validé)
-                                 OU si un profil conducteur existe (en cours de validation).
-        Retourne de nouveaux tokens JWT avec le rôle mis à jour.
+        Bascule le mode courant sans changer le rôle permanent.
+        → Conducteur mode : autorisé si role='conducteur' OU peut_conduire OU profil conducteur.
+        → Passager mode   : toujours autorisé si l'utilisateur a des droits conducteur.
+        Le champ 'role' n'est jamais modifié ici ; seul 'mode_courant' change.
         """
         user = request.user
         Role = Utilisateur.Role
 
-        if user.role == Role.CONDUCTEUR:
-            # Conducteur → Passager : toujours permis
-            if not hasattr(user, 'profil_passager'):
-                Passager.objects.create(utilisateur=user)
-            user.role = Role.PASSAGER
-            user.save(update_fields=['role'])
-            tokens = get_tokens(user)
-            return Response({
-                "message": "Mode passager activé.",
-                "role": user.role,
-                "tokens": tokens,
-                "utilisateur": UtilisateurSerializer(user).data,
-            })
+        nouveau_mode = request.data.get('mode', '')
+        if nouveau_mode not in ('passager', 'conducteur'):
+            return Response(
+                {"error": "Mode invalide. Utilisez 'passager' ou 'conducteur'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        elif user.role == Role.PASSAGER:
-            # Passager → Conducteur : validé OU profil en cours
-            has_driver_profile = hasattr(user, 'driver_profile') or hasattr(user, 'profil_conducteur')
-            if not user.peut_conduire and not has_driver_profile:
+        has_driver_profile = hasattr(user, 'driver_profile') or hasattr(user, 'profil_conducteur')
+        has_driver_access = (
+            user.role == Role.CONDUCTEUR or
+            user.peut_conduire or
+            has_driver_profile
+        )
+
+        if nouveau_mode == 'conducteur':
+            if not has_driver_access:
                 return Response(
                     {"error": "Vous devez d'abord soumettre un dossier conducteur.", "code": "NO_DRIVER_PROFILE"},
                     status=status.HTTP_403_FORBIDDEN
                 )
-            if not hasattr(user, 'profil_conducteur'):
-                return Response(
-                    {"error": "Profil conducteur introuvable. Soumettez d'abord un dossier.", "code": "NO_DRIVER_PROFILE"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            user.role = Role.CONDUCTEUR
-            user.save(update_fields=['role'])
-            tokens = get_tokens(user)
-            return Response({
-                "message": "Mode conducteur activé.",
-                "role": user.role,
-                "tokens": tokens,
-                "utilisateur": UtilisateurSerializer(user).data,
-            })
+            # Créer le profil passager si manquant (peut être utile côté passager)
+            if not hasattr(user, 'profil_passager'):
+                Passager.objects.create(utilisateur=user)
 
-        return Response(
-            {"error": "Rôle non supporté pour le basculement."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        elif nouveau_mode == 'passager':
+            if not has_driver_access:
+                return Response(
+                    {"error": "Basculement non autorisé."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # Ne change pas role — met à jour uniquement mode_courant
+        user.mode_courant = nouveau_mode
+        user.save(update_fields=['mode_courant'])
+
+        tokens = get_tokens(user)
+        return Response({
+            "message": f"Mode {nouveau_mode} activé.",
+            "mode": nouveau_mode,
+            "role": user.role,
+            "tokens": tokens,
+            "utilisateur": UtilisateurSerializer(user).data,
+        })
 
     # ── Désactiver un véhicule ────────────────────────────────────────────
     @action(detail=True, methods=['post'], url_path='desactiver')

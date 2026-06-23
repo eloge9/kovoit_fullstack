@@ -167,7 +167,7 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         model  = Utilisateur
         fields = [
             'id', 'username', 'first_name', 'last_name',
-            'email', 'role', 'numero_telephone',
+            'email', 'role', 'mode_courant', 'numero_telephone',
             'photo_profil', 'note', 'is_active',
             'date_joined', 'last_login',
             'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire', 'is_driver',

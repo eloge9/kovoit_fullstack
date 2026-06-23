@@ -1,8 +1,11 @@
 import hmac as hmac_lib
 import hashlib
+import logging
 import time
 import math
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -137,8 +140,9 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def mes_reservations(self, request):
+        """Toutes les réservations du passager (tous statuts) — utilisé par le dashboard et la page réservations."""
         reservations = Reservation.objects.filter(
-            passager=request.user
+            passager=request.user,
         ).select_related(
             'trajet', 'trajet__conducteur', 'passager', 'paiement'
         ).order_by('-date_reservation')[:100]
@@ -146,12 +150,52 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def recues(self, request):
+        """Toutes les réservations reçues par le conducteur (tous statuts) — utilisé par le dashboard."""
         reservations = Reservation.objects.filter(
-            trajet__conducteur=request.user
+            trajet__conducteur=request.user,
         ).select_related(
             'trajet', 'passager', 'paiement'
         ).order_by('-date_reservation')[:100]
         return Response(ReservationSerializer(reservations, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='conducteur-historique')
+    def conducteur_historique(self, request):
+        """Historique des réservations terminées/annulées du conducteur, filtrable."""
+        qs = Reservation.objects.filter(
+            trajet__conducteur=request.user,
+            statut__in=['terminee', 'declinee', 'annulee'],
+        ).select_related('trajet', 'trajet__conducteur', 'passager', 'paiement')
+
+        statut_param = request.query_params.get('statut', '').strip()
+        if statut_param and statut_param != 'tous':
+            qs = qs.filter(statut=statut_param)
+
+        date_debut = request.query_params.get('date_debut', '').strip()
+        date_fin = request.query_params.get('date_fin', '').strip()
+        if date_debut:
+            try:
+                qs = qs.filter(date_reservation__date__gte=date_debut)
+            except ValueError:
+                pass
+        if date_fin:
+            try:
+                qs = qs.filter(date_reservation__date__lte=date_fin)
+            except ValueError:
+                pass
+
+        q = request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(trajet__depart__icontains=q) |
+                Q(trajet__destination__icontains=q) |
+                Q(passager__first_name__icontains=q) |
+                Q(passager__last_name__icontains=q) |
+                Q(passager__username__icontains=q) |
+                Q(id__icontains=q)
+            )
+
+        qs = qs.order_by('-date_reservation')[:100]
+        return Response(ReservationSerializer(qs, many=True).data)
 
     @action(detail=True, methods=['post'])
     def confirmer(self, request, pk=None):
@@ -246,13 +290,42 @@ class ReservationViewSet(viewsets.GenericViewSet):
     
     @action(detail=False, methods=['get'])
     def historique(self, request):
-        reservations = Reservation.objects.filter(
-            passager=request.user
-        ).select_related(
-            'trajet', 'trajet__conducteur', 'passager', 'paiement'
-        ).order_by('-date_reservation')[:100]
+        """Historique des réservations terminées/annulées/refusées, filtrable."""
+        qs = Reservation.objects.filter(
+            passager=request.user,
+            statut__in=['terminee', 'declinee', 'annulee'],
+        ).select_related('trajet', 'trajet__conducteur', 'passager', 'paiement')
 
-        serializer = ReservationSerializer(reservations, many=True)
+        statut_param = request.query_params.get('statut', '').strip()
+        if statut_param and statut_param != 'tous':
+            qs = qs.filter(statut=statut_param)
+
+        date_debut = request.query_params.get('date_debut', '').strip()
+        date_fin = request.query_params.get('date_fin', '').strip()
+        if date_debut:
+            try:
+                qs = qs.filter(date_reservation__date__gte=date_debut)
+            except ValueError:
+                pass
+        if date_fin:
+            try:
+                qs = qs.filter(date_reservation__date__lte=date_fin)
+            except ValueError:
+                pass
+
+        q = request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(trajet__depart__icontains=q) |
+                Q(trajet__destination__icontains=q) |
+                Q(trajet__conducteur__first_name__icontains=q) |
+                Q(trajet__conducteur__last_name__icontains=q) |
+                Q(trajet__conducteur__username__icontains=q) |
+                Q(id__icontains=q)
+            )
+
+        qs = qs.order_by('-date_reservation')[:100]
+        serializer = ReservationSerializer(qs, many=True)
         return Response(serializer.data)
 
     # ── QR Code de montée ─────────────────────────────────────────────────

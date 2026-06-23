@@ -117,16 +117,16 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCard label="Utilisateurs" value={dash.nb_utilisateurs}
                         sub={`${dash.nb_conducteurs} conducteurs, ${dash.nb_passagers} passagers`}
-                        color="blue" href="/admin/utilisateurs" />
+                        icon="👥" color="blue" href="/admin/utilisateurs" />
                     <StatCard label="Trajets actifs" value={dash.nb_trajets_ouverts + dash.nb_trajets_cours}
                         sub={`${dash.nb_trajets_jour} aujourd'hui`}
-                        color="green" href="/admin/trajets" />
+                        icon="🚗" color="green" href="/admin/trajets" />
                     <StatCard label="Réservations" value={dash.nb_reservations_conf}
                         sub={`${dash.nb_reservations_att} en attente`}
-                        color="amber" href="/admin/reservations" />
+                        icon="📋" color="amber" href="/admin/reservations" />
                     <StatCard label="CA total" value={fmtFCFA(dash.ca_total)}
                         sub={`Commission: ${fmtFCFA(dash.commission_kovoit)}`}
-                        color="purple" href="/admin/paiements" />
+                        icon="💰" color="purple" href="/admin/paiements" />
                 </div>
 
                 {/* Finance */}

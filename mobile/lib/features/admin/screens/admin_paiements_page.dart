@@ -143,10 +143,10 @@ class AdminPaiementsPage extends ConsumerWidget {
                         '#${p['id']}';
 
                     final methodeIcon = methode == 'FLOOZ'
-                        ? Icons.phone_android
-                        : methode == 'TMONEY'
-                        ? Icons.sim_card_outlined
-                        : Icons.money_outlined;
+                        ? Icons.phone_android   // Moov Flooz
+                        : methode == 'YAS'
+                        ? Icons.sim_card_outlined // Mixx by Yas
+                        : Icons.money_outlined;   // Espèces
 
                     return Container(
                       color: KColors.base100,

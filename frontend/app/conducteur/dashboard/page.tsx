@@ -16,6 +16,7 @@ function ActivationCard({ driverStatus }: { driverStatus: string }) {
         DOCUMENTS_MISSING: {
             bg: "bg-gradient-to-br from-warning/10 to-warning/5",
             border: "border-warning/30",
+            icon: "🔓",
             title: "Activez votre compte conducteur",
             desc: "Pour proposer des trajets, accepter des réservations et recevoir des paiements, vous devez d'abord faire vérifier votre identité et vos documents de véhicule.",
             cta: "Commencer la vérification",

@@ -96,7 +96,8 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
             except Vehicule.DoesNotExist:
                 pass
 
-        if attrs.get('date_heure_depart') and attrs['date_heure_depart'] < timezone.now():
+        # Valider la date seulement à la création (instance=None)
+        if not self.instance and attrs.get('date_heure_depart') and attrs['date_heure_depart'] < timezone.now():
             raise serializers.ValidationError(
                 {"date_heure_depart": "La date de départ doit être dans le futur."}
             )

@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import '../auth/providers/auth_provider.dart';
 import '../../core/theme/colors.dart';
 import '../../core/providers/server_provider.dart';
-import '../../core/services/storage_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -90,33 +89,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       return;
     }
 
+    // La navigation au démarrage utilise TOUJOURS le rôle principal (jamais le mode sauvegardé).
+    // L'utilisateur peut basculer de mode depuis le menu une fois connecté.
+    debugPrint('[Splash] Role: ${user.role}');
+
+    if (!mounted) return;
+
     if (user.role == 'admin') {
       context.go('/admin');
       return;
     }
 
-    debugPrint('[Splash] Role: ${user.role}, modeCourant: ${user.modeCourant}, peutConduire: ${user.peutConduire}');
-
-    if (!mounted) return;
-
-    // Un conducteur va toujours sur son dashboard
     if (user.role == 'conducteur') {
       context.go('/conducteur');
       return;
-    }
-
-    // Passager avec droits conducteur : utiliser le dernier mode choisi
-    if (user.peutConduire) {
-      String? mode = user.modeCourant;
-      if (mode == null || mode.isEmpty) {
-        mode = await StorageService.getActiveMode();
-      }
-      if (!mounted) return;
-      debugPrint('[Splash] Mode actif passager/conducteur: $mode');
-      if (mode == 'conducteur') {
-        context.go('/conducteur');
-        return;
-      }
     }
 
     context.go('/passager');

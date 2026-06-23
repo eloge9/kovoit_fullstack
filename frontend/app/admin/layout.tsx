@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import logoSrc from "@/public/logo/logo1.png";
 import { usePathname, useRouter } from "next/navigation";
-import Image from "next/image";
 import { Shield } from "lucide-react";
 import { useAuth } from "@/src/hooks/useAuth";
 import { deconnexion } from "@/src/services/auth.service";
@@ -160,7 +160,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
                         {/* Logo */}
                         <Link href="/admin/dashboard" className="flex items-center gap-2 shrink-0">
-                            <Image src="/logo/logo1.png" alt="KoVoit" width={28} height={28} />
+                            <img src={logoSrc.src} alt="KoVoit" width={28} height={28} className="object-contain" />
                             <span className="font-bold text-base tracking-tight">KoVoit</span>
                             <span className="hidden sm:block text-xs text-base-content/30 border-l border-base-300 pl-2">
                                 Admin

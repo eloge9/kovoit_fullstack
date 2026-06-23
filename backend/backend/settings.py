@@ -180,8 +180,14 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-Total-Count']
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
-# CORRECTION AUDIT : Clé secrète pour vérifier les webhooks PayGate
-PAYGATE_WEBHOOK_SECRET = os.getenv('PAYGATE_WEBHOOK_SECRET')
+# ── PayPlus Africa ────────────────────────────────────────────────────────────
+PAYPLUS_API_KEY        = os.getenv('PAYPLUS_API_KEY', '')   # clé courte VKWEY...
+PAYPLUS_TOKEN          = os.getenv('PAYPLUS_TOKEN', '')     # JWT eyJ... pour Authorization
+PAYPLUS_MERCHANT       = os.getenv('PAYPLUS_MERCHANT', '')
+PAYPLUS_WEBHOOK_SECRET = os.getenv('PAYPLUS_WEBHOOK_SECRET', '')
+PAYPLUS_BASE_URL       = os.getenv('PAYPLUS_BASE_URL', 'https://app.payplus.africa')
+PAYPLUS_ENV            = os.getenv('PAYPLUS_ENV', 'prod')
+PAYPLUS_NOTIFY_URL     = os.getenv('PAYPLUS_NOTIFY_URL', '')
 
 # ── Africa's Talking (SMS SOS) ────────────────────────────────────────────
 AFRICASTALKING_API_KEY  = os.getenv('AFRICASTALKING_API_KEY', '')

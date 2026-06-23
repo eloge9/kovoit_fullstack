@@ -5,6 +5,80 @@ import '../repositories/reservation_repository.dart';
 final reservationRepositoryProvider =
     Provider<ReservationRepository>((ref) => ReservationRepository());
 
+// ── Filtres historique ────────────────────────────────────────────────────────
+
+class HistoriqueFilters {
+  final String? statut;
+  final DateTime? dateDebut;
+  final DateTime? dateFin;
+  final String search;
+
+  const HistoriqueFilters({
+    this.statut,
+    this.dateDebut,
+    this.dateFin,
+    this.search = '',
+  });
+
+  HistoriqueFilters copyWith({
+    Object? statut = _sentinel,
+    Object? dateDebut = _sentinel,
+    Object? dateFin = _sentinel,
+    String? search,
+  }) {
+    return HistoriqueFilters(
+      statut: statut == _sentinel ? this.statut : statut as String?,
+      dateDebut: dateDebut == _sentinel ? this.dateDebut : dateDebut as DateTime?,
+      dateFin: dateFin == _sentinel ? this.dateFin : dateFin as DateTime?,
+      search: search ?? this.search,
+    );
+  }
+
+  static const _sentinel = Object();
+
+  bool get hasActiveFilters =>
+      statut != null || dateDebut != null || dateFin != null || search.isNotEmpty;
+}
+
+// ── Provider filtres passager historique ─────────────────────────────────────
+
+final historiqueFiltersProvider = StateProvider.autoDispose<HistoriqueFilters>(
+  (ref) => const HistoriqueFilters(),
+);
+
+// ── Provider filtres conducteur historique ───────────────────────────────────
+
+final conducteurHistoriqueFiltersProvider = StateProvider.autoDispose<HistoriqueFilters>(
+  (ref) => const HistoriqueFilters(),
+);
+
+// ── Data providers historique ─────────────────────────────────────────────────
+
+final historiqueProvider = FutureProvider.autoDispose<List<ReservationModel>>((ref) {
+  final filters = ref.watch(historiqueFiltersProvider);
+  final repo = ref.watch(reservationRepositoryProvider);
+  return repo.historique(
+    statut: filters.statut,
+    dateDebut: filters.dateDebut,
+    dateFin: filters.dateFin,
+    search: filters.search.isNotEmpty ? filters.search : null,
+  );
+});
+
+final conducteurHistoriqueProvider =
+    FutureProvider.autoDispose<List<ReservationModel>>((ref) {
+  final filters = ref.watch(conducteurHistoriqueFiltersProvider);
+  final repo = ref.watch(reservationRepositoryProvider);
+  return repo.conducteurHistorique(
+    statut: filters.statut,
+    dateDebut: filters.dateDebut,
+    dateFin: filters.dateFin,
+    search: filters.search.isNotEmpty ? filters.search : null,
+  );
+});
+
+// ── Provider réservations actives ─────────────────────────────────────────────
+
 class ReservationsState {
   final List<ReservationModel> mesReservations;
   final List<ReservationModel> reservationsRecues;
@@ -105,9 +179,7 @@ class ReservationsNotifier extends StateNotifier<ReservationsState> {
     try {
       await _repo.annulerReservation(id);
       state = state.copyWith(
-        mesReservations: state.mesReservations
-            .where((r) => r.id != id)
-            .toList(),
+        mesReservations: state.mesReservations.where((r) => r.id != id).toList(),
       );
       return true;
     } catch (e) {

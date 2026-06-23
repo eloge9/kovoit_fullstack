@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../providers/trajet_provider.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../verification/providers/verification_provider.dart';
+import '../../verification/widgets/driver_activation_guard.dart';
 import '../../../core/services/nominatim_service.dart';
 import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
@@ -138,6 +140,13 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
   }
 
   Future<void> _submit() async {
+    // Vérification activation compte conducteur
+    final canPublish = ref.read(canPublishTripProvider);
+    if (!canPublish) {
+      showDriverActivationDialog(context);
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
     if (_departSuggestion == null || _destinationSuggestion == null) {
       _showSnack('Veuillez sélectionner le départ et la destination', error: true);

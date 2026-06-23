@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import { reinitialisation } from "@/src/services/auth.service";
 
 type Etape = "formulaire" | "succes" | "lien_invalide";
@@ -11,8 +10,8 @@ export default function ReinitialisationPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
-    const uid = searchParams.get("uid");
-    const token = searchParams.get("token");
+    const email = searchParams.get("email");
+    const code = searchParams.get("code");
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -25,12 +24,12 @@ export default function ReinitialisationPage() {
         new_password2: "",
     });
 
-    // Vérifie que uid et token sont présents dans l'URL
+    // Vérifie que email et code sont présents dans l'URL
     useEffect(() => {
-        if (!uid || !token) {
+        if (!email || !code) {
             setEtape("lien_invalide");
         }
-    }, [uid, token]);
+    }, [email, code]);
 
     const set = (field: keyof typeof form, value: string) =>
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -53,8 +52,8 @@ export default function ReinitialisationPage() {
 
         try {
             await reinitialisation({
-                uid: uid!,
-                token: token!,
+                email: email!,
+                code: code!,
                 new_password: form.new_password,
                 new_password2: form.new_password2,
             });
@@ -88,8 +87,8 @@ export default function ReinitialisationPage() {
 
                 {/* En-tête */}
                 <div className="text-center mb-8">
-                    <div className="avatar placeholder mb-4">
-                        <Image src="/logo/logo1.png" alt="logo koivoit" width={100} height={100} />
+                    <div className="flex justify-center mb-4">
+                        <img src="/logo/logo1.png" alt="logo kovoit" width={100} height={100} className="object-contain" />
                     </div>
                     <h1 className="text-3xl font-bold text-base-content">
                         {etape === "succes" ? "Mot de passe modifié !" : "Nouveau mot de passe"}

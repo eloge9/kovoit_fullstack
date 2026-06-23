@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/k_avatar.dart';
 import '../../auth/models/user_model.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../verification/widgets/driver_activation_banner.dart';
 
 class ConducteurShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -55,14 +56,21 @@ class _ConducteurShellState extends ConsumerState<ConducteurShell> {
           onNotificationsTap: () => context.push('/conducteur/notifications'),
           onAvatarTap: () => _showAccountMenu(context, user),
         ),
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          switchInCurve: Curves.easeIn,
-          switchOutCurve: Curves.easeOut,
-          child: KeyedSubtree(
-            key: ValueKey(currentIndex),
-            child: widget.child,
-          ),
+        body: Column(
+          children: [
+            const DriverActivationBanner(),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeIn,
+                switchOutCurve: Curves.easeOut,
+                child: KeyedSubtree(
+                  key: ValueKey(currentIndex),
+                  child: widget.child,
+                ),
+              ),
+            ),
+          ],
         ),
         floatingActionButton: _KCentralFab(
           onTap: () => context.push('/conducteur/create-trajet'),

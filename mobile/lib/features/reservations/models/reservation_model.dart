@@ -115,7 +115,11 @@ class ReservationModel {
   }
 
   double get montantTotal => prixParPlace * placesReservees;
-  bool get isConfirmee => statut == 'confirmee';
-  bool get isEnAttente => statut == 'en_attente';
-  bool get isTerminee => statut == 'terminee';
+  bool get isConfirmee  => statut == 'confirmee';
+  bool get isEnAttente  => statut == 'en_attente';
+  bool get isTerminee   => statut == 'terminee';
+  bool get isDeclinee   => statut == 'declinee';
+  bool get isAnnulee    => statut == 'annulee';
+  bool get isActive     => statut == 'en_attente' || statut == 'confirmee';
+  bool get isTerminal   => statut == 'terminee' || statut == 'declinee' || statut == 'annulee';
 }

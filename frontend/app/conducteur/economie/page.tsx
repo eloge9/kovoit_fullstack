@@ -46,7 +46,9 @@ type Periode = "mois" | "trimestre" | "annee" | "tout" | "personnalise";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MOYEN_LABEL: Record<string, string> = {
-    ESPECE: "Espèces", FLOOZ: "Flooz", TMONEY: "T-Money",
+    ESPECE: "Espèces",
+    FLOOZ:  "Moov Flooz",
+    YAS:    "Mixx by Yas",
 };
 
 function fmtFCFA(v: number) {

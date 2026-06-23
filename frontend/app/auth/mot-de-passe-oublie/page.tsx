@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import logoSrc from "@/public/logo/logo1.png";
 import { demanderCodeReset, reinitialisation } from "@/src/services/auth.service";
 
 type Etape = "email" | "code" | "password" | "succes";
@@ -123,7 +123,7 @@ export default function MotDePasseOubliePage() {
                 {/* En-tête */}
                 <div className="text-center mb-8">
                     <div className="mb-4 flex justify-center">
-                        <Image src="/logo/logo1.png" alt="KoVoit" width={80} height={80} />
+                        <img src={logoSrc.src} alt="KoVoit" width={80} height={80} className="object-contain" />
                     </div>
                     <h1 className="text-2xl font-bold text-base-content">{titres[etape]}</h1>
                     <p className="text-base-content/60 mt-1 text-sm">{subtitres[etape]}</p>

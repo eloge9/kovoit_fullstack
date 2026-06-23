@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
+import logoSrc from "@/public/logo/logo1.png";
 import { useAuth } from "@/src/hooks/useAuth";
 import { connexion } from "@/src/services/auth.service";
 
@@ -70,8 +70,8 @@ export default function ConnexionPage() {
 
                 {/* En-tête */}
                 <div className="text-center mb-8">
-                    <div className="avatar placeholder mb-4">
-                        <Image src="/logo/logo1.png" alt="logo koivoit" width={100} height={100} />
+                    <div className="flex justify-center mb-4">
+                        <img src={logoSrc.src} alt="logo kovoit" width={100} height={100} className="object-contain" />
                     </div>
                     <h1 className="text-3xl font-bold text-base-content">Bon retour !</h1>
                     <p className="text-base-content/60 mt-1">Connectez-vous à votre compte</p>

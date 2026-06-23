@@ -109,6 +109,7 @@ class ReservationRepository {
   }
 
   // Paiements
+  /// Initie un paiement Mobile Money (FLOOZ = Moov Flooz, YAS = Mixx by Yas)
   Future<PaiementModel> initierPaiement({
     required int reservationId,
     required String phoneNumber,
@@ -129,11 +130,12 @@ class ReservationRepository {
     }
   }
 
-  Future<PaiementModel> verifierPaiement(String identifier) async {
+  /// Vérifie le statut d'un paiement PayPlus Africa via son token.
+  Future<PaiementModel> verifierPaiement(String token) async {
     try {
       final response = await DioClient.post(
         ApiConstants.verifierPaiement,
-        data: {'identifier': identifier},
+        data: {'token': token},
       );
       return PaiementModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -141,6 +143,7 @@ class ReservationRepository {
     }
   }
 
+  /// Initie un paiement en espèces (pas de paiement immédiat).
   Future<PaiementModel> initierPaiementEspeces(int reservationId) async {
     try {
       final response = await DioClient.post(
@@ -148,25 +151,6 @@ class ReservationRepository {
         data: {'reservation_id': reservationId},
       );
       return PaiementModel.fromJson(response.data as Map<String, dynamic>);
-    } on DioException catch (e) {
-      throw ApiException.fromDioException(e);
-    }
-  }
-
-  Future<void> soumettreReference({
-    required int reservationId,
-    required String reference,
-    required String network,
-  }) async {
-    try {
-      await DioClient.post(
-        ApiConstants.soumettreReference,
-        data: {
-          'reservation_id': reservationId,
-          'reference_mobile': reference,
-          'network': network,
-        },
-      );
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -200,6 +184,75 @@ class ReservationRepository {
       throw ApiException.fromDioException(e);
     }
   }
+
+  Future<List<ReservationModel>> historique({
+    String? statut,
+    DateTime? dateDebut,
+    DateTime? dateFin,
+    String? search,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (statut != null && statut != 'tous') params['statut'] = statut;
+      if (dateDebut != null) params['date_debut'] = _fmt(dateDebut);
+      if (dateFin != null) params['date_fin'] = _fmt(dateFin);
+      if (search != null && search.trim().isNotEmpty) params['q'] = search.trim();
+
+      final response = await DioClient.get(
+        ApiConstants.historiqueReservations,
+        queryParams: params.isEmpty ? null : params,
+      );
+      final data = response.data;
+      if (data is List) {
+        return data.map((e) => ReservationModel.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      if (data is Map && data['results'] is List) {
+        return (data['results'] as List)
+            .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } on DioException catch (e) {
+      debugPrint('[ReservationRepo] historique error: $e');
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<List<ReservationModel>> conducteurHistorique({
+    String? statut,
+    DateTime? dateDebut,
+    DateTime? dateFin,
+    String? search,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (statut != null && statut != 'tous') params['statut'] = statut;
+      if (dateDebut != null) params['date_debut'] = _fmt(dateDebut);
+      if (dateFin != null) params['date_fin'] = _fmt(dateFin);
+      if (search != null && search.trim().isNotEmpty) params['q'] = search.trim();
+
+      final response = await DioClient.get(
+        ApiConstants.conducteurHistorique,
+        queryParams: params.isEmpty ? null : params,
+      );
+      final data = response.data;
+      if (data is List) {
+        return data.map((e) => ReservationModel.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      if (data is Map && data['results'] is List) {
+        return (data['results'] as List)
+            .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } on DioException catch (e) {
+      debugPrint('[ReservationRepo] conducteurHistorique error: $e');
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  static String _fmt(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static const String _basePath = '/reservations/';
 }

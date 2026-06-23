@@ -120,8 +120,9 @@ class UserModel {
     );
   }
 
-  // Peut conduire = validé OU a déjà un profil conducteur
-  bool get peutBasculerEnConducteur => peutConduire || isDriver || role == 'conducteur';
+  // Peut basculer = validé, driver, rôle conducteur, ou était conducteur avant ce switch
+  bool get peutBasculerEnConducteur =>
+      peutConduire || isDriver || role == 'conducteur' || modeCourant == 'conducteur';
   bool get isConducteur => role == 'conducteur' || peutConduire;
   bool get isPassager   => role == 'passager';
   bool get isAdmin      => role == 'admin';

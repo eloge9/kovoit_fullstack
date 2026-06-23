@@ -6,7 +6,7 @@ import {
     confirmerReservation,
     declinerReservation,
 } from "@/src/services/reservation.service";
-import { confirmerEspeces, confirmerMobile } from "@/src/services/paiement.service";
+import { confirmerEspeces } from "@/src/services/paiement.service";
 import { api } from "@/src/services/api";
 
 async function bloquerPassager(passagerId: string, motif: string) {
@@ -73,15 +73,11 @@ export default function ReservationsRecuesPage() {
         }
     };
 
-    const handleConfirmerPaiement = async (id: number, moyen: string) => {
-        if (!confirm(`Confirmer la réception du paiement ${moyen} pour cette réservation ?`)) return;
+    const handleConfirmerPaiement = async (id: number) => {
+        if (!confirm("Confirmer la réception du paiement en espèces pour cette réservation ?")) return;
         setActions((prev) => ({ ...prev, [id]: "paying" }));
         try {
-            if (moyen === "ESPECE") {
-                await confirmerEspeces(id);
-            } else {
-                await confirmerMobile(id);
-            }
+            await confirmerEspeces(id);
             setReservations((prev) =>
                 prev.map((r) => r.id === id ? { ...r, paiement_statut: "CONFIRME" } : r)
             );
@@ -312,9 +308,9 @@ export default function ReservationsRecuesPage() {
                                                 <p className="text-xs text-base-content/40 uppercase tracking-wide mb-0.5">Paiement</p>
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="text-sm font-semibold text-base-content">
-                                                        {resa.paiement_moyen === "ESPECE"   ? "💵 Espèces"
-                                                        : resa.paiement_moyen === "TMONEY" ? "🟠 T-Money"
-                                                        : resa.paiement_moyen === "FLOOZ"  ? "🟢 Flooz"
+                                                        {resa.paiement_moyen === "ESPECE" ? "💵 Espèces"
+                                                        : resa.paiement_moyen === "YAS"   ? "🟡 Mixx by Yas"
+                                                        : resa.paiement_moyen === "FLOOZ"  ? "🔵 Moov Flooz"
                                                         : resa.paiement_moyen}
                                                     </span>
                                                     <span className={`badge badge-sm ${
@@ -332,9 +328,9 @@ export default function ReservationsRecuesPage() {
                                             </div>
 
                                             {/* Bouton confirmer si en attente */}
-                                            {resa.paiement_statut === "EN_ATTENTE_CONFIRMATION" && (
+                                            {resa.paiement_statut === "EN_ATTENTE_CONFIRMATION" && resa.paiement_moyen === "ESPECE" && (
                                                 <button
-                                                    onClick={() => handleConfirmerPaiement(resa.id, resa.paiement_moyen || "ESPECE")}
+                                                    onClick={() => handleConfirmerPaiement(resa.id)}
                                                     disabled={actions[resa.id] === "paying"}
                                                     className="btn btn-success btn-xs rounded-full"
                                                 >

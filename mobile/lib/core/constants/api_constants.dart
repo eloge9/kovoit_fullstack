@@ -77,16 +77,17 @@ class ApiConstants {
   static const String reserver = '/reservations/reserver/';
   static const String mesReservations = '/reservations/mes_reservations/';
   static const String reservationsRecues = '/reservations/recues/';
+  static const String historiqueReservations = '/reservations/historique/';
+  static const String conducteurHistorique = '/reservations/conducteur-historique/';
 
-  // Paiements
-  static const String initierPaiement = '/paiements/initier/';
-  static const String verifierPaiement = '/paiements/verifier/';
-  static const String initierEspeces = '/paiements/initier_especes/';
-  static const String confirmerEspeces = '/paiements/confirmer_especes/';
-  static const String soumettreReference = '/paiements/soumettre_reference_mobile/';
-  static const String confirmerMobile = '/paiements/confirmer_mobile/';
+  // Paiements — PayPlus Africa (Moov Flooz & Mixx by Yas)
+  static const String initierPaiement   = '/paiements/initier/';
+  static const String verifierPaiement  = '/paiements/verifier/';
+  static const String initierEspeces    = '/paiements/initier_especes/';
+  static const String confirmerEspeces  = '/paiements/confirmer_especes/';
+  static const String annulerPaiement   = '/paiements/annuler_paiement/';
   static const String statutReservation = '/paiements/statut_reservation/';
-  static const String mesPaiements = '/paiements/mes_paiements/';
+  static const String mesPaiements      = '/paiements/mes_paiements/';
 
   // Évaluations
   static const String evaluer = '/evaluations/evaluer/';
@@ -106,6 +107,12 @@ class ApiConstants {
   static const String statsResume = '/statistiques/resume/';
   static const String mesEconomies = '/economie/mes_economies/';
   static const String calculerEconomie = '/economie/calculer_economie_trajet/';
+
+  // Vérification conducteur
+  static const String verificationStatus    = '/verification/driver/verification/status/';
+  static const String verificationProfile   = '/verification/driver/verification/profile/';
+  static const String verificationStart     = '/verification/driver/verification/start/';
+  static const String verificationDocuments = '/verification/driver/verification/documents/upload/';
 
   // Admin
   static const String adminUtilisateurs = '/utilisateurs/admin/utilisateurs/';
