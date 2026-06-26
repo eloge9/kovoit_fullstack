@@ -7,14 +7,14 @@ import {
     searchLieu,
     formatNominatimLabel,
     calculerDistance,
-    calculerCoutTotal,
-    calculerPrixParPlace,
+    calculerPrixBackend,
     mesVehicules,
     getTrajet,
     modifierTrajet,
     type NominatimResult,
     type Vehicule,
     type Trajet,
+    type PrixBackendResult,
 } from "@/src/services/trajet.service";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -31,8 +31,6 @@ interface FormData {
     depart: LieuSelectionne | null;
     destination: LieuSelectionne | null;
     distance_km: number;
-    cout_total: number;
-    prix_par_place: number;
     places_disponibles: number;
     date_heure_depart: string;
     description: string;
@@ -156,14 +154,13 @@ export default function EditTrajetPage() {
     const [trajetOriginal, setTrajetOriginal] = useState<Trajet | null>(null);
     const [vehicules, setVehicules] = useState<Vehicule[]>([]);
     const [loadingVehicules, setLoadingVehicules] = useState(true);
+    const [pricing, setPricing] = useState<PrixBackendResult | null>(null);
 
     const [form, setForm] = useState<FormData>({
         vehicule_id: null,
         depart: null,
         destination: null,
         distance_km: 0,
-        cout_total: 0,
-        prix_par_place: 0,
         places_disponibles: 0,
         date_heure_depart: "",
         description: "",
@@ -200,8 +197,6 @@ export default function EditTrajetPage() {
                         lng: trajetData.destination_lng,
                     },
                     distance_km: trajetData.distance_km || 0,
-                    cout_total: trajetData.cout_total || 0,
-                    prix_par_place: trajetData.prix_par_place || 0,
                     places_disponibles: trajetData.places_disponibles,
                     date_heure_depart: trajetData.date_heure_depart,
                     description: trajetData.description || "",
@@ -224,34 +219,27 @@ export default function EditTrajetPage() {
     // Véhicule sélectionné
     const vehiculeSelectionne = vehicules.find((v) => v.id === form.vehicule_id) || null;
 
-    // Recalcul prix quand départ, destination ou places changent
+    // Recalcul prix quand départ, destination ou véhicule changent
     useEffect(() => {
-        const { depart, destination, places_disponibles, vehicule_id } = form;
-        if (!depart || !destination || !vehicule_id || places_disponibles <= 0) return;
-
-        const vehicule = vehicules.find((v) => v.id === vehicule_id);
-        if (!vehicule) return;
+        const { depart, destination, vehicule_id } = form;
+        if (!depart || !destination || !vehicule_id) return;
 
         const compute = async () => {
             setCalcul(true);
+            setPricing(null);
             try {
-                const result = await calculerDistance(depart, destination);
-                const cout = calculerCoutTotal(result.distance_km, vehicule.type_vehicule);
-                const prix = calculerPrixParPlace(cout, places_disponibles);
-                setForm((prev) => ({
-                    ...prev,
-                    distance_km: result.distance_km,
-                    cout_total: cout,
-                    prix_par_place: prix,
-                }));
+                const route = await calculerDistance(depart, destination);
+                setForm((prev) => ({ ...prev, distance_km: route.distance_km }));
+                const prix = await calculerPrixBackend(vehicule_id, route.distance_km);
+                setPricing(prix);
             } catch {
-                setError("Impossible de calculer la distance. Vérifiez les lieux.");
+                setError("Impossible de calculer la distance ou le prix. Vérifiez les lieux.");
             } finally {
                 setCalcul(false);
             }
         };
         compute();
-    }, [form.depart, form.destination, form.places_disponibles, form.vehicule_id, vehicules]);
+    }, [form.depart, form.destination, form.vehicule_id]);
 
     const toggleJour = (jour: string) => {
         const jours = form.jours_semaine.includes(jour)
@@ -283,8 +271,6 @@ export default function EditTrajetPage() {
                 destination_lat: form.destination!.lat,
                 destination_lng: form.destination!.lng,
                 distance_km: form.distance_km,
-                cout_total: form.cout_total,
-                prix_par_place: form.prix_par_place,
                 places_disponibles: form.places_disponibles,
                 date_heure_depart: new Date(form.date_heure_depart).toISOString(),
                 description: form.description,
@@ -536,28 +522,40 @@ export default function EditTrajetPage() {
                 {/* RÉSUMÉ */}
                 <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                     <h3 className="text-sm font-medium text-base-content/60 uppercase tracking-wider mb-4">
-                        Résumé du trajet
+                        Tarification automatique
                     </h3>
-                    <div className="grid grid-cols-3 gap-4">
-                        <div>
-                            <p className="text-2xl font-bold text-base-content">{form.distance_km} km</p>
-                            <p className="text-xs text-base-content/40 mt-0.5">Distance</p>
+                    {calcul ? (
+                        <div className="flex items-center gap-3">
+                            <span className="loading loading-spinner loading-sm" />
+                            <span className="text-sm text-base-content/60">Calcul en cours...</span>
                         </div>
-                        <div>
-                            <p className="text-2xl font-bold text-primary">
-                                {form.prix_par_place.toLocaleString("fr-FR")} FCFA
+                    ) : pricing ? (
+                        <>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <p className="text-2xl font-bold text-base-content">{pricing.distance_km} km</p>
+                                    <p className="text-xs text-base-content/40 mt-0.5">Distance</p>
+                                </div>
+                                <div>
+                                    <p className="text-2xl font-bold text-primary">
+                                        {pricing.prix_par_place.toLocaleString("fr-FR")} FCFA
+                                    </p>
+                                    <p className="text-xs text-base-content/40 mt-0.5">Prix / place</p>
+                                </div>
+                                <div>
+                                    <p className="text-2xl font-bold text-base-content">{pricing.tarif_km}</p>
+                                    <p className="text-xs text-base-content/40 mt-0.5">FCFA/km</p>
+                                </div>
+                            </div>
+                            <p className="text-xs text-base-content/30 mt-3">
+                                Carburant : {pricing.cout_carburant.toLocaleString("fr-FR")} FCFA
+                                · Commission KoVoit : {pricing.commission.toLocaleString("fr-FR")} FCFA (10%)
+                                · Capacité véhicule : {pricing.capacite} place{pricing.capacite > 1 ? "s" : ""}
                             </p>
-                            <p className="text-xs text-base-content/40 mt-0.5">Prix / place</p>
-                        </div>
-                        <div>
-                            <p className="text-2xl font-bold text-base-content">{form.places_disponibles}</p>
-                            <p className="text-xs text-base-content/40 mt-0.5">Places</p>
-                        </div>
-                    </div>
-                    {!calcul && form.cout_total > 0 && (
-                        <p className="text-xs text-base-content/30 mt-3">
-                            Coût total : {form.cout_total.toLocaleString("fr-FR")} FCFA
-                            · dont {Math.round(form.cout_total / 11).toLocaleString("fr-FR")} FCFA commission KoVoit (10%)
+                        </>
+                    ) : (
+                        <p className="text-sm text-base-content/40">
+                            Sélectionnez un véhicule, un départ et une destination pour voir la tarification.
                         </p>
                     )}
                 </div>

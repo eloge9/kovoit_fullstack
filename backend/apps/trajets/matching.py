@@ -507,12 +507,9 @@ def rechercher_trajets_compatibles_v2(
         if not match["compatible"] or match["score"] < score_minimum:
             continue
 
-        try:
-            type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
-        except AttributeError:
-            type_vehicule = ''
-        places = max(1, int(trajet.places_disponibles or 1))
-        prix = calculer_prix_par_km(match["distance_passager_km"], type_vehicule, places)
+        from .tarification import calculer_prix_segment
+        tarif_seg = calculer_prix_segment(match["distance_passager_km"], trajet)
+        prix = tarif_seg['prix_par_place']
         note = getattr(getattr(trajet, 'conducteur', None), 'note', 0) or 0
 
         results.append({

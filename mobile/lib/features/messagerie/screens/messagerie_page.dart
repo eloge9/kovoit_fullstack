@@ -93,11 +93,16 @@ class MessageriePage extends ConsumerWidget {
                 final conv = conversations[i];
                 return _ConvTile(
                   conv: conv,
-                  onTap: () => context.push(
-                    '$prefix/messages/${conv.convId}'
-                    '?name=${Uri.encodeComponent(conv.userName)}'
-                    '&userId=${conv.userId}',
-                  ),
+                  onTap: () async {
+                    await context.push(
+                      '$prefix/messages/${conv.convId}'
+                      '?name=${Uri.encodeComponent(conv.userName)}'
+                      '&userId=${conv.userId}'
+                      '&statut=${conv.statut}',
+                    );
+                    // Rafraîchir la liste pour effacer le badge non_lus
+                    ref.invalidate(_conversationsProvider);
+                  },
                 );
               },
             ),

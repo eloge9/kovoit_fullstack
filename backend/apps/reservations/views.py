@@ -86,20 +86,14 @@ class ReservationViewSet(viewsets.GenericViewSet):
             distance_passager = None
             if all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
                 try:
-                    from apps.trajets.matching import (
-                        calculer_score_matching_v2, calculer_prix_par_km,
-                    )
+                    from apps.trajets.matching import calculer_score_matching_v2
+                    from apps.trajets.tarification import calculer_prix_segment
                     match = calculer_score_matching_v2(
                         trajet, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
                     )
                     distance_passager = match['distance_passager_km']
-                    type_vehicule = ''
-                    try:
-                        type_vehicule = str(trajet.vehicule.type_vehicule or '').lower()
-                    except AttributeError:
-                        pass
-                    places = max(1, int(trajet.places_disponibles or 1))
-                    prix_passager = calculer_prix_par_km(distance_passager, type_vehicule, places)
+                    tarif = calculer_prix_segment(distance_passager, trajet)
+                    prix_passager = tarif['prix_par_place']
                 except Exception:
                     pass
 

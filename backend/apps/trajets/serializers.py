@@ -6,6 +6,7 @@ from ..modeles.models import Trajet, Vehicule
 class TrajetSerializer(serializers.ModelSerializer):
     conducteur_nom   = serializers.SerializerMethodField()
     conducteur_note  = serializers.SerializerMethodField()
+    conducteur_id    = serializers.SerializerMethodField()
     places_restantes = serializers.SerializerMethodField()
     type_vehicule    = serializers.SerializerMethodField()
     vehicule_info    = serializers.SerializerMethodField()
@@ -13,7 +14,7 @@ class TrajetSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Trajet
         fields = [
-            'id', 'conducteur', 'conducteur_nom', 'conducteur_note',
+            'id', 'conducteur', 'conducteur_id', 'conducteur_nom', 'conducteur_note',
             'vehicule', 'vehicule_info', 'type_vehicule',
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
@@ -24,6 +25,9 @@ class TrajetSerializer(serializers.ModelSerializer):
             'statut', 'created_at',
         ]
         read_only_fields = ['conducteur', 'created_at', 'updated_at']
+
+    def get_conducteur_id(self, obj):
+        return str(obj.conducteur.id)
 
     def get_conducteur_nom(self, obj):
         return f"{obj.conducteur.first_name} {obj.conducteur.last_name}".strip() or obj.conducteur.username
@@ -61,7 +65,7 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
             'vehicule_id',
             'depart', 'depart_lat', 'depart_lng',
             'destination', 'destination_lat', 'destination_lng',
-            'distance_km', 'cout_total', 'prix_par_place',
+            'distance_km',
             'date_heure_depart', 'places_disponibles',
             'description', 'est_regulier', 'jours_semaine',
         ]
@@ -114,6 +118,15 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         validated_data['conducteur'] = self.context['request'].user
         validated_data['vehicule']   = vehicule
         trajet = super().create(validated_data)
+        # Calcul du prix côté serveur (BlaBlaCar-style)
+        try:
+            from .tarification import calculer_prix_trajet
+            tarif = calculer_prix_trajet(trajet)
+            trajet.prix_par_place = tarif['prix_par_place']
+            trajet.cout_total     = tarif['cout_total']
+            trajet.save(update_fields=['prix_par_place', 'cout_total'])
+        except Exception:
+            pass
         # Store OSRM polyline (non-blocking)
         try:
             from .matching import fetch_and_store_polyline

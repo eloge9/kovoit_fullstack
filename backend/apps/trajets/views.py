@@ -108,6 +108,36 @@ class TrajetViewSet(viewsets.ModelViewSet):
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['get'], url_path='calculer-prix', permission_classes=[IsAuthenticated])
+    def calculer_prix_action(self, request):
+        """
+        Prévisualisation du prix pour un trajet avant création.
+        GET /api/trajets/calculer-prix/?vehicule_id=X&distance_km=Y
+        """
+        from .tarification import calculer_prix, capacite_vehicule, type_vehicule_str
+        from ..modeles.models import Vehicule as VehiculeModel
+
+        vehicule_id = request.query_params.get('vehicule_id')
+        distance_km = request.query_params.get('distance_km')
+
+        if not vehicule_id or not distance_km:
+            return Response({'error': 'vehicule_id et distance_km requis.'}, status=400)
+
+        try:
+            vehicule = VehiculeModel.objects.get(pk=vehicule_id)
+        except VehiculeModel.DoesNotExist:
+            return Response({'error': 'Véhicule introuvable.'}, status=404)
+
+        try:
+            distance = float(distance_km)
+            if distance <= 0:
+                return Response({'error': 'distance_km doit être supérieure à 0.'}, status=400)
+        except (TypeError, ValueError):
+            return Response({'error': 'distance_km invalide.'}, status=400)
+
+        tarif = calculer_prix(distance, type_vehicule_str(vehicule), capacite_vehicule(vehicule))
+        return Response(tarif)
+
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def mes_trajets(self, request):
         trajets = Trajet.objects.filter(

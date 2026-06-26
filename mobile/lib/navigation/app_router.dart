@@ -193,9 +193,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/admin/messagerie/:convId',
             builder: (_, state) => ConversationPage(
-              convId: int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
+              convId:   int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
               userName: state.uri.queryParameters['name'] ?? '',
-              userId: state.uri.queryParameters['userId'],
+              userId:   state.uri.queryParameters['userId'],
+              statut:   state.uri.queryParameters['statut'] ?? 'ouverte',
             ),
           ),
           GoRoute(path: '/admin/notifications',
@@ -250,6 +251,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           convId:   int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
           userName: state.uri.queryParameters['name'] ?? '',
           userId:   state.uri.queryParameters['userId'],
+          statut:   state.uri.queryParameters['statut'] ?? 'ouverte',
         ),
       ),
       GoRoute(path: '/passager/profile',           builder: (_, _) => const ProfilePage()),
@@ -316,6 +318,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           convId:   int.tryParse(state.pathParameters['convId'] ?? '') ?? 0,
           userName: state.uri.queryParameters['name'] ?? '',
           userId:   state.uri.queryParameters['userId'],
+          statut:   state.uri.queryParameters['statut'] ?? 'ouverte',
         ),
       ),
       GoRoute(path: '/conducteur/profile',          builder: (_, _) => const ProfilePage()),

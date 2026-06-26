@@ -54,14 +54,25 @@ export interface TrajetCreatePayload {
   destination_lat: number;
   destination_lng: number;
   distance_km: number;
-  cout_total: number;
-  prix_par_place: number;
+  cout_total?: number;
+  prix_par_place?: number;
   date_heure_depart: string;
   places_disponibles: number;
   description: string;
   est_regulier: boolean;
   jours_semaine: string[] | null;
   tolerance_km?: number;
+}
+
+export interface PrixBackendResult {
+  distance_km:    number;
+  tarif_km:       number;
+  type_vehicule:  string;
+  cout_carburant: number;
+  commission:     number;
+  cout_total:     number;
+  capacite:       number;
+  prix_par_place: number;
 }
 
 // ─── Tarifs selon type de véhicule ────────────────────────────────────────
@@ -107,6 +118,14 @@ export const calculerPrixParPlace = (
 
 // Alias pour compatibilité
 export const calculerPrixPrevu = calculerPrixParPlace;
+
+// ─── API Tarification (backend) ───────────────────────────────────────────
+
+export const calculerPrixBackend = (
+  vehicule_id: number,
+  distance_km: number,
+): Promise<PrixBackendResult> =>
+  api(`/trajets/calculer-prix/?vehicule_id=${vehicule_id}&distance_km=${distance_km}`, "GET");
 
 // ─── API Trajets ───────────────────────────────────────────────────────────
 

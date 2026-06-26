@@ -468,7 +468,11 @@ class _MessagesCard extends StatelessWidget {
               message: 'Aucune conversation',
             )
           else
-            for (final c in items) _ConvRow(conv: c, prefix: prefix),
+            for (final c in items) _ConvRow(
+              conv: c,
+              prefix: prefix,
+              onReturn: () => ref.invalidate(_passagerDashProvider),
+            ),
         ],
       ),
     );
@@ -816,17 +820,22 @@ class _ReservationRow extends StatelessWidget {
 class _ConvRow extends StatelessWidget {
   final ConversationModel conv;
   final String prefix;
-  const _ConvRow({required this.conv, required this.prefix});
+  final VoidCallback? onReturn;
+  const _ConvRow({required this.conv, required this.prefix, this.onReturn});
 
   @override
   Widget build(BuildContext context) {
     final hasUnread = conv.unreadCount > 0;
     return InkWell(
-      onTap: () => context.push(
-        '$prefix/messages/${conv.convId}'
-        '?name=${Uri.encodeComponent(conv.userName)}'
-        '&userId=${conv.userId}',
-      ),
+      onTap: () async {
+        await context.push(
+          '$prefix/messages/${conv.convId}'
+          '?name=${Uri.encodeComponent(conv.userName)}'
+          '&userId=${conv.userId}'
+          '&statut=${conv.statut}',
+        );
+        onReturn?.call();
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(

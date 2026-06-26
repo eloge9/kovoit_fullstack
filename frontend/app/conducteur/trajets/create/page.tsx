@@ -9,14 +9,14 @@ import {
     searchLieu,
     formatNominatimLabel,
     calculerDistance,
-    calculerCoutTotal,
-    calculerPrixParPlace,
+    calculerPrixBackend,
     mesVehicules,
     creerTrajet,
     ajouterEscale,
     type NominatimResult,
     type Vehicule,
     type Escale,
+    type PrixBackendResult,
 } from "@/src/services/trajet.service";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -33,8 +33,6 @@ interface FormData {
     depart: LieuSelectionne | null;
     destination: LieuSelectionne | null;
     distance_km: number;
-    cout_total: number;
-    prix_par_place: number;
     places_disponibles: number;   // places proposées par le conducteur
     date_heure_depart: string;
     description: string;
@@ -159,14 +157,13 @@ export default function ProposerTrajetPage() {
     const [loadingVehicules, setLoadingVehicules] = useState(true);
     const [escales, setEscales] = useState<Omit<Escale, "id">[]>([]);
     const [nouvelleEscale, setNouvelleEscale] = useState<{ nom: string; lat: number | null; lng: number | null } | null>(null);
+    const [pricing, setPricing] = useState<PrixBackendResult | null>(null);
 
     const [form, setForm] = useState<FormData>({
         vehicule_id: null,
         depart: null,
         destination: null,
         distance_km: 0,
-        cout_total: 0,
-        prix_par_place: 0,
         places_disponibles: 0,   // 0 = pas encore défini
         date_heure_depart: "",
         description: "",
@@ -196,34 +193,27 @@ export default function ProposerTrajetPage() {
     // Véhicule sélectionné
     const vehiculeSelectionne = vehicules.find((v) => v.id === form.vehicule_id) || null;
 
-    // Recalcul prix quand départ, destination ou places changent
+    // Recalcul prix quand départ, destination ou véhicule changent
     useEffect(() => {
-        const { depart, destination, places_disponibles, vehicule_id } = form;
-        if (!depart || !destination || !vehicule_id || places_disponibles <= 0) return;
-
-        const vehicule = vehicules.find((v) => v.id === vehicule_id);
-        if (!vehicule) return;
+        const { depart, destination, vehicule_id } = form;
+        if (!depart || !destination || !vehicule_id) return;
 
         const compute = async () => {
             setCalcul(true);
+            setPricing(null);
             try {
-                const result = await calculerDistance(depart, destination);
-                const cout = calculerCoutTotal(result.distance_km, vehicule.type_vehicule);
-                const prix = calculerPrixParPlace(cout, places_disponibles);
-                setForm((prev) => ({
-                    ...prev,
-                    distance_km: result.distance_km,
-                    cout_total: cout,
-                    prix_par_place: prix,
-                }));
+                const route = await calculerDistance(depart, destination);
+                setForm((prev) => ({ ...prev, distance_km: route.distance_km }));
+                const prix = await calculerPrixBackend(vehicule_id, route.distance_km);
+                setPricing(prix);
             } catch {
-                setError("Impossible de calculer la distance. Vérifiez les lieux.");
+                setError("Impossible de calculer la distance ou le prix. Vérifiez les lieux.");
             } finally {
                 setCalcul(false);
             }
         };
         compute();
-    }, [form.depart, form.destination, form.places_disponibles, form.vehicule_id]);
+    }, [form.depart, form.destination, form.vehicule_id]);
 
     const toggleJour = (jour: string) => {
         const jours = form.jours_semaine.includes(jour)
@@ -237,7 +227,7 @@ export default function ProposerTrajetPage() {
         if (!form.depart) return setError("Sélectionnez un lieu de départ.");
         if (!form.destination) return setError("Sélectionnez une destination.");
         if (form.places_disponibles <= 0) return setError("Indiquez le nombre de places disponibles.");
-        if (form.distance_km === 0) return setError("Calcul de distance en cours...");
+        if (form.distance_km === 0 || !pricing) return setError("Calcul du prix en cours...");
         setError(null);
         setStep(2);
     };
@@ -263,8 +253,6 @@ export default function ProposerTrajetPage() {
                 destination_lat: form.destination!.lat,
                 destination_lng: form.destination!.lng,
                 distance_km: form.distance_km,
-                cout_total: form.cout_total,
-                prix_par_place: form.prix_par_place,
                 date_heure_depart: new Date(form.date_heure_depart).toISOString(),
                 places_disponibles: form.places_disponibles,
                 description: form.description,
@@ -482,40 +470,41 @@ export default function ProposerTrajetPage() {
                     )}
 
                     {/* Estimation prix */}
-                    {form.depart && form.destination && form.places_disponibles > 0 && (
+                    {form.depart && form.destination && form.vehicule_id && (
                         <div className="bg-base-100 rounded-2xl border border-base-200 p-6">
                             <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium mb-4">
-                                Estimation automatique
+                                Tarification automatique
                             </p>
                             {calcul ? (
                                 <div className="flex items-center gap-3">
                                     <span className="loading loading-spinner loading-sm" />
                                     <span className="text-sm text-base-content/60">Calcul en cours...</span>
                                 </div>
-                            ) : (
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <p className="text-2xl font-bold text-base-content">{form.distance_km} km</p>
-                                        <p className="text-xs text-base-content/40 mt-0.5">Distance</p>
+                            ) : pricing ? (
+                                <>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div>
+                                            <p className="text-2xl font-bold text-base-content">{pricing.distance_km} km</p>
+                                            <p className="text-xs text-base-content/40 mt-0.5">Distance</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-primary">
+                                                {pricing.prix_par_place.toLocaleString("fr-FR")} FCFA
+                                            </p>
+                                            <p className="text-xs text-base-content/40 mt-0.5">Prix / place</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-2xl font-bold text-base-content">{pricing.tarif_km}</p>
+                                            <p className="text-xs text-base-content/40 mt-0.5">FCFA/km</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-2xl font-bold text-primary">
-                                            {form.prix_par_place.toLocaleString("fr-FR")} FCFA
-                                        </p>
-                                        <p className="text-xs text-base-content/40 mt-0.5">Prix / place</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-2xl font-bold text-base-content">{form.places_disponibles}</p>
-                                        <p className="text-xs text-base-content/40 mt-0.5">Places proposées</p>
-                                    </div>
-                                </div>
-                            )}
-                            {!calcul && form.cout_total > 0 && (
-                                <p className="text-xs text-base-content/30 mt-3">
-                                    Coût total : {form.cout_total.toLocaleString("fr-FR")} FCFA
-                                    · dont {Math.round(form.cout_total / 11).toLocaleString("fr-FR")} FCFA commission KoVoit (10%)
-                                </p>
-                            )}
+                                    <p className="text-xs text-base-content/30 mt-3">
+                                        Carburant : {pricing.cout_carburant.toLocaleString("fr-FR")} FCFA
+                                        · Commission KoVoit : {pricing.commission.toLocaleString("fr-FR")} FCFA (10%)
+                                        · Capacité véhicule : {pricing.capacite} place{pricing.capacite > 1 ? "s" : ""}
+                                    </p>
+                                </>
+                            ) : null}
                         </div>
                     )}
 
@@ -699,7 +688,7 @@ export default function ProposerTrajetPage() {
                                 { label: "Destination", value: form.destination?.nom },
                                 { label: "Distance", value: `${form.distance_km} km` },
                                 { label: "Places", value: `${form.places_disponibles} place${form.places_disponibles > 1 ? "s" : ""} proposée${form.places_disponibles > 1 ? "s" : ""}` },
-                                { label: "Prix / place", value: `${form.prix_par_place.toLocaleString("fr-FR")} FCFA` },
+                                { label: "Prix / place", value: `${(pricing?.prix_par_place ?? 0).toLocaleString("fr-FR")} FCFA` },
                                 {
                                     label: "Date départ", value: new Date(form.date_heure_depart).toLocaleString("fr-FR", {
                                         weekday: "long", day: "numeric", month: "long",
@@ -721,11 +710,11 @@ export default function ProposerTrajetPage() {
                                 <div>
                                     <p className="text-sm font-medium text-base-content/60">Prix fixe par passager</p>
                                     <p className="text-xs text-base-content/30 mt-0.5">
-                                        Calculé selon distance + type véhicule + places proposées
+                                        Calculé selon distance + type véhicule + capacité réelle
                                     </p>
                                 </div>
                                 <p className="text-2xl font-bold text-primary">
-                                    {form.prix_par_place.toLocaleString("fr-FR")} FCFA
+                                    {(pricing?.prix_par_place ?? 0).toLocaleString("fr-FR")} FCFA
                                 </p>
                             </div>
                         </div>

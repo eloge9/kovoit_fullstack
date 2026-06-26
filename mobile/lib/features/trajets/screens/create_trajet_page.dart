@@ -5,9 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../providers/trajet_provider.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../verification/providers/verification_provider.dart';
 import '../../verification/widgets/driver_activation_guard.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/services/nominatim_service.dart';
 import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
@@ -44,9 +44,10 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
 
   DateTime _selectedDate = DateTime.now().add(const Duration(hours: 2));
   int? _selectedVehiculeId;
-  String _typeVehicule = 'voiture';
   bool _isLoading = false;
   bool _isCalculatingRoute = false;
+  bool _isCalculatingPrix = false;
+  Map<String, dynamic>? _pricing;
 
   LocationSuggestion? _departSuggestion;
   LocationSuggestion? _destinationSuggestion;
@@ -60,16 +61,6 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
   final List<_EscaleInput> _escales = [];
   LocationSuggestion? _pendingEscale;
   int _escaleFieldKey = 0;
-
-  double get _coutTotal {
-    final dist = _route?.distanceKm ?? 0;
-    return dist * (AppConstants.tarifCarburant[_typeVehicule] ?? 65);
-  }
-
-  double get _prixParPlace {
-    final places = int.tryParse(_placesCtrl.text) ?? 1;
-    return places == 0 ? _coutTotal : _coutTotal / places;
-  }
 
   @override
   void initState() {
@@ -124,6 +115,34 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
       _isCalculatingRoute = false;
     });
     debugPrint('[CreateTrajet] Route: ${route?.distanceKm} km, ${route?.durationMin} min');
+    await _calculerPrix();
+  }
+
+  Future<void> _calculerPrix() async {
+    if (_route == null || _selectedVehiculeId == null) {
+      if (mounted) setState(() { _pricing = null; _isCalculatingPrix = false; });
+      return;
+    }
+    if (!mounted) return;
+    setState(() { _isCalculatingPrix = true; _pricing = null; });
+    try {
+      final resp = await DioClient.get(
+        '/trajets/calculer-prix/',
+        queryParams: {
+          'vehicule_id': _selectedVehiculeId.toString(),
+          'distance_km': _route!.distanceKm.toStringAsFixed(3),
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _pricing = Map<String, dynamic>.from(resp.data as Map);
+        _isCalculatingPrix = false;
+      });
+    } catch (e) {
+      debugPrint('[CreateTrajet] _calculerPrix erreur: $e');
+      if (!mounted) return;
+      setState(() { _pricing = null; _isCalculatingPrix = false; });
+    }
   }
 
   Future<void> _selectDate() async {
@@ -208,10 +227,10 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
     debugPrint('[CreateTrajet] Places    : ${_placesCtrl.text}');
     debugPrint('[CreateTrajet] vehicule_id: $_selectedVehiculeId');
     debugPrint('[CreateTrajet] Distance  : ${_route!.distanceKm} km');
-    debugPrint('[CreateTrajet] Coût total: $_coutTotal FCFA');
+    debugPrint('[CreateTrajet] Prix backend: $_pricing');
 
     final payload = {
-      'vehicule_id': _selectedVehiculeId,      // ← clé attendue par TrajetCreateSerializer
+      'vehicule_id': _selectedVehiculeId,
       'depart': _departSuggestion!.displayName,
       'destination': _destinationSuggestion!.displayName,
       'depart_lat': _departSuggestion!.lat,
@@ -219,8 +238,6 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
       'destination_lat': _destinationSuggestion!.lat,
       'destination_lng': _destinationSuggestion!.lng,
       'distance_km': _route!.distanceKm,
-      'cout_total': double.parse(_coutTotal.toStringAsFixed(2)),
-      'prix_par_place': double.parse(_prixParPlace.toStringAsFixed(2)),
       'date_heure_depart': _selectedDate.toIso8601String(),
       'places_disponibles': int.parse(_placesCtrl.text),
     };
@@ -615,15 +632,15 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
                                             overflow: TextOverflow.ellipsis),
                                       ))
                                   .toList(),
-                              onChanged: (id) => setState(() {
-                                _selectedVehiculeId = id;
-                                _vehiculeError = null;
-                                final v =
-                                    actifs.firstWhere((v) => v.id == id);
-                                _typeVehicule = v.typeVehicule;
-                                _placesCtrl.text =
-                                    (v.placesMax - 1).toString();
-                              }),
+                              onChanged: (id) async {
+                                setState(() {
+                                  _selectedVehiculeId = id;
+                                  _vehiculeError = null;
+                                  final v = actifs.firstWhere((v) => v.id == id);
+                                  _placesCtrl.text = (v.placesMax - 1).toString();
+                                });
+                                await _calculerPrix();
+                              },
                             ),
                             if (_vehiculeError != null) ...[
                               const SizedBox(height: 4),
@@ -683,34 +700,63 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
                           icon: Icons.payments_outlined,
                           label: 'Résumé tarifaire'),
                       const SizedBox(height: KSpacing.lg),
-                      Container(
-                        padding: const EdgeInsets.all(KSpacing.md),
-                        decoration: BoxDecoration(
-                          color: KColors.primary.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: KColors.primary.withValues(alpha: 0.15)),
+                      if (_isCalculatingPrix)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: CircularProgressIndicator(
+                                color: KColors.primary, strokeWidth: 2),
+                          ),
+                        )
+                      else if (_pricing != null)
+                        Container(
+                          padding: const EdgeInsets.all(KSpacing.md),
+                          decoration: BoxDecoration(
+                            color: KColors.primary.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: KColors.primary.withValues(alpha: 0.15)),
+                          ),
+                          child: Column(children: [
+                            _TarifRow(
+                                label: 'Distance',
+                                value: '${(_pricing!['distance_km'] as num).toStringAsFixed(1)} km'),
+                            const SizedBox(height: 6),
+                            _TarifRow(
+                                label: 'Tarif carburant',
+                                value: '${(_pricing!['tarif_km'] as num).toStringAsFixed(0)} FCFA/km'),
+                            const SizedBox(height: 6),
+                            _TarifRow(
+                                label: 'Coût carburant',
+                                value: '${(_pricing!['cout_carburant'] as num).toStringAsFixed(0)} FCFA'),
+                            const SizedBox(height: 6),
+                            _TarifRow(
+                                label: 'Commission KoVoit (10%)',
+                                value: '${(_pricing!['commission'] as num).toStringAsFixed(0)} FCFA'),
+                            const Divider(color: KColors.border, height: 16),
+                            _TarifRow(
+                                label: 'Total trajet',
+                                value: '${(_pricing!['cout_total'] as num).toStringAsFixed(0)} FCFA'),
+                            const SizedBox(height: 6),
+                            _TarifRow(
+                                label: 'Capacité véhicule',
+                                value: '${_pricing!['capacite']} places'),
+                            const Divider(color: KColors.border, height: 16),
+                            _TarifRow(
+                                label: 'Prix par place',
+                                value: '${_pricing!['prix_par_place']} FCFA',
+                                isBold: true,
+                                color: KColors.primary),
+                          ]),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            'Calcul du prix en attente…',
+                            style: KTextStyles.meta.copyWith(color: KColors.baseContentMid),
+                          ),
                         ),
-                        child: Column(children: [
-                          _TarifRow(
-                              label: 'Coût total du trajet',
-                              value:
-                                  '${_coutTotal.toStringAsFixed(0)} FCFA'),
-                          const Divider(color: KColors.border, height: 16),
-                          _TarifRow(
-                              label: 'Prix par place',
-                              value:
-                                  '${_prixParPlace.toStringAsFixed(0)} FCFA',
-                              isBold: true,
-                              color: KColors.primary),
-                        ]),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tarif ${AppConstants.vehiculeLabel(_typeVehicule)} : '
-                        '${AppConstants.tarifCarburant[_typeVehicule]} FCFA/km',
-                        style: KTextStyles.meta,
-                      ),
                     ],
                   ),
                 ),
@@ -737,8 +783,8 @@ class _CreateTrajetPageState extends ConsumerState<CreateTrajetPage> {
             KButton(
               label: 'Publier le trajet',
               icon: Icons.publish_rounded,
-              isLoading: _isLoading || _isCalculatingRoute,
-              onPressed: (_isLoading || _isCalculatingRoute) ? null : _submit,
+              isLoading: _isLoading || _isCalculatingRoute || _isCalculatingPrix,
+              onPressed: (_isLoading || _isCalculatingRoute || _isCalculatingPrix) ? null : _submit,
             ),
             const SizedBox(height: KSpacing.xxl),
           ],
