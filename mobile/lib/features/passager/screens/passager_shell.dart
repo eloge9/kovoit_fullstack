@@ -9,6 +9,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/k_avatar.dart';
 import '../../auth/models/user_model.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../reservations/models/reservation_model.dart';
+import '../../reservations/providers/reservation_provider.dart';
 
 class PassagerShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -42,6 +44,7 @@ class _PassagerShellState extends ConsumerState<PassagerShell> {
     final user = ref.watch(currentUserProvider);
     final location = GoRouterState.of(context).matchedLocation;
     final currentIndex = _indexFromLocation(location);
+    final activeRes = ref.watch(activeTrajetPassagerProvider).valueOrNull;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -63,7 +66,22 @@ class _PassagerShellState extends ConsumerState<PassagerShell> {
             child: widget.child,
           ),
         ),
-        floatingActionButton: _KCentralFab(onTap: () => context.go('/passager/trajets')),
+        floatingActionButton: activeRes != null
+            ? _KActiveFab(
+                onTap: () {
+                  final t = activeRes.trajet;
+                  var url = '/passager/trajet/${activeRes.trajetId}/suivi'
+                      '?depart=${Uri.encodeComponent(t?.depart ?? '')}'
+                      '&destination=${Uri.encodeComponent(t?.destination ?? '')}'
+                      '&conducteur=${Uri.encodeComponent(t?.conducteurNom ?? '')}';
+                  if (t?.departLat != null) url += '&departLat=${t!.departLat}';
+                  if (t?.departLng != null) url += '&departLng=${t!.departLng}';
+                  if (t?.destinationLat != null) url += '&destinationLat=${t!.destinationLat}';
+                  if (t?.destinationLng != null) url += '&destinationLng=${t!.destinationLng}';
+                  context.push(url);
+                },
+              )
+            : _KCentralFab(onTap: () => context.go('/passager/trajets')),
         floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: _KBottomAppBar(
           currentIndex: currentIndex,
@@ -230,6 +248,56 @@ class _KCentralFab extends StatelessWidget {
   }
 }
 
+// ── FAB trajet en cours (pulse animé) ─────────────────────────────────────────
+
+class _KActiveFab extends StatefulWidget {
+  final VoidCallback onTap;
+  const _KActiveFab({required this.onTap});
+
+  @override
+  State<_KActiveFab> createState() => _KActiveFabState();
+}
+
+class _KActiveFabState extends State<_KActiveFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 0.92, end: 1.07).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scale,
+      child: FloatingActionButton(
+        onPressed: widget.onTap,
+        backgroundColor: KColors.success,
+        elevation: 8,
+        focusElevation: 10,
+        shape: const CircleBorder(),
+        tooltip: 'Suivre votre trajet en direct',
+        child: const Icon(Icons.location_on_rounded, color: Colors.white, size: 26),
+      ),
+    );
+  }
+}
+
 // ── Bottom Navigation ─────────────────────────────────────────────────────────
 
 class _KBottomAppBar extends StatelessWidget {
@@ -383,9 +451,13 @@ class _AccountMenuSheet extends StatelessWidget {
         color: KColors.base100,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           // Handle bar
           Container(
             width: 40,
@@ -509,6 +581,7 @@ class _AccountMenuSheet extends StatelessWidget {
 
           SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
         ],
+      ),
       ),
     );
   }

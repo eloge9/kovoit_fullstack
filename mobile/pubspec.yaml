@@ -38,8 +38,9 @@ dependencies:
   # WebSocket (messagerie temps réel)
   web_socket_channel: ^3.0.1
 
-  # QR Code
+  # QR Code — génération (passager) + scan (conducteur)
   qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.3
 
   # Shimmer loading (skeleton DaisyUI)
   shimmer: ^3.0.0

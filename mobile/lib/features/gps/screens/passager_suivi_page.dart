@@ -53,12 +53,13 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
   int _etaMinutes = 0;
   String _statusText = 'Connexion en cours…';
 
-  // Animation marqueur conducteur
+  // Animation marqueur conducteur (pulse)
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
 
-  // Animation mouvement fluide
+  // Animation mouvement fluide du marqueur
   late AnimationController _moveCtrl;
+  Animation<LatLng>? _posAnimation;
 
   @override
   void initState() {
@@ -75,7 +76,7 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
     _moveCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
-    );
+    )..addListener(_onMoveUpdate);
 
     _connect();
     _chargerRoute();
@@ -108,13 +109,18 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
     );
   }
 
+  void _onMoveUpdate() {
+    if (mounted) setState(() {});
+  }
+
   void _animateMarker(LatLng? from, LatLng to) {
     if (from == null) return;
-    _moveCtrl.reset();
-    LatLngTween(begin: from, end: to).animate(
+    _posAnimation = LatLngTween(begin: from, end: to).animate(
       CurvedAnimation(parent: _moveCtrl, curve: Curves.easeOut),
     );
-    _moveCtrl.forward();
+    _moveCtrl
+      ..reset()
+      ..forward();
   }
 
   String _buildStatusText(LocationData data) {
@@ -234,10 +240,10 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
                     width: 36, height: 36,
                     child: _buildPin(KColors.error, Icons.location_on),
                   ),
-                // Conducteur animé
+                // Conducteur animé — position interpolée
                 if (hasDriver)
                   Marker(
-                    point: center,
+                    point: _posAnimation?.value ?? _conducteurPosition!,
                     width: 60, height: 60,
                     child: AnimatedBuilder(
                       animation: _pulseAnim,
@@ -556,6 +562,10 @@ class _BottomInfoPanel extends StatelessWidget {
           offset: const Offset(0, -4),
         )],
       ),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.5,
+      ),
+      child: SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         20, 12, 20,
         MediaQuery.of(context).padding.bottom + 16,
@@ -599,6 +609,7 @@ class _BottomInfoPanel extends StatelessWidget {
 
         const SizedBox(height: 8),
       ]),
+      ),
     );
   }
 }

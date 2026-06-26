@@ -1,11 +1,13 @@
 class EvaluationModel {
   final int id;
   final int trajetId;
+  final String trajetLabel;
   final String auteurId;
   final String auteurNom;
   final String? auteurPhoto;
   final String cibleId;
   final String cibleNom;
+  final String? ciblePhoto;
   final int note;
   final String? commentaire;
   final bool signalement;
@@ -15,11 +17,13 @@ class EvaluationModel {
   const EvaluationModel({
     required this.id,
     required this.trajetId,
+    this.trajetLabel = '',
     required this.auteurId,
     required this.auteurNom,
     this.auteurPhoto,
     required this.cibleId,
     required this.cibleNom,
+    this.ciblePhoto,
     required this.note,
     this.commentaire,
     this.signalement = false,
@@ -28,27 +32,35 @@ class EvaluationModel {
   });
 
   factory EvaluationModel.fromJson(Map<String, dynamic> json) {
-    // Backend retourne 'trajet' (int), 'auteur' (UUID), 'cible' (UUID)
-    // On supporte les deux formes pour la compatibilité
+    // Backend retourne: auteur_id, auteur (nom), auteur_photo,
+    //                   cible_id, cible (nom), cible_photo,
+    //                   trajet (label string), trajet_id,
+    //                   date (pas date_evaluation)
     return EvaluationModel(
       id: json['id'] as int,
       trajetId: json['trajet_id'] as int?
           ?? (json['trajet'] is int ? json['trajet'] as int : null)
           ?? 0,
-      auteurId: json['auteur_id']?.toString()
+      trajetLabel: json['trajet'] is String ? json['trajet'].toString() : '',
+      auteurId: json['auteur_id']?.toString() ?? '',
+      auteurNom: json['auteur_nom']?.toString()
           ?? json['auteur']?.toString()
           ?? '',
-      auteurNom: json['auteur_nom']?.toString() ?? '',
       auteurPhoto: json['auteur_photo']?.toString(),
-      cibleId: json['cible_id']?.toString()
+      cibleId: json['cible_id']?.toString() ?? '',
+      cibleNom: json['cible_nom']?.toString()
           ?? json['cible']?.toString()
           ?? '',
-      cibleNom: json['cible_nom']?.toString() ?? '',
+      ciblePhoto: json['cible_photo']?.toString(),
       note: json['note'] as int? ?? 0,
       commentaire: json['commentaire']?.toString(),
-      signalement: json['signalement'] as bool? ?? false,
+      signalement: json['signale'] as bool? ?? json['signalement'] as bool? ?? false,
       motifSignalement: json['motif_signalement']?.toString(),
-      dateEvaluation: DateTime.tryParse(json['date_evaluation']?.toString() ?? '') ?? DateTime.now(),
+      dateEvaluation: DateTime.tryParse(
+              json['date_evaluation']?.toString()
+              ?? json['date']?.toString()
+              ?? '') ??
+          DateTime.now(),
     );
   }
 }

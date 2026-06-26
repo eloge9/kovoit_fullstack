@@ -203,3 +203,18 @@ final reservationsProvider =
     StateNotifierProvider<ReservationsNotifier, ReservationsState>(
   (ref) => ReservationsNotifier(ref.watch(reservationRepositoryProvider)),
 );
+
+// Détecte si le passager a un trajet en_cours en ce moment
+final activeTrajetPassagerProvider =
+    FutureProvider.autoDispose<ReservationModel?>((ref) async {
+  try {
+    final repo = ref.watch(reservationRepositoryProvider);
+    final reservations = await repo.mesReservations();
+    for (final r in reservations) {
+      if (r.trajet?.statut == 'en_cours') return r;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+});

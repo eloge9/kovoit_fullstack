@@ -29,27 +29,34 @@ class EvaluationRepository {
   Future<List<EvaluationModel>> mesEvaluations() async {
     try {
       final response = await DioClient.get(ApiConstants.mesEvaluations);
-      final data = response.data;
-      debugPrint('[EvalRepo] mesEvaluations raw type: ${data.runtimeType}');
-      if (data is List) {
-        debugPrint('[EvalRepo] mesEvaluations: ${data.length} évaluations');
-        return data
-            .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-      if (data is Map && data['results'] is List) {
-        final list = data['results'] as List;
-        debugPrint('[EvalRepo] mesEvaluations (paginated): ${list.length} évaluations');
-        return list
-            .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-      debugPrint('[EvalRepo] mesEvaluations réponse inattendue: $data');
-      return [];
+      return _parseList(response.data, 'mesEvaluations');
     } on DioException catch (e) {
       debugPrint('[EvalRepo] mesEvaluations error: $e');
       throw ApiException.fromDioException(e);
     }
+  }
+
+  Future<List<EvaluationModel>> mesEvaluationsEnvoyees() async {
+    try {
+      final response = await DioClient.get(ApiConstants.mesEvaluationsDonnees);
+      return _parseList(response.data, 'mesEvaluationsDonnees');
+    } on DioException catch (e) {
+      debugPrint('[EvalRepo] mesEvaluationsDonnees error: $e');
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  List<EvaluationModel> _parseList(dynamic data, String tag) {
+    debugPrint('[EvalRepo] $tag raw type: ${data.runtimeType}');
+    if (data is List) {
+      return data.map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    if (data is Map && data['results'] is List) {
+      return (data['results'] as List)
+          .map((e) => EvaluationModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
   }
 
   Future<List<Map<String, dynamic>>> aEvaluer() async {

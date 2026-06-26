@@ -146,6 +146,22 @@ class PassagerDashboardPage extends ConsumerWidget {
                     dateStr: dateStr,
                     roleLabel: 'Passager',
                   ),
+                  // Bannière trajet en cours
+                  dashAsync.when(
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
+                    data: (d) {
+                      ReservationModel? activeRes;
+                      for (final r in d.reservations) {
+                        if (r.trajet?.statut == 'en_cours') {
+                          activeRes = r;
+                          break;
+                        }
+                      }
+                      if (activeRes == null) return const SizedBox.shrink();
+                      return _ActiveTrajetBanner(reservation: activeRes);
+                    },
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       KSpacing.pagePaddingH,
@@ -865,6 +881,149 @@ class _ConvRow extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Bannière trajet en cours ──────────────────────────────────────────────────
+
+class _ActiveTrajetBanner extends StatefulWidget {
+  final ReservationModel reservation;
+  const _ActiveTrajetBanner({required this.reservation});
+
+  @override
+  State<_ActiveTrajetBanner> createState() => _ActiveTrajetBannerState();
+}
+
+class _ActiveTrajetBannerState extends State<_ActiveTrajetBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opac;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _opac = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.reservation;
+    return GestureDetector(
+      onTap: () {
+        final t = r.trajet;
+        var url = '/passager/trajet/${r.trajetId}/suivi'
+            '?depart=${Uri.encodeComponent(t?.depart ?? '')}'
+            '&destination=${Uri.encodeComponent(t?.destination ?? '')}'
+            '&conducteur=${Uri.encodeComponent(t?.conducteurNom ?? '')}';
+        if (t?.departLat != null) url += '&departLat=${t!.departLat}';
+        if (t?.departLng != null) url += '&departLng=${t!.departLng}';
+        if (t?.destinationLat != null) url += '&destinationLat=${t!.destinationLat}';
+        if (t?.destinationLng != null) url += '&destinationLng=${t!.destinationLng}';
+        context.push(url);
+      },
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(
+            KSpacing.pagePaddingH, KSpacing.lg, KSpacing.pagePaddingH, 0),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [KColors.successContent, KColors.success],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: KColors.success.withValues(alpha: 0.4),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            AnimatedBuilder(
+              animation: _opac,
+              builder: (_, child) =>
+                  Opacity(opacity: _opac.value, child: child),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.directions_car_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Votre trajet est en cours',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${r.trajet?.depart ?? ''}  →  ${r.trajet?.destination ?? ''}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.location_on_rounded,
+                      size: 14, color: KColors.successContent),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Suivre',
+                    style: TextStyle(
+                      color: KColors.successContent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

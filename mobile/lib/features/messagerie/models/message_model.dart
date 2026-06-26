@@ -88,7 +88,8 @@ class ConversationModel {
         ? interlocuteurs.first as Map<String, dynamic>
         : null;
 
-    final dernierMsg = json['dernier_message'] as Map<String, dynamic>?;
+    final _dernierMsgRaw = json['dernier_message'];
+    final dernierMsg = _dernierMsgRaw is Map<String, dynamic> ? _dernierMsgRaw : null;
 
     return ConversationModel(
       convId: json['id'] as int,

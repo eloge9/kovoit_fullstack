@@ -23,7 +23,16 @@ class ReservationRepository {
       if (priseEnChargeLat != null) body['prise_en_charge_lat'] = priseEnChargeLat;
       if (priseEnChargeLng != null) body['prise_en_charge_lng'] = priseEnChargeLng;
       final response = await DioClient.post(ApiConstants.reserver, data: body);
-      return ReservationModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      debugPrint('[ReservationRepo] reserver raw type: ${raw.runtimeType}');
+      if (raw is Map<String, dynamic>) {
+        // Backend may wrap: {"reservation": {...}, "message": "..."}
+        if (raw['reservation'] is Map<String, dynamic>) {
+          return ReservationModel.fromJson(raw['reservation'] as Map<String, dynamic>);
+        }
+        return ReservationModel.fromJson(raw);
+      }
+      throw Exception('Réponse API inattendue (${raw.runtimeType}): $raw');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -85,7 +94,14 @@ class ReservationRepository {
   Future<ReservationModel> confirmerReservation(int id) async {
     try {
       final response = await DioClient.post('$_basePath$id/confirmer/');
-      return ReservationModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) {
+        if (raw['reservation'] is Map<String, dynamic>) {
+          return ReservationModel.fromJson(raw['reservation'] as Map<String, dynamic>);
+        }
+        return ReservationModel.fromJson(raw);
+      }
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -94,7 +110,14 @@ class ReservationRepository {
   Future<ReservationModel> declinerReservation(int id) async {
     try {
       final response = await DioClient.post('$_basePath$id/decliner/');
-      return ReservationModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) {
+        if (raw['reservation'] is Map<String, dynamic>) {
+          return ReservationModel.fromJson(raw['reservation'] as Map<String, dynamic>);
+        }
+        return ReservationModel.fromJson(raw);
+      }
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -124,7 +147,10 @@ class ReservationRepository {
           'network': network,
         },
       );
-      return PaiementModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return PaiementModel.fromJson(raw);
+      if (raw is Map) return PaiementModel.fromJson(Map<String, dynamic>.from(raw));
+      throw Exception('Réponse paiement inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -137,7 +163,10 @@ class ReservationRepository {
         ApiConstants.verifierPaiement,
         data: {'token': token},
       );
-      return PaiementModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return PaiementModel.fromJson(raw);
+      if (raw is Map) return PaiementModel.fromJson(Map<String, dynamic>.from(raw));
+      throw Exception('Réponse paiement inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -150,7 +179,10 @@ class ReservationRepository {
         ApiConstants.initierEspeces,
         data: {'reservation_id': reservationId},
       );
-      return PaiementModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return PaiementModel.fromJson(raw);
+      if (raw is Map) return PaiementModel.fromJson(Map<String, dynamic>.from(raw));
+      throw Exception('Réponse paiement espèces inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -159,8 +191,35 @@ class ReservationRepository {
   Future<Map<String, dynamic>> getCodeEmbarquement(int reservationId) async {
     try {
       final response = await DioClient.get('/reservations/$reservationId/code-embarquement/');
-      return response.data as Map<String, dynamic>;
+      final raw = response.data;
+      debugPrint('[ReservationRepo] getCodeEmbarquement raw type: ${raw.runtimeType}');
+      if (raw is Map<String, dynamic>) return raw;
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<List<ReservationModel>> passagersTrajet(int trajetId) async {
+    try {
+      final response = await DioClient.get(
+        ApiConstants.reservationsRecues,
+        queryParams: <String, dynamic>{'trajet_id': trajetId.toString()},
+      );
+      final data = response.data;
+      debugPrint('[ReservationRepo] passagersTrajet($trajetId) raw: ${data.runtimeType}');
+      if (data is List) {
+        return data.map((e) => ReservationModel.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      if (data is Map && data['results'] is List) {
+        return (data['results'] as List)
+            .map((e) => ReservationModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } on DioException catch (e) {
+      debugPrint('[ReservationRepo] passagersTrajet error: $e');
       throw ApiException.fromDioException(e);
     }
   }
@@ -171,7 +230,11 @@ class ReservationRepository {
         '/reservations/embarquer/',
         data: {'code_embarquement': codeEmbarquement},
       );
-      return response.data as Map<String, dynamic>;
+      final raw = response.data;
+      debugPrint('[ReservationRepo] embarquer raw type: ${raw.runtimeType}');
+      if (raw is Map<String, dynamic>) return raw;
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

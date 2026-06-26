@@ -13,6 +13,7 @@ import '../../../core/widgets/k_badge.dart';
 import '../../../core/widgets/k_avatar.dart';
 import '../../../core/widgets/k_empty_state.dart';
 import '../../../core/services/notification_service.dart';
+import 'reservation_detail_page.dart';
 
 // ── Page principale avec onglets ──────────────────────────────────────────────
 
@@ -730,9 +731,35 @@ class _ReservationCard extends StatelessWidget {
 
   ReservationModel get r => reservation;
 
+  void _onCardTap(BuildContext context) {
+    if (!isConducteur && r.trajet?.statut == 'en_cours') {
+      context.push(_suiviUrl(prefix));
+    } else {
+      context.push(
+        '$prefix/reservation/${r.id}/detail',
+        extra: r,
+      );
+    }
+  }
+
+  String _suiviUrl(String prefix) {
+    final t = r.trajet;
+    var url = '$prefix/trajet/${r.trajetId}/suivi'
+        '?depart=${Uri.encodeComponent(t?.depart ?? '')}'
+        '&destination=${Uri.encodeComponent(t?.destination ?? '')}'
+        '&conducteur=${Uri.encodeComponent(t?.conducteurNom ?? '')}';
+    if (t?.departLat != null) url += '&departLat=${t!.departLat}';
+    if (t?.departLng != null) url += '&departLng=${t!.departLng}';
+    if (t?.destinationLat != null) url += '&destinationLat=${t!.destinationLat}';
+    if (t?.destinationLng != null) url += '&destinationLng=${t!.destinationLng}';
+    debugPrint('[ReservationCard] navigation suivi: $url');
+    return url;
+  }
+
   @override
   Widget build(BuildContext context) {
     return KCard(
+      onTap: () => _onCardTap(context),
       child: Padding(
         padding: const EdgeInsets.all(KSpacing.xl),
         child: Column(
@@ -806,6 +833,42 @@ class _ReservationCard extends StatelessWidget {
     return false;
   }
 
+  Widget _buildPaiementAction(BuildContext context) {
+    final p = r.paiement;
+    if (p == null) {
+      return KButton(
+        label: 'Payer ma place',
+        icon: Icons.payments_rounded,
+        variant: KButtonVariant.outline,
+        onPressed: () => context.push('$prefix/paiement/${r.id}'),
+      );
+    }
+    if (p.isTermine) {
+      return _PaiementStateBadge(
+        icon: Icons.check_circle_rounded,
+        label: 'Paiement confirmé',
+        color: KColors.successContent,
+        bgColor: KColors.success.withValues(alpha: 0.1),
+        borderColor: KColors.success.withValues(alpha: 0.3),
+      );
+    }
+    if (p.isEspece) {
+      return _PaiementStateBadge(
+        icon: Icons.handshake_outlined,
+        label: 'Paiement en espèces au conducteur',
+        color: KColors.primary,
+        bgColor: KColors.primary.withValues(alpha: 0.07),
+        borderColor: KColors.primary.withValues(alpha: 0.2),
+      );
+    }
+    return KButton(
+      label: 'Terminer le paiement',
+      icon: Icons.payments_rounded,
+      variant: KButtonVariant.warning,
+      onPressed: () => context.push('$prefix/paiement/${r.id}'),
+    );
+  }
+
   Widget _buildActions(BuildContext context) {
     if (isConducteur && r.isEnAttente) {
       return Row(children: [
@@ -848,24 +911,14 @@ class _ReservationCard extends StatelessWidget {
               '$prefix/reservation/${r.id}/code-embarquement'),
         ),
         const SizedBox(height: KSpacing.md),
-        KButton(
-          label: 'Payer ma place',
-          icon: Icons.payments_rounded,
-          variant: KButtonVariant.outline,
-          onPressed: () => context.push('$prefix/paiement/${r.id}'),
-        ),
+        _buildPaiementAction(context),
         if (r.trajet?.statut == 'en_cours') ...[
           const SizedBox(height: KSpacing.md),
           KButton(
             label: 'Suivre le trajet en direct',
             icon: Icons.location_on_rounded,
             variant: KButtonVariant.ghost,
-            onPressed: () => context.push(
-              '$prefix/trajet/${r.trajetId}/suivi'
-              '?depart=${Uri.encodeComponent(r.trajet?.depart ?? '')}'
-              '&destination=${Uri.encodeComponent(r.trajet?.destination ?? '')}'
-              '&conducteur=${Uri.encodeComponent(r.trajet?.conducteurNom ?? '')}',
-            ),
+            onPressed: () => context.push(_suiviUrl(prefix)),
           ),
         ],
       ]);
@@ -879,13 +932,13 @@ class _ReservationCard extends StatelessWidget {
       );
     }
 
-    if (!isConducteur && r.isTerminee) {
+    if (!isConducteur && r.isTerminee && (r.trajet?.conducteurId ?? '').isNotEmpty) {
       return KButton(
         label: 'Évaluer le conducteur',
         icon: Icons.star_rounded,
         variant: KButtonVariant.outline,
         onPressed: () => context.push(
-          '$prefix/evaluation/${r.trajetId}/${r.trajet?.conducteurId ?? ''}',
+          '$prefix/evaluation/${r.trajetId}/${r.trajet!.conducteurId}',
         ),
       );
     }
@@ -894,12 +947,7 @@ class _ReservationCard extends StatelessWidget {
       return KButton(
         label: 'Suivre le trajet en direct',
         icon: Icons.location_on_rounded,
-        onPressed: () => context.push(
-          '$prefix/trajet/${r.trajetId}/suivi'
-          '?depart=${Uri.encodeComponent(r.trajet?.depart ?? '')}'
-          '&destination=${Uri.encodeComponent(r.trajet?.destination ?? '')}'
-          '&conducteur=${Uri.encodeComponent(r.trajet?.conducteurNom ?? '')}',
-        ),
+        onPressed: () => context.push(_suiviUrl(prefix)),
       );
     }
 
@@ -907,7 +955,7 @@ class _ReservationCard extends StatelessWidget {
   }
 }
 
-// ── Carte historique (lecture seule) ─────────────────────────────────────────
+// ── Carte historique (cliquable) ──────────────────────────────────────────────
 
 class _HistoriqueCard extends StatelessWidget {
   final ReservationModel reservation;
@@ -933,7 +981,13 @@ class _HistoriqueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final prefix = isConducteur ? '/conducteur' : '/passager';
+    return GestureDetector(
+      onTap: () => context.push(
+        '$prefix/reservation/${r.id}/detail',
+        extra: r,
+      ),
+      child: Container(
       decoration: BoxDecoration(
         color: KColors.base100,
         borderRadius: BorderRadius.circular(14),
@@ -1057,8 +1111,83 @@ class _HistoriqueCard extends StatelessWidget {
                 ],
               ),
             ]),
+
+            // ── Bouton évaluation ────────────────────────────────────
+            if (r.isTerminee) ...[
+              const SizedBox(height: KSpacing.md),
+              const Divider(color: KColors.border, height: 1),
+              const SizedBox(height: KSpacing.md),
+              if (isConducteur && r.passagerId.isNotEmpty)
+                KButton(
+                  label: 'Évaluer ${r.passagerNom}',
+                  icon: Icons.star_rounded,
+                  variant: KButtonVariant.outline,
+                  onPressed: () => context.push(
+                    '$prefix/evaluation/${r.trajetId}/${r.passagerId}',
+                  ),
+                )
+              else if (!isConducteur &&
+                  (r.trajet?.conducteurId ?? '').isNotEmpty)
+                KButton(
+                  label: 'Évaluer le conducteur',
+                  icon: Icons.star_rounded,
+                  variant: KButtonVariant.outline,
+                  onPressed: () => context.push(
+                    '$prefix/evaluation/${r.trajetId}/${r.trajet!.conducteurId}',
+                  ),
+                ),
+            ],
           ],
         ),
+      ),
+    )); // GestureDetector
+  }
+}
+
+// ── Badge état paiement (lecture seule) ──────────────────────────────────────
+
+class _PaiementStateBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color bgColor;
+  final Color borderColor;
+
+  const _PaiementStateBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.bgColor,
+    required this.borderColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -92,6 +92,7 @@ class ApiConstants {
   // Évaluations
   static const String evaluer = '/evaluations/evaluer/';
   static const String mesEvaluations = '/evaluations/mes_evaluations/';
+  static const String mesEvaluationsDonnees = '/evaluations/mes_evaluations_donnees/';
   static const String aEvaluer = '/evaluations/a_evaluer/';
   static const String signaler = '/evaluations/signaler/';
   static const String bloquer = '/evaluations/bloquer/';

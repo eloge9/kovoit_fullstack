@@ -47,7 +47,10 @@ class MessagerieRepository {
         '/messagerie/conversations/$convId/envoyer/',
         data: {'contenu': contenu},
       );
-      return MessageModel.fromJson(response.data as Map<String, dynamic>);
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return MessageModel.fromJson(raw);
+      if (raw is Map) return MessageModel.fromJson(Map<String, dynamic>.from(raw));
+      throw Exception('Réponse message inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

@@ -6,6 +6,9 @@ import 'package:latlong2/latlong.dart';
 import '../providers/trajet_provider.dart';
 import '../models/trajet_model.dart';
 import '../../reservations/providers/reservation_provider.dart';
+import '../../reservations/models/reservation_model.dart';
+import '../../reservations/repositories/reservation_repository.dart';
+import '../../../core/network/api_interceptor.dart';
 import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -15,6 +18,8 @@ import '../../../core/widgets/k_button.dart';
 import '../../../core/widgets/k_card.dart';
 import '../../../core/widgets/k_avatar.dart';
 import '../../../core/widgets/k_badge.dart';
+import '../../messagerie/repositories/messagerie_repository.dart';
+import '../../reservations/screens/qr_scanner_page.dart';
 
 final _trajetDetailProvider = FutureProvider.family<TrajetModel, int>(
   (ref, id) => ref.watch(trajetRepositoryProvider).getTrajet(id),
@@ -118,10 +123,65 @@ class _Body extends ConsumerStatefulWidget {
 
 class _BodyState extends ConsumerState<_Body> {
   bool _reserving = false;
-  bool _starting = false;
   bool _ending = false;
+  bool _messaging = false;
+
+  List<ReservationModel>? _passagers;
+  bool _loadingPassagers = false;
+  String? _codeError;
+  bool _validating = false;
+  final _codeCtrl = TextEditingController();
 
   TrajetModel get t => widget.trajet;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isConducteur) _chargerPassagers();
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _chargerPassagers() async {
+    if (!mounted) return;
+    setState(() => _loadingPassagers = true);
+    try {
+      final list = await ReservationRepository().passagersTrajet(t.id);
+      if (mounted) setState(() { _passagers = list; _loadingPassagers = false; });
+    } catch (e) {
+      if (mounted) setState(() { _passagers = []; _loadingPassagers = false; });
+    }
+  }
+
+  Future<void> _validerCode() async {
+    final code = _codeCtrl.text.trim().toUpperCase();
+    if (code.isEmpty) {
+      setState(() => _codeError = 'Entrez le code KVT du passager.');
+      return;
+    }
+    setState(() { _validating = true; _codeError = null; });
+    try {
+      await ReservationRepository().embarquer(code);
+      _codeCtrl.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Passager embarqué !'), backgroundColor: KColors.success),
+      );
+      _chargerPassagers();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _codeError = e is ApiException ? e.message : 'Code invalide.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _validating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -305,6 +365,30 @@ class _BodyState extends ConsumerState<_Body> {
           ),
           const SizedBox(height: KSpacing.xl),
 
+          // ── Passagers (vue conducteur) ────────────────────────────
+          if (widget.isConducteur) ...[
+            _PassagersSection(
+              passagers: _passagers,
+              loading: _loadingPassagers,
+              trajetId: t.id,
+              codeCtrl: _codeCtrl,
+              codeError: _codeError,
+              validating: _validating,
+              onRefresh: _chargerPassagers,
+              onValiderCode: _validerCode,
+              onScannerQr: () async {
+                final ok = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(builder: (_) => const QrScannerPage()),
+                );
+                if (ok == true) _chargerPassagers();
+              },
+              onMessage: (convId, nom) => context.push(
+                '/conducteur/messages/$convId?name=${Uri.encodeComponent(nom)}',
+              ),
+            ),
+            const SizedBox(height: KSpacing.xl),
+          ],
+
           // ── Conducteur (vue passager) ──────────────────────────────────
           if (!widget.isConducteur) ...[
             KCard(
@@ -346,12 +430,22 @@ class _BodyState extends ConsumerState<_Body> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(
-                        Icons.message_outlined,
-                        color: KColors.primary,
-                      ),
-                      // Navigate to conversations list; conv_id is available after reserving
-                      onPressed: () => context.push('/passager/messages'),
+                      icon: _messaging
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: KColors.primary,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.message_outlined,
+                              color: KColors.primary,
+                            ),
+                      onPressed: _messaging
+                          ? null
+                          : () => _ecrireAuConducteur(context),
                     ),
                   ],
                 ),
@@ -393,22 +487,36 @@ class _BodyState extends ConsumerState<_Body> {
                 label: 'Commencer le trajet',
                 icon: Icons.play_circle_rounded,
                 variant: KButtonVariant.success,
-                isLoading: _starting,
-                onPressed: _starting ? null : () => _commencer(context),
+                onPressed: () async {
+                  await context.push(
+                    '/conducteur/trajet/${t.id}/depart'
+                    '?depart=${Uri.encodeComponent(t.depart)}'
+                    '&destination=${Uri.encodeComponent(t.destination)}'
+                    '&departLat=${t.departLat ?? ""}'
+                    '&departLng=${t.departLng ?? ""}'
+                    '&destinationLat=${t.destinationLat ?? ""}'
+                    '&destinationLng=${t.destinationLng ?? ""}',
+                  );
+                  widget.onRefresh();
+                },
               ),
             if (t.statut == 'en_cours') ...[
               KButton(
-                label: 'GPS — Position en direct',
-                icon: Icons.my_location_rounded,
-                onPressed: () => context.push(
-                  '/conducteur/trajet/${t.id}/gps'
-                  '?depart=${Uri.encodeComponent(t.depart)}'
-                  '&destination=${Uri.encodeComponent(t.destination)}'
-                  '&departLat=${t.departLat ?? ""}'
-                  '&departLng=${t.departLng ?? ""}'
-                  '&destinationLat=${t.destinationLat ?? ""}'
-                  '&destinationLng=${t.destinationLng ?? ""}',
-                ),
+                label: 'Suivre sur GPS',
+                icon: Icons.navigation_rounded,
+                variant: KButtonVariant.success,
+                onPressed: () async {
+                  await context.push(
+                    '/conducteur/trajet/${t.id}/gps'
+                    '?depart=${Uri.encodeComponent(t.depart)}'
+                    '&destination=${Uri.encodeComponent(t.destination)}'
+                    '&departLat=${t.departLat ?? ""}'
+                    '&departLng=${t.departLng ?? ""}'
+                    '&destinationLat=${t.destinationLat ?? ""}'
+                    '&destinationLng=${t.destinationLng ?? ""}',
+                  );
+                  widget.onRefresh();
+                },
               ),
               const SizedBox(height: KSpacing.md),
               KButton(
@@ -425,6 +533,51 @@ class _BodyState extends ConsumerState<_Body> {
         ],
       ),
     );
+  }
+
+  Future<void> _ecrireAuConducteur(BuildContext context) async {
+    if (_messaging) return;
+    setState(() => _messaging = true);
+    try {
+      debugPrint('[TrajetDetail] Chargement conversations pour conducteur ${t.conducteurId}');
+      final conversations = await MessagerieRepository().getConversations();
+      debugPrint('[TrajetDetail] ${conversations.length} conversations trouvées');
+
+      // Chercher une conversation avec ce conducteur
+      final matching = conversations.where((c) => c.userId == t.conducteurId);
+
+      if (!context.mounted) return;
+
+      if (matching.isNotEmpty) {
+        final conv = matching.first;
+        debugPrint('[TrajetDetail] Conversation trouvée: ${conv.convId}');
+        context.push(
+          '/passager/messages/${conv.convId}'
+          '?name=${Uri.encodeComponent(conv.userName)}'
+          '&userId=${Uri.encodeComponent(conv.userId)}',
+        );
+      } else {
+        debugPrint('[TrajetDetail] Aucune conversation avec ce conducteur');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Réservez ce trajet pour contacter le conducteur.'),
+            backgroundColor: KColors.warning,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[TrajetDetail] ecrireAuConducteur error: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: KColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _messaging = false);
+    }
   }
 
   Future<void> _reserver(BuildContext context) async {
@@ -473,25 +626,6 @@ class _BodyState extends ConsumerState<_Body> {
       ),
     );
     if (ok) context.pop();
-  }
-
-  Future<void> _commencer(BuildContext context) async {
-    setState(() => _starting = true);
-    final ok = await ref.read(trajetsProvider.notifier).commencerTrajet(t.id);
-    if (!context.mounted) return;
-    setState(() => _starting = false);
-    if (ok) {
-      widget.onRefresh();
-      context.push(
-        '/conducteur/trajet/${t.id}/gps'
-        '?depart=${Uri.encodeComponent(t.depart)}'
-        '&destination=${Uri.encodeComponent(t.destination)}'
-        '&departLat=${t.departLat ?? ""}'
-        '&departLng=${t.departLng ?? ""}'
-        '&destinationLat=${t.destinationLat ?? ""}'
-        '&destinationLng=${t.destinationLng ?? ""}',
-      );
-    }
   }
 
   Future<void> _terminer(BuildContext context) async {
@@ -830,6 +964,367 @@ class _TrajetMapCardState extends State<_TrajetMapCard> {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+// ── Section passagers conducteur ──────────────────────────────────────────────
+
+class _PassagersSection extends StatelessWidget {
+  final List<ReservationModel>? passagers;
+  final bool loading;
+  final int trajetId;
+  final TextEditingController codeCtrl;
+  final String? codeError;
+  final bool validating;
+  final VoidCallback onRefresh;
+  final VoidCallback onValiderCode;
+  final VoidCallback onScannerQr;
+  final void Function(int convId, String nom) onMessage;
+
+  const _PassagersSection({
+    required this.passagers,
+    required this.loading,
+    required this.trajetId,
+    required this.codeCtrl,
+    required this.codeError,
+    required this.validating,
+    required this.onRefresh,
+    required this.onValiderCode,
+    required this.onScannerQr,
+    required this.onMessage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final list = passagers ?? [];
+    final nbEmbarques = list.where((r) => r.isEmbarque).length;
+    final nbTotal = list.where((r) => r.isConfirmee).length;
+
+    return KCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── En-tête ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(KSpacing.xl, KSpacing.xl, KSpacing.sm, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.people_rounded, size: 16, color: KColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    loading
+                        ? 'Passagers'
+                        : list.isEmpty
+                            ? 'Passagers (aucun)'
+                            : 'Passagers (${list.length})',
+                    style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (nbTotal > 0)
+                  _EmbarqueProgress(embarques: nbEmbarques, total: nbTotal),
+                // Bouton scanner QR
+                if (nbTotal > 0 && nbEmbarques < nbTotal)
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner_rounded, size: 20, color: KColors.primary),
+                    tooltip: 'Scanner QR passager',
+                    onPressed: onScannerQr,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    padding: EdgeInsets.zero,
+                  ),
+                IconButton(
+                  icon: loading
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: KColors.primary),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 18, color: KColors.baseContentMid),
+                  onPressed: loading ? null : onRefresh,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+
+          // ── Contenu ─────────────────────────────────────────────────
+          if (loading && passagers == null)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator(color: KColors.primary, strokeWidth: 2)),
+            )
+          else if (list.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(KSpacing.xl),
+              child: Text(
+                'Aucune réservation pour ce trajet.',
+                style: KTextStyles.caption.copyWith(color: KColors.baseContentMid),
+              ),
+            )
+          else ...[
+            const Divider(height: 1, color: KColors.border),
+            ...list.asMap().entries.map((entry) {
+              final i = entry.key;
+              final r = entry.value;
+              return Column(
+                children: [
+                  _PassagerRow(
+                    reservation: r,
+                    onMessage: r.conversationId != null
+                        ? () => onMessage(r.conversationId!, r.passagerNom)
+                        : null,
+                    onScanOrValider: onScannerQr,
+                  ),
+                  if (i < list.length - 1)
+                    const Divider(height: 1, color: KColors.border, indent: 16, endIndent: 16),
+                ],
+              );
+            }),
+          ],
+
+          // ── Valider un embarquement ─────────────────────────────────
+          if (list.any((r) => r.isConfirmee)) ...[
+            const Divider(height: 1, color: KColors.border),
+            Padding(
+              padding: const EdgeInsets.all(KSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.confirmation_number_outlined, size: 15, color: KColors.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Valider un embarquement',
+                        style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: codeCtrl,
+                          textCapitalization: TextCapitalization.characters,
+                          style: const TextStyle(
+                            letterSpacing: 2,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'KVT-XXXX',
+                            errorText: codeError,
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.qr_code_rounded, size: 18, color: KColors.primary),
+                            filled: true,
+                            fillColor: KColors.base200,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: KColors.border),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: KColors.border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: KColors.primary, width: 2),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: KColors.error),
+                            ),
+                          ),
+                          onSubmitted: (_) => onValiderCode(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        height: 44,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: KColors.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          onPressed: validating ? null : onValiderCode,
+                          child: validating
+                              ? const SizedBox(
+                                  width: 18, height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Badge progression embarquement ────────────────────────────────────────────
+
+class _EmbarqueProgress extends StatelessWidget {
+  final int embarques;
+  final int total;
+  const _EmbarqueProgress({required this.embarques, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final allDone = embarques >= total;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: allDone
+            ? KColors.success.withValues(alpha: 0.12)
+            : KColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        '$embarques/$total embarqué${embarques > 1 ? 's' : ''}',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: allDone ? KColors.success : KColors.warning,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Ligne passager ────────────────────────────────────────────────────────────
+
+class _PassagerRow extends StatelessWidget {
+  final ReservationModel reservation;
+  final VoidCallback? onMessage;
+  final VoidCallback? onScanOrValider;
+  const _PassagerRow({required this.reservation, this.onMessage, this.onScanOrValider});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = reservation;
+    final embarque = r.isEmbarque;
+    final confirmee = r.isConfirmee;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: KSpacing.xl, vertical: KSpacing.md),
+      child: Row(
+        children: [
+          // Avatar + pastille
+          Stack(
+            children: [
+              KAvatar(name: r.passagerNom, photoUrl: r.passagerPhoto, size: 40),
+              if (confirmee)
+                Positioned(
+                  right: 0, bottom: 0,
+                  child: Container(
+                    width: 13, height: 13,
+                    decoration: BoxDecoration(
+                      color: embarque ? KColors.success : KColors.warning,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 10),
+
+          // Nom + places + badge
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  r.passagerNom.isEmpty ? 'Passager' : r.passagerNom,
+                  style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Row(
+                  children: [
+                    Text('${r.placesReservees} place${r.placesReservees > 1 ? 's' : ''}',
+                        style: KTextStyles.meta),
+                    const SizedBox(width: 6),
+                    _StatutBadge(statut: r.statut, embarque: embarque),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Bouton scanner (si confirmée et pas encore embarquée)
+          if (confirmee && !embarque && onScanOrValider != null)
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20, color: KColors.primary),
+              tooltip: 'Valider l\'embarquement',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              onPressed: onScanOrValider,
+            )
+          else
+            const SizedBox(width: 34),
+
+          // Bouton message
+          if (onMessage != null)
+            IconButton(
+              icon: const Icon(Icons.message_rounded, size: 19, color: KColors.primary),
+              tooltip: 'Écrire au passager',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+              onPressed: onMessage,
+            )
+          else
+            const SizedBox(width: 34),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Badge statut réservation ──────────────────────────────────────────────────
+
+class _StatutBadge extends StatelessWidget {
+  final String statut;
+  final bool embarque;
+  const _StatutBadge({required this.statut, required this.embarque});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color;
+    String label;
+    switch (statut) {
+      case 'confirmee':
+        color = embarque ? KColors.success : KColors.info;
+        label = embarque ? 'Embarqué' : 'Confirmé';
+        break;
+      case 'en_attente':
+        color = KColors.warning;
+        label = 'En attente';
+        break;
+      default:
+        color = KColors.baseContentMid;
+        label = statut;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }

@@ -392,7 +392,11 @@ class _AccountMenuSheet extends StatelessWidget {
         color: KColors.base100,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -519,6 +523,7 @@ class _AccountMenuSheet extends StatelessWidget {
 
           SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
         ],
+      ),
       ),
     );
   }

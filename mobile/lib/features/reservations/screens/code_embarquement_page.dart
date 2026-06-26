@@ -93,11 +93,12 @@ class _CodeEmbarquementPageState extends ConsumerState<CodeEmbarquementPage> {
   }
 
   Widget _buildContent() {
-    final code =
-        _data!['code_embarquement'] as String? ?? '';
-    final trajet = _data!['trajet'] as Map<String, dynamic>?;
-    final statut =
-        _data!['statut_embarquement'] as String? ?? 'non_embarque';
+    final codeRaw = _data!['code_embarquement'];
+    final code = codeRaw is String ? codeRaw : codeRaw?.toString() ?? '';
+    final trajetRaw = _data!['trajet'];
+    final trajet = trajetRaw is Map<String, dynamic> ? trajetRaw : null;
+    final statutRaw = _data!['statut_embarquement'];
+    final statut = statutRaw is String ? statutRaw : 'non_embarque';
     final prix = _data!['prix_passager'];
 
     final isEmbarque = statut == 'embarque';
@@ -221,7 +222,7 @@ class _CodeEmbarquementPageState extends ConsumerState<CodeEmbarquementPage> {
                       const SizedBox(width: 6),
                       Expanded(
                           child: Text(
-                              trajet['depart'] as String? ?? '',
+                              trajet['depart']?.toString() ?? '',
                               style: KTextStyles.bodySm)),
                     ]),
                     const SizedBox(height: 6),
@@ -231,7 +232,7 @@ class _CodeEmbarquementPageState extends ConsumerState<CodeEmbarquementPage> {
                       const SizedBox(width: 6),
                       Expanded(
                           child: Text(
-                              trajet['destination'] as String? ?? '',
+                              trajet['destination']?.toString() ?? '',
                               style: KTextStyles.bodySm)),
                     ]),
                     if (prix != null) ...[

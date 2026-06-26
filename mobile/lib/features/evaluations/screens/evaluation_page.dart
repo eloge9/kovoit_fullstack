@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../repositories/evaluation_repository.dart';
+import '../../../core/network/api_interceptor.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -36,6 +37,10 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
   }
 
   Future<void> _submit() async {
+    if (widget.cibleId.isEmpty) {
+      setState(() => _error = 'Identifiant du conducteur manquant. Veuillez relancer l\'application.');
+      return;
+    }
     if (_note == 0) {
       setState(() => _error = 'Veuillez attribuer une note (1 à 5 étoiles)');
       return;
@@ -60,7 +65,7 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
       });
     } catch (e) {
       setState(() {
-        _error = 'Impossible d\'envoyer l\'évaluation.';
+        _error = e is ApiException ? e.message : 'Impossible d\'envoyer l\'évaluation.';
         _isLoading = false;
       });
     }

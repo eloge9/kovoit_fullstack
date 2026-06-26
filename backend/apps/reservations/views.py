@@ -17,7 +17,7 @@ from django.db.models import Q
 from django.conf import settings
 from django.utils import timezone
 from ..modeles.models import Reservation, Trajet, BlocagePassager
-from .serializers import ReservationSerializer, ReservationCreateSerializer
+from .serializers import ReservationSerializer, ReservationConducteurSerializer, ReservationCreateSerializer
 
 PENALITE_ANNULATION_TARDIVE = 0.20  # 20% du prix si annulation < 2h avant départ
 
@@ -151,12 +151,22 @@ class ReservationViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['get'])
     def recues(self, request):
         """Toutes les réservations reçues par le conducteur (tous statuts) — utilisé par le dashboard."""
-        reservations = Reservation.objects.filter(
+        qs = Reservation.objects.filter(
             trajet__conducteur=request.user,
-        ).select_related(
-            'trajet', 'passager', 'paiement'
-        ).order_by('-date_reservation')[:100]
-        return Response(ReservationSerializer(reservations, many=True).data)
+        ).select_related('trajet', 'passager', 'paiement')
+
+        trajet_id = request.query_params.get('trajet_id')
+        if trajet_id:
+            try:
+                qs = qs.filter(
+                    trajet_id=int(trajet_id),
+                    statut__in=['en_attente', 'confirmee'],
+                )
+            except (ValueError, TypeError):
+                pass
+
+        reservations = qs.order_by('-date_reservation')[:100]
+        return Response(ReservationConducteurSerializer(reservations, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'], url_path='conducteur-historique')
     def conducteur_historique(self, request):
@@ -195,7 +205,7 @@ class ReservationViewSet(viewsets.GenericViewSet):
             )
 
         qs = qs.order_by('-date_reservation')[:100]
-        return Response(ReservationSerializer(qs, many=True).data)
+        return Response(ReservationConducteurSerializer(qs, many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
     def confirmer(self, request, pk=None):

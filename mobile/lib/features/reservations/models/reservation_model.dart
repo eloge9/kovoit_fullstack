@@ -14,6 +14,9 @@ class ReservationModel {
   final int placesReservees;
   final DateTime dateReservation;
   final PaiementModel? paiement;
+  final String? codeEmbarquement;
+  final String statutEmbarquement;
+  final int? conversationId;
 
   const ReservationModel({
     required this.id,
@@ -27,6 +30,9 @@ class ReservationModel {
     this.placesReservees = 1,
     required this.dateReservation,
     this.paiement,
+    this.codeEmbarquement,
+    this.statutEmbarquement = 'non_embarque',
+    this.conversationId,
   });
 
   static double _toDouble(dynamic v) {
@@ -45,6 +51,10 @@ class ReservationModel {
       trajet = TrajetModel.fromJson(json['trajet'] as Map<String, dynamic>);
     } else if (json['depart'] != null || json['date_depart'] != null) {
       // L'API renvoie les champs trajet à plat (ReservationSerializer actuel)
+      final trajetStatut = json['trajet_statut']?.toString() ?? 'ouvert';
+      final conducteurId = json['conducteur_id']?.toString() ?? '';
+      debugPrint('[ReservationModel] trajetStatut=$trajetStatut conducteurId=$conducteurId '
+          'departLat=${json['depart_lat']} destLat=${json['destination_lat']}');
       trajet = TrajetModel.fromJson({
         'id': json['trajet_id'] ?? 0,
         'depart': json['depart'] ?? '',
@@ -53,18 +63,36 @@ class ReservationModel {
         'prix_par_place': json['prix_par_place'] ?? json['prix_passager'] ?? 0,
         'places_disponibles': 0,
         'places_restantes': 0,
-        'distance_km': 0,
+        'distance_km': json['trajet_distance'] ?? 0,
         'cout_total': 0,
-        'statut': 'ouvert',
-        'conducteur_id': '',
+        'statut': trajetStatut,         // ← statut réel du trajet
+        'conducteur_id': conducteurId,  // ← UUID du conducteur
         'conducteur_nom': json['conducteur'] ?? '',
         'conducteur_note': json['conducteur_note'] ?? 0,
+        'depart_lat': json['depart_lat'],
+        'depart_lng': json['depart_lng'],
+        'destination_lat': json['destination_lat'],
+        'destination_lng': json['destination_lng'],
       });
     }
+
+    debugPrint('[ReservationModel] id=${json['id']} '
+        'resa.statut=${json['statut']} '
+        'trajet.statut=${trajet?.statut} '
+        'afficherSuivi=${trajet?.statut == 'en_cours'}');
 
     PaiementModel? paiement;
     if (json['paiement'] is Map) {
       paiement = PaiementModel.fromJson(json['paiement'] as Map<String, dynamic>);
+    } else if (json['paiement_statut'] != null) {
+      // Le serializer Django renvoie le paiement en champs plats
+      paiement = PaiementModel(
+        id: 0,
+        reservationId: json['id'] as int? ?? 0,
+        montant: 0,
+        moyenPaiement: json['paiement_moyen']?.toString() ?? 'ESPECE',
+        statut: json['paiement_statut']?.toString() ?? 'EN_ATTENTE',
+      );
     }
 
     // Django retourne les Decimal en string — utiliser _toDouble() pour tout champ prix
@@ -83,8 +111,13 @@ class ReservationModel {
       dateReservation: DateTime.tryParse(json['date_reservation']?.toString() ?? '')
           ?? DateTime.now(),
       paiement: paiement,
+      codeEmbarquement: json['code_embarquement']?.toString(),
+      statutEmbarquement: json['statut_embarquement']?.toString() ?? 'non_embarque',
+      conversationId: json['conversation_id'] as int?,
     );
   }
+
+  bool get isEmbarque => statutEmbarquement == 'embarque';
 
   ReservationModel copyWith({
     int? id,
@@ -98,6 +131,9 @@ class ReservationModel {
     int? placesReservees,
     DateTime? dateReservation,
     PaiementModel? paiement,
+    String? codeEmbarquement,
+    String? statutEmbarquement,
+    int? conversationId,
   }) {
     return ReservationModel(
       id: id ?? this.id,
@@ -111,6 +147,9 @@ class ReservationModel {
       placesReservees: placesReservees ?? this.placesReservees,
       dateReservation: dateReservation ?? this.dateReservation,
       paiement: paiement ?? this.paiement,
+      codeEmbarquement: codeEmbarquement ?? this.codeEmbarquement,
+      statutEmbarquement: statutEmbarquement ?? this.statutEmbarquement,
+      conversationId: conversationId ?? this.conversationId,
     );
   }
 

@@ -55,6 +55,9 @@ import '../features/conducteur/screens/verification_page.dart';
 import '../features/notifications/screens/notifications_page.dart';
 import '../features/reservations/screens/code_embarquement_page.dart';
 import '../features/reservations/screens/embarquement_conducteur_page.dart';
+import '../features/conducteur/screens/conducteur_depart_page.dart';
+import '../features/reservations/screens/reservation_detail_page.dart';
+import '../features/reservations/models/reservation_model.dart';
 import '../features/settings/screens/server_settings_screen.dart';
 import '../features/verification/screens/driver_status_page.dart';
 import '../features/verification/screens/document_upload_page.dart';
@@ -262,6 +265,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
         ),
       ),
+      GoRoute(
+        path: '/passager/reservation/:id/detail',
+        builder: (_, state) => ReservationDetailPage(
+          reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          initialData: state.extra is ReservationModel
+              ? state.extra as ReservationModel
+              : null,
+          isConducteur: false,
+        ),
+      ),
 
       // ── Routes détail conducteur (plein écran) ────────────────────────────
       GoRoute(
@@ -269,6 +282,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => TrajetDetailPage(
           trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
           isConducteur: true,
+        ),
+      ),
+      GoRoute(
+        path: '/conducteur/trajet/:id/depart',
+        builder: (_, state) => ConducteurDepartPage(
+          trajetId:       int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          depart:         state.uri.queryParameters['depart'] ?? '',
+          destination:    state.uri.queryParameters['destination'] ?? '',
+          departLat:      double.tryParse(state.uri.queryParameters['departLat'] ?? ''),
+          departLng:      double.tryParse(state.uri.queryParameters['departLng'] ?? ''),
+          destinationLat: double.tryParse(state.uri.queryParameters['destinationLat'] ?? ''),
+          destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
         ),
       ),
       GoRoute(
@@ -309,6 +334,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),
       GoRoute(path: '/conducteur/embarquement',    builder: (_, _) => const EmbarquementConducteurPage()),
       GoRoute(path: '/conducteur/dossier',         builder: (_, _) => const DocumentUploadPage()),
+      GoRoute(
+        path: '/conducteur/reservation/:id/detail',
+        builder: (_, state) => ReservationDetailPage(
+          reservationId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          initialData: state.extra is ReservationModel
+              ? state.extra as ReservationModel
+              : null,
+          isConducteur: true,
+        ),
+      ),
     ],
 
     errorBuilder: (context, state) => Scaffold(

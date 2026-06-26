@@ -12,6 +12,13 @@ class ReservationSerializer(serializers.ModelSerializer):
     prix_par_place = serializers.DecimalField(
         source='trajet.prix_par_place', max_digits=10, decimal_places=2, read_only=True
     )
+    trajet_statut   = serializers.CharField(source='trajet.statut',          read_only=True)
+    trajet_distance = serializers.FloatField(source='trajet.distance_km',     read_only=True)
+    depart_lat      = serializers.FloatField(source='trajet.depart_lat',      read_only=True, allow_null=True)
+    depart_lng      = serializers.FloatField(source='trajet.depart_lng',      read_only=True, allow_null=True)
+    destination_lat = serializers.FloatField(source='trajet.destination_lat', read_only=True, allow_null=True)
+    destination_lng = serializers.FloatField(source='trajet.destination_lng', read_only=True, allow_null=True)
+    conducteur_id   = serializers.CharField(source='trajet.conducteur.id',   read_only=True)
 
     # Infos conducteur
     conducteur           = serializers.SerializerMethodField()
@@ -23,6 +30,7 @@ class ReservationSerializer(serializers.ModelSerializer):
     passager_nom       = serializers.SerializerMethodField()
     passager_telephone = serializers.SerializerMethodField()
     passager_note      = serializers.SerializerMethodField()
+    passager_photo     = serializers.SerializerMethodField()
 
     # Infos paiement (pour les deux parties)
     paiement_statut           = serializers.SerializerMethodField()
@@ -39,8 +47,12 @@ class ReservationSerializer(serializers.ModelSerializer):
             'depart', 'destination', 'date_depart',
             'prix_par_place', 'prix_passager',
             'conducteur', 'conducteur_note', 'conducteur_telephone',
-            'passager_id', 'passager_nom', 'passager_telephone', 'passager_note',
+            'passager_id', 'passager_nom', 'passager_telephone', 'passager_note', 'passager_photo',
             'statut', 'places_reservees', 'date_reservation',
+            # Trajet (statut réel + coordonnées GPS)
+            'trajet_statut', 'trajet_distance',
+            'depart_lat', 'depart_lng', 'destination_lat', 'destination_lng',
+            'conducteur_id',
             # Embarquement
             'code_embarquement', 'statut_embarquement',
             'heure_embarquement', 'heure_depose',
@@ -72,6 +84,16 @@ class ReservationSerializer(serializers.ModelSerializer):
     def get_passager_note(self, obj):
         return obj.passager.note
 
+    def get_passager_photo(self, obj):
+        try:
+            photo = obj.passager.photo_profil
+            if photo:
+                request = self.context.get('request')
+                return request.build_absolute_uri(photo.url) if request else photo.url
+        except Exception:
+            pass
+        return None
+
     def _get_paiement(self, obj):
         try:
             return obj.paiement
@@ -95,6 +117,14 @@ class ReservationSerializer(serializers.ModelSerializer):
             return obj.conversation.id
         except Exception:
             return None
+
+
+class ReservationConducteurSerializer(ReservationSerializer):
+    """Vue conducteur — sans le code_embarquement du passager (sécurité)."""
+
+    class Meta(ReservationSerializer.Meta):
+        fields = [f for f in ReservationSerializer.Meta.fields
+                  if f != 'code_embarquement']
 
 
 class ReservationCreateSerializer(serializers.Serializer):
