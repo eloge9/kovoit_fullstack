@@ -12,11 +12,13 @@ import '../../../core/widgets/k_card.dart';
 class EvaluationPage extends ConsumerStatefulWidget {
   final int trajetId;
   final String cibleId;
+  final bool isConducteur;
 
   const EvaluationPage({
     super.key,
     required this.trajetId,
     required this.cibleId,
+    this.isConducteur = false,
   });
 
   @override
@@ -27,7 +29,6 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
   int _note = 0;
   final _commentaireCtrl = TextEditingController();
   bool _isLoading = false;
-  bool _success = false;
   String? _error;
 
   @override
@@ -59,10 +60,26 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
             ? null
             : _commentaireCtrl.text.trim(),
       );
-      setState(() {
-        _isLoading = false;
-        _success = true;
-      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Text('Évaluation envoyée avec succès !'),
+            ],
+          ),
+          backgroundColor: KColors.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      final destination = widget.isConducteur
+          ? '/conducteur/reservations'
+          : '/passager/reservations';
+      context.go(destination);
     } catch (e) {
       setState(() {
         _error = e is ApiException ? e.message : 'Impossible d\'envoyer l\'évaluation.';
@@ -91,9 +108,7 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
           ),
         ),
       ),
-      body: _success
-          ? _SuccessView(onBack: () => context.pop())
-          : _FormView(
+      body: _FormView(
               note: _note,
               error: _error,
               isLoading: _isLoading,
@@ -104,57 +119,6 @@ class _EvaluationPageState extends ConsumerState<EvaluationPage> {
               }),
               onSubmit: _submit,
             ),
-    );
-  }
-}
-
-// ── Vue succès ─────────────────────────────────────────────────────────────────
-
-class _SuccessView extends StatelessWidget {
-  final VoidCallback onBack;
-  const _SuccessView({required this.onBack});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(KSpacing.pagePaddingH),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: KColors.warning.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.star_rounded,
-                size: 48,
-                color: KColors.warning,
-              ),
-            ),
-            const SizedBox(height: KSpacing.xl),
-            Text(
-              'Évaluation envoyée !',
-              style: KTextStyles.h2.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Merci pour votre retour.\nVotre avis aide la communauté KoVoit.',
-              textAlign: TextAlign.center,
-              style: KTextStyles.bodySm.copyWith(color: KColors.baseContentMid),
-            ),
-            const SizedBox(height: KSpacing.xxl),
-            KButton(
-              label: 'Retour',
-              variant: KButtonVariant.outline,
-              onPressed: onBack,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

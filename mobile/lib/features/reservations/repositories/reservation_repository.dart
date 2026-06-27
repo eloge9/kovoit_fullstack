@@ -269,6 +269,21 @@ class ReservationRepository {
     }
   }
 
+  Future<Map<String, dynamic>> ajouterPlaces(int reservationId, int placesSupplementaires) async {
+    try {
+      final response = await DioClient.post(
+        '/reservations/$reservationId/ajouter-places/',
+        data: {'places_supplementaires': placesSupplementaires},
+      );
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return raw;
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
   Future<List<ReservationModel>> historique({
     String? statut,
     DateTime? dateDebut,

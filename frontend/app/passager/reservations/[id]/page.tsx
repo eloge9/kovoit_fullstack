@@ -6,6 +6,8 @@ import dynamic from "next/dynamic";
 import { api } from "@/src/services/api";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
 import { getQrCode } from "@/src/services/messagerie.service";
+import { ajouterPlaces } from "@/src/services/reservation.service";
+import { QRCodeSVG } from "qrcode.react";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -26,8 +28,11 @@ interface ReservationDetail {
     penalite_annulation?: number;
     statut: "en_attente" | "confirmee" | "declinee" | "terminee" | "annulee";
     date_reservation: string;
+    places_reservees?: number;
     conversation_id?: number | null;
     trajet_info?: Trajet;
+    paiement_statut?: string | null;
+    paiement_moyen?: string | null;
 }
 
 export default function DetailReservationPage() {
@@ -41,6 +46,9 @@ export default function DetailReservationPage() {
     const [error, setError] = useState<string | null>(null);
     const [qrToken, setQrToken] = useState<string | null>(null);
     const [qrLoading, setQrLoading] = useState(false);
+    const [ajoutDialog, setAjoutDialog] = useState(false);
+    const [ajoutPlaces, setAjoutPlaces] = useState(1);
+    const [ajoutLoading, setAjoutLoading] = useState(false);
 
     useEffect(() => {
         const fetchReservation = async () => {
@@ -85,6 +93,23 @@ export default function DetailReservationPage() {
             setQrToken(null);
         } finally {
             setQrLoading(false);
+        }
+    };
+
+    const handleAjouterPlaces = async () => {
+        if (!reservation) return;
+        setAjoutLoading(true);
+        setError(null);
+        try {
+            const result = await ajouterPlaces(reservation.id, ajoutPlaces) as any;
+            const nouvellesPlaces = result?.places_reservees ?? ((reservation.places_reservees ?? 1) + ajoutPlaces);
+            setReservation(prev => prev ? { ...prev, places_reservees: nouvellesPlaces } : prev);
+            setAjoutDialog(false);
+            setAjoutPlaces(1);
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de l'ajout de places.");
+        } finally {
+            setAjoutLoading(false);
         }
     };
 
@@ -209,9 +234,14 @@ export default function DetailReservationPage() {
                     </div>
                     <div className="text-right">
                         <p className="text-2xl font-bold text-primary">
-                            {Number(reservation.prix_par_place).toLocaleString("fr-FR")} FCFA
+                            {(Number(reservation.prix_par_place) * (reservation.places_reservees ?? 1)).toLocaleString("fr-FR")} FCFA
                         </p>
-                        <p className="text-xs text-base-content/40">par place</p>
+                        <p className="text-xs text-base-content/40">
+                            {reservation.places_reservees && reservation.places_reservees > 1
+                                ? `${(reservation.places_reservees)} place${reservation.places_reservees > 1 ? 's' : ''} × ${Number(reservation.prix_par_place).toLocaleString("fr-FR")} FCFA`
+                                : "par place"
+                            }
+                        </p>
                     </div>
                 </div>
 
@@ -352,16 +382,26 @@ export default function DetailReservationPage() {
                         </div>
                     )}
 
-                    {/* PIN KVT-XXXX */}
+                    {/* PIN KVT-XXXX + QR code */}
                     {reservation.code_embarquement ? (
-                        <div className="text-center space-y-3">
-                            <p className="text-xs text-base-content/50 mb-2">
-                                Montrez ce code au conducteur
+                        <div className="text-center space-y-4">
+                            <p className="text-xs text-base-content/50">
+                                Montrez ce code ou le QR au conducteur
                             </p>
                             <div className="inline-block bg-primary/5 border-2 border-primary/20 rounded-2xl px-8 py-5">
                                 <p className="font-mono text-4xl font-black tracking-[0.25em] text-primary select-all">
                                     {reservation.code_embarquement}
                                 </p>
+                            </div>
+                            <div className="flex justify-center">
+                                <div className="bg-white p-3 rounded-2xl border border-base-200 inline-block">
+                                    <QRCodeSVG
+                                        value={reservation.code_embarquement}
+                                        size={160}
+                                        level="M"
+                                        includeMargin={false}
+                                    />
+                                </div>
                             </div>
                             <p className="text-xs text-base-content/40">
                                 Code unique de ce trajet — ne change pas.
@@ -406,7 +446,55 @@ export default function DetailReservationPage() {
                 </button>
             )}
 
-            <div className="flex gap-3">
+            {/* Modal ajouter des places */}
+            {ajoutDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+                    <div className="bg-base-100 rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+                        <h3 className="text-lg font-bold">Ajouter des places</h3>
+                        <p className="text-sm text-base-content/60">
+                            Vous avez actuellement {reservation.places_reservees ?? 1} place(s).
+                        </p>
+                        <div className="flex items-center justify-center gap-4 py-2">
+                            <button
+                                onClick={() => setAjoutPlaces(p => Math.max(1, p - 1))}
+                                disabled={ajoutPlaces <= 1}
+                                className="btn btn-sm btn-square btn-ghost border border-base-300 rounded-xl disabled:opacity-30"
+                            >−</button>
+                            <span className="text-2xl font-black text-primary">+{ajoutPlaces}</span>
+                            <button
+                                onClick={() => setAjoutPlaces(p => Math.min(8 - (reservation.places_reservees ?? 1), p + 1))}
+                                disabled={ajoutPlaces >= 8 - (reservation.places_reservees ?? 1)}
+                                className="btn btn-sm btn-square btn-ghost border border-base-300 rounded-xl disabled:opacity-30"
+                            >+</button>
+                        </div>
+                        <p className="text-center text-sm font-semibold text-primary">
+                            Supplément : {(Number(reservation.prix_par_place) * ajoutPlaces).toLocaleString("fr-FR")} FCFA
+                        </p>
+                        {error && <p className="text-sm text-error">{error}</p>}
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={() => { setAjoutDialog(false); setAjoutPlaces(1); setError(null); }}
+                                className="btn btn-ghost rounded-full flex-1 border border-base-300">
+                                Annuler
+                            </button>
+                            <button onClick={handleAjouterPlaces} disabled={ajoutLoading}
+                                className="btn btn-primary rounded-full flex-1">
+                                {ajoutLoading ? <span className="loading loading-spinner loading-sm" /> : "Confirmer"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex gap-3 flex-wrap">
+                {(reservation.statut === "en_attente" || reservation.statut === "confirmee") && (
+                    <button
+                        onClick={() => setAjoutDialog(true)}
+                        className="btn btn-outline rounded-full w-full"
+                    >
+                        + Ajouter des places
+                    </button>
+                )}
+
                 {reservation.statut === "en_attente" && (
                     <>
                         <button
@@ -430,12 +518,34 @@ export default function DetailReservationPage() {
 
                 {reservation.statut === "confirmee" && (
                     <>
-                        <button
-                            onClick={() => router.push(`/passager/reservations/paiement/${reservation.id}`)}
-                            className="btn btn-primary rounded-full flex-1"
-                        >
-                            Payer la réservation
-                        </button>
+                        {(() => {
+                            const ps = reservation.paiement_statut;
+                            if (ps === "PAYEE" || ps === "CONFIRME") {
+                                return (
+                                    <div className="flex items-center gap-2 flex-1 justify-center bg-success/10 border border-success/20 rounded-full px-4 py-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span className="text-sm font-semibold text-success">Réservation payée</span>
+                                    </div>
+                                );
+                            }
+                            if (ps === "EN_ATTENTE_CONFIRMATION") {
+                                return (
+                                    <div className="flex items-center gap-2 flex-1 justify-center bg-warning/10 border border-warning/20 rounded-full px-4 py-2">
+                                        <span className="text-sm font-semibold text-warning">Paiement espèces en attente</span>
+                                    </div>
+                                );
+                            }
+                            return (
+                                <button
+                                    onClick={() => router.push(`/passager/reservations/paiement/${reservation.id}`)}
+                                    className="btn btn-primary rounded-full flex-1"
+                                >
+                                    Payer la réservation
+                                </button>
+                            );
+                        })()}
                         <button
                             onClick={() => router.push(`/passager/trajets/${reservation.trajet_id}`)}
                             className="btn btn-ghost rounded-full flex-1 border border-base-300"

@@ -218,13 +218,12 @@ class EvaluationViewSet(viewsets.GenericViewSet):
         except Exception:
             pass
 
-        return Response({
-            "message":      "Évaluation enregistrée.",
-            "evaluation_id": evaluation.id,
-            "note":          note_calc,
-            "date_limite":   date_limite,
-            "note_cible":    cible_locked.note,
-        }, status=201)
+        # Charger les relations en mémoire pour la sérialisation
+        evaluation.auteur = auteur
+        evaluation.cible  = cible_locked
+        evaluation.trajet = trajet
+
+        return Response(_eval_to_dict(evaluation, viewer=auteur), status=201)
 
     # ── Modifier une évaluation (dans la fenêtre de 24 h) ────────────────
     @action(detail=False, methods=['put'], url_path='modifier/(?P<eval_id>[0-9]+)')

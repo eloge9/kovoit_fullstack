@@ -129,7 +129,8 @@ class ReservationConducteurSerializer(ReservationSerializer):
 
 class ReservationCreateSerializer(serializers.Serializer):
     """Création d'une réservation, avec coordonnées de prise en charge optionnelles."""
-    trajet_id           = serializers.IntegerField()
+    trajet_id        = serializers.IntegerField()
+    places_reservees = serializers.IntegerField(min_value=1, max_value=8, default=1)
     # Prise en charge passager (optionnel — pour tarification proportionnelle)
     point_prise_en_charge = serializers.CharField(required=False, allow_blank=True, default='')
     prise_en_charge_lat   = serializers.FloatField(required=False, allow_null=True, default=None)

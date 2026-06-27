@@ -134,6 +134,7 @@ class _BodyState extends ConsumerState<_Body> {
   bool _reserving = false;
   bool _ending = false;
   bool _messaging = false;
+  int _placesReservees = 1;
 
   List<ReservationModel>? _passagers;
   bool _loadingPassagers = false;
@@ -465,13 +466,23 @@ class _BodyState extends ConsumerState<_Body> {
 
           // ── Actions passager ───────────────────────────────────────────
           if (!widget.isConducteur) ...[
-            if (t.isAvailable)
+            if (t.isAvailable) ...[
+              _PlacesSelector(
+                places: _placesReservees,
+                max: t.placesRestantes,
+                prixParPlace: t.prixAffiche.toDouble(),
+                onChange: (v) => setState(() => _placesReservees = v),
+              ),
+              const SizedBox(height: KSpacing.md),
               KButton(
-                label: 'Réserver cette place',
+                label: _placesReservees == 1
+                    ? 'Réserver cette place'
+                    : 'Réserver $_placesReservees places',
                 icon: Icons.bookmark_add_rounded,
                 isLoading: _reserving,
                 onPressed: _reserving ? null : () => _reserver(context),
               ),
+            ],
             if (t.statut == 'en_cours')
               KButton(
                 label: 'Suivre le trajet en direct',
@@ -590,16 +601,17 @@ class _BodyState extends ConsumerState<_Body> {
   }
 
   Future<void> _reserver(BuildContext context) async {
+    final prixTotal = t.prixAffiche * _placesReservees;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Confirmer la réservation'),
         content: Text(
-          'Réserver une place sur le trajet\n'
-          '${t.matching != null ? "${t.matching!.distancePassagerKm.toStringAsFixed(0)} km — " : ""}'
           '${t.depart} → ${t.destination}\n'
-          'pour ${Formatters.currency(t.prixAffiche)} ?',
+          '${t.matching != null ? "${t.matching!.distancePassagerKm.toStringAsFixed(0)} km — " : ""}'
+          '$_placesReservees place${_placesReservees > 1 ? 's' : ''}\n'
+          'Total : ${Formatters.currency(prixTotal)} FCFA',
         ),
         actions: [
           TextButton(
@@ -609,10 +621,7 @@ class _BodyState extends ConsumerState<_Body> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: KColors.primary),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Confirmer',
-              style: TextStyle(color: Colors.white),
-            ),
+            child: const Text('Confirmer', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -620,28 +629,143 @@ class _BodyState extends ConsumerState<_Body> {
     if (confirm != true || !context.mounted) return;
 
     setState(() => _reserving = true);
-    final ok = await ref.read(reservationsProvider.notifier).reserver(
-      t.id,
-      priseEnChargeLat: t.matching?.pickupLat,
-      priseEnChargeLng: t.matching?.pickupLng,
-      deposeLat: t.matching?.dropoffLat,
-      deposeLng: t.matching?.dropoffLng,
-    );
-    if (!context.mounted) return;
-    setState(() => _reserving = false);
+    try {
+      final ok = await ref.read(reservationsProvider.notifier).reserver(
+        t.id,
+        placesReservees: _placesReservees,
+        priseEnChargeLat: t.matching?.pickupLat,
+        priseEnChargeLng: t.matching?.pickupLng,
+        deposeLat: t.matching?.dropoffLat,
+        deposeLng: t.matching?.dropoffLng,
+      );
+      if (!context.mounted) return;
+      setState(() => _reserving = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? 'Réservation effectuée ! En attente de confirmation.'
-              : ref.read(reservationsProvider).error ??
-                    'Erreur lors de la réservation',
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Réservation effectuée ! En attente de confirmation.'),
+          backgroundColor: KColors.success,
+        ));
+        context.pop();
+      } else {
+        final errState = ref.read(reservationsProvider);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(errState.error ?? 'Erreur lors de la réservation'),
+          backgroundColor: KColors.error,
+        ));
+      }
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      setState(() => _reserving = false);
+
+      // Réservation existante → proposer d'ajouter des places
+      final code = e.errors?['code']?.toString();
+      if (code == 'RESERVATION_EXISTANTE') {
+        final reservationId = e.errors?['reservation_id'] as int?;
+        final placesExistantes = e.errors?['places_reservees'] as int? ?? 1;
+        if (reservationId != null) {
+          await _proposerAjoutPlaces(context, reservationId, placesExistantes);
+          return;
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e.message),
+        backgroundColor: KColors.error,
+      ));
+    } catch (e) {
+      if (!context.mounted) return;
+      setState(() => _reserving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur : $e'),
+        backgroundColor: KColors.error,
+      ));
+    }
+  }
+
+  Future<void> _proposerAjoutPlaces(
+      BuildContext context, int reservationId, int placesExistantes) async {
+    int placesSupp = 1;
+    final maxSupp = (8 - placesExistantes).clamp(0, 7);
+    if (maxSupp <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Vous avez déjà le maximum de 8 places sur ce trajet.'),
+        backgroundColor: KColors.warning,
+      ));
+      return;
+    }
+
+    final confirmed = await showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Réservation existante'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Vous avez déjà $placesExistantes place(s) sur ce trajet.\n'
+                'Souhaitez-vous en ajouter d\'autres ?',
+                style: KTextStyles.caption,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: placesSupp > 1 ? () => setDlg(() => placesSupp--) : null,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      '+$placesSupp',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: placesSupp < maxSupp ? () => setDlg(() => placesSupp++) : null,
+                  ),
+                ],
+              ),
+              Text(
+                'Total après ajout : ${placesExistantes + placesSupp} place(s)',
+                style: TextStyle(color: KColors.primary, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Non, annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: KColors.primary),
+              onPressed: () => Navigator.pop(ctx, placesSupp),
+              child: const Text('Ajouter', style: TextStyle(color: Colors.white)),
+            ),
+          ],
         ),
-        backgroundColor: ok ? KColors.success : KColors.error,
       ),
     );
-    if (ok) context.pop();
+    if (confirmed == null || !context.mounted) return;
+
+    try {
+      await ReservationRepository().ajouterPlaces(reservationId, confirmed);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$confirmed place(s) ajoutée(s) à votre réservation !'),
+        backgroundColor: KColors.success,
+      ));
+      context.pop();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur : $e'),
+        backgroundColor: KColors.error,
+      ));
+    }
   }
 
   Future<void> _terminer(BuildContext context) async {
@@ -680,6 +804,106 @@ class _BodyState extends ConsumerState<_Body> {
       context.pop();
     }
   }
+}
+
+// ── Sélecteur de places ───────────────────────────────────────────────────────
+
+class _PlacesSelector extends StatelessWidget {
+  final int places;
+  final int max;
+  final double prixParPlace;
+  final ValueChanged<int> onChange;
+
+  const _PlacesSelector({
+    required this.places,
+    required this.max,
+    required this.prixParPlace,
+    required this.onChange,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveMax = max.clamp(1, 8);
+    final total = prixParPlace * places;
+
+    return KCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: KSpacing.xl, vertical: KSpacing.lg),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.people_outline, size: 16, color: KColors.primary),
+                const SizedBox(width: 8),
+                Text('Nombre de places', style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                // Bouton -
+                _StepBtn(
+                  icon: Icons.remove,
+                  enabled: places > 1,
+                  onTap: () => onChange(places - 1),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    '$places',
+                    style: KTextStyles.bodySm.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+                // Bouton +
+                _StepBtn(
+                  icon: Icons.add,
+                  enabled: places < effectiveMax,
+                  onTap: () => onChange(places + 1),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${Formatters.currency(prixParPlace)} × $places place${places > 1 ? 's' : ''}',
+                  style: KTextStyles.caption.copyWith(color: KColors.baseContentMid),
+                ),
+                Text(
+                  'Total : ${Formatters.currency(total)} FCFA',
+                  style: KTextStyles.bodySm.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: KColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StepBtn extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+  const _StepBtn({required this.icon, required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: enabled ? onTap : null,
+    child: Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: enabled ? KColors.primary : KColors.base300,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(icon, size: 18, color: enabled ? Colors.white : KColors.baseContentMid),
+    ),
+  );
 }
 
 // ── Carte matching géo ────────────────────────────────────────────────────────

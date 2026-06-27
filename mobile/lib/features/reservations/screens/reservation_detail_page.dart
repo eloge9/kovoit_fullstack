@@ -41,6 +41,7 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
   String? _error;
   bool _annulerLoading = false;
   bool _especeLoading = false;
+  bool _ajouterPlacesLoading = false;
 
   // Pulsing animation for live tracking banner
   late final AnimationController _pulseCtrl;
@@ -234,6 +235,17 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
             _buildPaiementButton(context, r, prefix),
             const SizedBox(height: KSpacing.md),
           ],
+          // Ajouter des places si en_attente ou confirmée
+          if (r.isEnAttente || r.isConfirmee) ...[
+            KButton(
+              label: 'Ajouter des places',
+              icon: Icons.person_add_rounded,
+              variant: KButtonVariant.outline,
+              isLoading: _ajouterPlacesLoading,
+              onPressed: _ajouterPlacesLoading ? null : () => _ajouterPlaces(context, r),
+            ),
+            const SizedBox(height: KSpacing.md),
+          ],
           // Annuler si en_attente
           if (r.isEnAttente) ...[
             KButton(
@@ -374,6 +386,107 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
       ));
     } finally {
       if (mounted) setState(() => _especeLoading = false);
+    }
+  }
+
+  Future<void> _ajouterPlaces(BuildContext context, ReservationModel r) async {
+    int placesSupp = 1;
+    final prixUnitaire = r.prixParPlace;
+    final maxSupp = (8 - r.placesReservees).clamp(0, 7);
+
+    if (maxSupp <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Vous avez déjà le maximum de 8 places.'),
+        backgroundColor: KColors.warning,
+      ));
+      return;
+    }
+
+    final confirmed = await showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Ajouter des places'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Vous avez actuellement ${r.placesReservees} place(s). '
+                'Combien souhaitez-vous en ajouter ?',
+                style: KTextStyles.caption,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: placesSupp > 1
+                        ? () => setDlg(() => placesSupp--)
+                        : null,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      '+$placesSupp',
+                      style: const TextStyle(
+                          fontSize: 24, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: placesSupp < maxSupp
+                        ? () => setDlg(() => placesSupp++)
+                        : null,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Supplément : ${Formatters.currency(prixUnitaire * placesSupp)} FCFA',
+                style: TextStyle(
+                    color: KColors.primary, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: KColors.primary),
+              onPressed: () => Navigator.pop(ctx, placesSupp),
+              child: const Text('Confirmer',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == null || !mounted) return;
+
+    setState(() => _ajouterPlacesLoading = true);
+    try {
+      final result = await ReservationRepository().ajouterPlaces(r.id, confirmed);
+      if (!mounted) return;
+      final nouvellesPlaces = result['places_reservees'] as int? ?? r.placesReservees + confirmed;
+      setState(() {
+        _reservation = _reservation?.copyWith(placesReservees: nouvellesPlaces);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$confirmed place(s) ajoutée(s) ! Total : $nouvellesPlaces places.'),
+        backgroundColor: KColors.successContent,
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur : $e'),
+        backgroundColor: KColors.error,
+      ));
+    } finally {
+      if (mounted) setState(() => _ajouterPlacesLoading = false);
     }
   }
 

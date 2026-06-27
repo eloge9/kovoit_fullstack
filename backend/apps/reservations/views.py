@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.conf import settings
 from django.utils import timezone
 from ..modeles.models import Reservation, Trajet, BlocagePassager
@@ -67,15 +67,30 @@ class ReservationViewSet(viewsets.GenericViewSet):
             if BlocagePassager.objects.filter(conducteur=trajet.conducteur, passager=request.user).exists():
                 return Response({"error": "Vous n'êtes pas autorisé à réserver ce trajet."}, status=403)
 
-            if Reservation.objects.filter(trajet=trajet, passager=request.user, statut__in=['en_attente', 'confirmee']).exists():
-                return Response({"error": "Vous avez déjà une réservation active pour ce trajet."}, status=400)
-
-            # Recalculer le nombre de places confirmées DANS la transaction verrouillée
-            nb_confirmees = trajet.reservations.filter(statut='confirmee').count()
-            if nb_confirmees >= trajet.places_disponibles:
-                return Response({"error": "Plus de places disponibles."}, status=400)
+            existing = Reservation.objects.filter(
+                trajet=trajet, passager=request.user, statut__in=['en_attente', 'confirmee']
+            ).first()
+            if existing:
+                return Response({
+                    "error": "Vous avez déjà une réservation active pour ce trajet.",
+                    "code": "RESERVATION_EXISTANTE",
+                    "reservation_id": existing.id,
+                    "places_reservees": existing.places_reservees,
+                }, status=400)
 
             vd = serializer.validated_data
+            places_demandees = vd.get('places_reservees', 1)
+
+            # Vérifier les places disponibles (somme des places_reservees confirmées)
+            places_prises = trajet.reservations.filter(statut='confirmee').aggregate(
+                total=Sum('places_reservees')
+            )['total'] or 0
+            places_restantes = trajet.places_disponibles - places_prises
+            if places_demandees > places_restantes:
+                return Response({
+                    "error": f"Pas assez de places. Disponibles : {places_restantes}, demandées : {places_demandees}."
+                }, status=400)
+
             pickup_lat = vd.get('prise_en_charge_lat')
             pickup_lng = vd.get('prise_en_charge_lng')
             dropoff_lat = vd.get('depose_lat')
@@ -101,6 +116,7 @@ class ReservationViewSet(viewsets.GenericViewSet):
                 trajet=trajet,
                 passager=request.user,
                 statut='en_attente',
+                places_reservees=places_demandees,
                 point_prise_en_charge=vd.get('point_prise_en_charge', ''),
                 prise_en_charge_lat=pickup_lat,
                 prise_en_charge_lng=pickup_lng,
@@ -122,14 +138,17 @@ class ReservationViewSet(viewsets.GenericViewSet):
             except Exception as exc:
                 logger.warning("Erreur création conversation: %s", exc)
 
-            prix_prevu = float(prix_passager or trajet.prix_par_place or 0)
+            prix_unitaire = float(prix_passager or trajet.prix_par_place or 0)
+            prix_total    = prix_unitaire * places_demandees
 
             return Response({
                 "message": "Réservation envoyée. En attente de confirmation.",
                 "reservation_id": reservation.id,
                 "conversation_id": conv_id,
                 "code_embarquement": reservation.code_embarquement,
-                "prix_prevu": str(prix_prevu),
+                "places_reservees": places_demandees,
+                "prix_prevu":  str(prix_unitaire),
+                "prix_total":  str(prix_total),
             }, status=201)
 
     @action(detail=False, methods=['get'])
@@ -219,10 +238,14 @@ class ReservationViewSet(viewsets.GenericViewSet):
             # plus de passagers que le nombre de places disponibles.
             trajet = Trajet.objects.select_for_update().get(pk=reservation.trajet_id)
 
-            nb_confirmees = trajet.reservations.filter(statut='confirmee').count()
-            if nb_confirmees >= trajet.places_disponibles:
+            places_confirmees = trajet.reservations.filter(statut='confirmee').aggregate(
+                total=Sum('places_reservees')
+            )['total'] or 0
+            if places_confirmees + reservation.places_reservees > trajet.places_disponibles:
+                dispo = trajet.places_disponibles - places_confirmees
                 return Response(
-                    {"error": f"Capacité atteinte : {trajet.places_disponibles} place(s) maximum."},
+                    {"error": f"Capacité insuffisante : {dispo} place(s) restante(s), "
+                              f"demande : {reservation.places_reservees}."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -230,11 +253,14 @@ class ReservationViewSet(viewsets.GenericViewSet):
             reservation.save()
 
         prix_par_place = float(trajet.prix_par_place) if trajet.prix_par_place is not None else 0.0
+        prix_unitaire  = float(reservation.prix_passager or trajet.prix_par_place or 0)
 
         return Response({
             "message": "Réservation confirmée.",
-            "prix_par_place": prix_par_place,
-            "nb_passagers_confirmes": nb_confirmees + 1,
+            "prix_par_place":   prix_par_place,
+            "places_reservees": reservation.places_reservees,
+            "prix_total":       str(prix_unitaire * reservation.places_reservees),
+            "nb_places_confirmees": places_confirmees + reservation.places_reservees,
         })
 
     @action(detail=True, methods=['post'])
@@ -281,7 +307,8 @@ class ReservationViewSet(viewsets.GenericViewSet):
         # Pénalité si annulation < 2h avant le départ
         depart = reservation.trajet.date_heure_depart
         if depart and timezone.now() >= depart - timedelta(hours=2):
-            prix = float(reservation.prix_passager or reservation.trajet.prix_par_place or 0)
+            prix_unitaire = float(reservation.prix_passager or reservation.trajet.prix_par_place or 0)
+            prix = prix_unitaire * reservation.places_reservees
             penalite = math.ceil(prix * PENALITE_ANNULATION_TARDIVE / 25) * 25
             message = f"Réservation annulée avec une pénalité de {penalite} FCFA (annulation tardive)."
 
@@ -498,4 +525,65 @@ class ReservationViewSet(viewsets.GenericViewSet):
             "message": "Dépose confirmée.",
             "passager": reservation.passager.get_full_name() or reservation.passager.username,
             "heure_depose": reservation.heure_depose,
+        })
+
+    # ── Ajouter des places à une réservation existante (passager) ────────────
+
+    @action(detail=True, methods=['post'], url_path='ajouter-places')
+    def ajouter_places(self, request, pk=None):
+        """
+        Passager ajoute des places à une réservation en attente ou confirmée.
+        Body: { places_supplementaires: N }
+        """
+        try:
+            reservation = Reservation.objects.select_related('trajet').get(
+                pk=pk, passager=request.user
+            )
+        except Reservation.DoesNotExist:
+            raise NotFound("Réservation introuvable.")
+
+        if reservation.statut not in ('en_attente', 'confirmee'):
+            return Response(
+                {"error": "Impossible d'ajouter des places : réservation terminée ou annulée."},
+                status=400,
+            )
+
+        try:
+            places_sup = int(request.data.get('places_supplementaires', 0))
+        except (TypeError, ValueError):
+            return Response({"error": "places_supplementaires doit être un entier."}, status=400)
+
+        if places_sup < 1:
+            return Response({"error": "Vous devez ajouter au moins 1 place."}, status=400)
+
+        if reservation.places_reservees + places_sup > 8:
+            return Response(
+                {"error": f"Maximum 8 places par réservation. Vous en avez déjà {reservation.places_reservees}."},
+                status=400,
+            )
+
+        with transaction.atomic():
+            trajet = Trajet.objects.select_for_update().get(pk=reservation.trajet_id)
+
+            places_confirmees = trajet.reservations.filter(statut='confirmee').exclude(
+                pk=reservation.pk
+            ).aggregate(total=Sum('places_reservees'))['total'] or 0
+
+            places_restantes = trajet.places_disponibles - places_confirmees
+            total_apres = reservation.places_reservees + places_sup
+            if total_apres > places_restantes:
+                dispo = places_restantes - reservation.places_reservees
+                return Response(
+                    {"error": f"Seulement {dispo} place(s) disponible(s) en plus."},
+                    status=400,
+                )
+
+            reservation.places_reservees = total_apres
+            reservation.save(update_fields=['places_reservees'])
+
+        prix_unitaire = float(reservation.prix_passager or trajet.prix_par_place or 0)
+        return Response({
+            "message": f"{places_sup} place(s) ajoutée(s) avec succès.",
+            "places_reservees": reservation.places_reservees,
+            "prix_total":       str(prix_unitaire * reservation.places_reservees),
         })

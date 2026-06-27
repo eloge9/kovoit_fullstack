@@ -36,8 +36,11 @@ class TrajetSerializer(serializers.ModelSerializer):
         return obj.conducteur.note
 
     def get_places_restantes(self, obj):
-        confirmees = obj.reservations.filter(statut='confirmee').count()
-        return obj.places_disponibles - confirmees
+        from django.db.models import Sum
+        places_prises = obj.reservations.filter(statut='confirmee').aggregate(
+            total=Sum('places_reservees')
+        )['total'] or 0
+        return max(0, obj.places_disponibles - places_prises)
 
     def get_type_vehicule(self, obj):
         return obj.vehicule.type_vehicule if obj.vehicule else None

@@ -15,6 +15,8 @@ interface Reservation {
     prix_par_place: number;
     statut: "en_attente" | "confirmee" | "declinee" | "terminee";
     date_reservation: string;
+    paiement_statut?: string | null;
+    paiement_moyen?: string | null;
 }
 
 export default function MesReservationsPage() {
@@ -233,15 +235,35 @@ export default function MesReservationsPage() {
                                         >
                                             Voir
                                         </button>
-                                        {/* Payer  seullment si le tajet est confirmé */}
-                                        {resa.statut === "confirmee" && (
-                                            <button
-                                                onClick={() => router.push(`/passager/reservations/paiement/${resa.id}`)}
-                                                className="btn btn-primary btn-xs rounded-xl text-xs"
-                                            >
-                                                Payer
-                                            </button>
-                                        )}
+                                        {/* Payer — seulement si confirmée et pas encore payée */}
+                                        {resa.statut === "confirmee" && (() => {
+                                            const ps = resa.paiement_statut;
+                                            if (ps === "PAYEE" || ps === "CONFIRME") {
+                                                return (
+                                                    <span className="badge badge-success badge-sm rounded-full gap-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                        Payé
+                                                    </span>
+                                                );
+                                            }
+                                            if (ps === "EN_ATTENTE_CONFIRMATION") {
+                                                return (
+                                                    <span className="badge badge-warning badge-sm rounded-full">
+                                                        Espèces en attente
+                                                    </span>
+                                                );
+                                            }
+                                            return (
+                                                <button
+                                                    onClick={() => router.push(`/passager/reservations/paiement/${resa.id}`)}
+                                                    className="btn btn-primary btn-xs rounded-xl text-xs"
+                                                >
+                                                    Payer
+                                                </button>
+                                            );
+                                        })()}
 
                                         {/* Suivre trajet — réservation confirmée */}
                                         {resa.statut === "confirmee" && (

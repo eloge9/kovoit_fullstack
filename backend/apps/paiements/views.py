@@ -91,9 +91,10 @@ class PaiementViewSet(viewsets.GenericViewSet):
             except Paiement.DoesNotExist:
                 paiement = None
 
-            trajet   = reservation.trajet
-            montant  = int(reservation.places_reservees * trajet.prix_par_place)
-            commission        = round(montant * COMMISSION_KOVOIT)
+            trajet        = reservation.trajet
+            prix_unitaire = float(reservation.prix_passager or trajet.prix_par_place or 0)
+            montant       = int(reservation.places_reservees * prix_unitaire)
+            commission         = round(montant * COMMISSION_KOVOIT)
             montant_conducteur = montant - commission
 
             transref = payplus.generer_reference(reservation_id)
@@ -231,9 +232,10 @@ class PaiementViewSet(viewsets.GenericViewSet):
             except Paiement.DoesNotExist:
                 pass
 
-            trajet    = reservation.trajet
-            montant   = reservation.places_reservees * trajet.prix_par_place
-            commission = round(float(montant) * COMMISSION_KOVOIT)
+            trajet        = reservation.trajet
+            prix_unitaire = float(reservation.prix_passager or trajet.prix_par_place or 0)
+            montant       = reservation.places_reservees * prix_unitaire
+            commission    = round(montant * COMMISSION_KOVOIT)
 
             paiement = Paiement.objects.create(
                 reservation=reservation,

@@ -397,13 +397,16 @@ class Paiement(models.Model):
 
     def clean(self):
         """Valider le paiement"""
-        if self.reservation:
+        if self.reservation and self.montant is not None:
             res = self.reservation
-            # Utilise prix_passager si défini (boarding intermédiaire), sinon prix_par_place
-            prix_unitaire = res.prix_passager if res.prix_passager else res.trajet.prix_par_place
-            prix_total = res.places_reservees * prix_unitaire
-            if self.montant != prix_total:
-                raise ValidationError(f"Montant doit être {prix_total} FCFA pour {res.places_reservees} place(s)")
+            prix_unitaire = float(res.prix_passager or res.trajet.prix_par_place or 0)
+            prix_total    = round(res.places_reservees * prix_unitaire)
+            montant_arrondi = round(float(self.montant))
+            if montant_arrondi != prix_total:
+                raise ValidationError(
+                    f"Montant doit être {prix_total} FCFA pour {res.places_reservees} place(s) "
+                    f"(reçu : {montant_arrondi})"
+                )
 
     def save(self, *args, **kwargs):
         from django.db import transaction

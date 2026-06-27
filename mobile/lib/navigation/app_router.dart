@@ -243,8 +243,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/passager/evaluation/:trajetId/:cibleId',
         builder: (_, state) => EvaluationPage(
-          trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-          cibleId:  state.pathParameters['cibleId'] ?? '',
+          trajetId:     int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
+          cibleId:      state.pathParameters['cibleId'] ?? '',
+          isConducteur: false,
         ),
       ),
       GoRoute(
@@ -332,8 +333,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/conducteur/evaluation/:trajetId/:cibleId',
         builder: (_, state) => EvaluationPage(
-          trajetId: int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
-          cibleId:  state.pathParameters['cibleId'] ?? '',
+          trajetId:     int.tryParse(state.pathParameters['trajetId'] ?? '') ?? 0,
+          cibleId:      state.pathParameters['cibleId'] ?? '',
+          isConducteur: true,
         ),
       ),
       GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),

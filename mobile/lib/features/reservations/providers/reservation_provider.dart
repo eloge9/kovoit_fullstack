@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/reservation_model.dart';
 import '../repositories/reservation_repository.dart';
+import '../../../core/network/api_interceptor.dart';
 
 final reservationRepositoryProvider =
     Provider<ReservationRepository>((ref) => ReservationRepository());
@@ -138,6 +139,7 @@ class ReservationsNotifier extends StateNotifier<ReservationsState> {
 
   Future<bool> reserver(
     int trajetId, {
+    int placesReservees = 1,
     double? priseEnChargeLat,
     double? priseEnChargeLng,
     double? deposeLat,
@@ -147,6 +149,7 @@ class ReservationsNotifier extends StateNotifier<ReservationsState> {
     try {
       final reservation = await _repo.reserver(
         trajetId,
+        placesReservees: placesReservees,
         priseEnChargeLat: priseEnChargeLat,
         priseEnChargeLng: priseEnChargeLng,
         deposeLat: deposeLat,
@@ -158,6 +161,10 @@ class ReservationsNotifier extends StateNotifier<ReservationsState> {
         successMessage: 'Réservation effectuée avec succès !',
       );
       return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message);
+      // Re-propager pour que l'UI puisse lire le code d'erreur (RESERVATION_EXISTANTE)
+      rethrow;
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
       return false;
