@@ -127,16 +127,25 @@ class ReservationViewSet(viewsets.GenericViewSet):
                 prix_passager=prix_passager,
             )
 
-            # Créer automatiquement la conversation passager ↔ conducteur
+            # Trouver ou créer la conversation privée permanente passager ↔ conducteur
             conv_id = None
             try:
                 from apps.messagerie.models import Conversation, Participant
-                conv = Conversation.objects.create(reservation=reservation)
-                Participant.objects.create(conversation=conv, utilisateur=request.user)
-                Participant.objects.create(conversation=conv, utilisateur=trajet.conducteur)
+                conducteur = trajet.conducteur
+                conv = (
+                    Conversation.objects
+                    .filter(type=Conversation.TYPE_PRIVATE,
+                            participants__utilisateur=request.user)
+                    .filter(participants__utilisateur=conducteur)
+                    .first()
+                )
+                if conv is None:
+                    conv = Conversation.objects.create(type=Conversation.TYPE_PRIVATE)
+                    Participant.objects.create(conversation=conv, utilisateur=request.user)
+                    Participant.objects.create(conversation=conv, utilisateur=conducteur)
                 conv_id = conv.id
             except Exception as exc:
-                logger.warning("Erreur création conversation: %s", exc)
+                logger.warning("Erreur conversation privée: %s", exc)
 
             prix_unitaire = float(prix_passager or trajet.prix_par_place or 0)
             prix_total    = prix_unitaire * places_demandees
@@ -254,6 +263,23 @@ class ReservationViewSet(viewsets.GenericViewSet):
 
         prix_par_place = float(trajet.prix_par_place) if trajet.prix_par_place is not None else 0.0
         prix_unitaire  = float(reservation.prix_passager or trajet.prix_par_place or 0)
+
+        # Ajouter le passager à la conversation de groupe du trajet
+        try:
+            from apps.messagerie.models import Conversation, Participant
+            groupe, created_g = Conversation.objects.get_or_create(
+                trajet=trajet,
+                type=Conversation.TYPE_TRAJET,
+                defaults={
+                    'titre':  f"{trajet.depart} → {trajet.destination}",
+                    'statut': Conversation.OUVERTE,
+                },
+            )
+            if created_g:
+                Participant.objects.get_or_create(conversation=groupe, utilisateur=trajet.conducteur)
+            Participant.objects.get_or_create(conversation=groupe, utilisateur=reservation.passager)
+        except Exception as exc:
+            logger.warning("Erreur groupe trajet: %s", exc)
 
         return Response({
             "message": "Réservation confirmée.",

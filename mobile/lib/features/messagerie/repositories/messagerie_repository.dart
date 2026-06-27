@@ -143,6 +143,45 @@ class MessagerieRepository {
     }
   }
 
+  // ── Conversation privée permanente ───────────────────────────────────────
+
+  Future<ConversationModel> getOrCreatePrivate(String userId) async {
+    try {
+      final response = await DioClient.post('/messagerie/private/$userId/');
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return ConversationModel.fromJson(raw);
+      throw Exception('Réponse inattendue');
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  // ── Conversation groupe trajet ─────────────────────────────────────────────
+
+  Future<ConversationModel> getOrCreateGroupeTrajet(int trajetId) async {
+    try {
+      final response = await DioClient.post('/messagerie/trajet/$trajetId/groupe/');
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return ConversationModel.fromJson(raw);
+      throw Exception('Réponse inattendue');
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<ConversationModel?> getGroupeTrajet(int trajetId) async {
+    try {
+      final response = await DioClient.get('/messagerie/trajet/$trajetId/groupe/');
+      final raw = response.data;
+      if (raw is Map<String, dynamic> && raw['exists'] == true) {
+        return ConversationModel.fromJson(raw);
+      }
+      return null;
+    } on DioException catch (_) {
+      return null;
+    }
+  }
+
   // ── Non lus ───────────────────────────────────────────────────────────────
 
   Future<int> getNonLusCount() async {

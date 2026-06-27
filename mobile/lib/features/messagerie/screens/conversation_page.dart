@@ -151,6 +151,7 @@ class ConversationPage extends ConsumerStatefulWidget {
   final String userName;
   final String? userId;
   final String statut;
+  final bool isGroupe;
 
   const ConversationPage({
     super.key,
@@ -158,6 +159,7 @@ class ConversationPage extends ConsumerStatefulWidget {
     required this.userName,
     this.userId,
     this.statut = 'ouverte',
+    this.isGroupe = false,
   });
 
   @override
@@ -656,7 +658,18 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
           onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: Row(children: [
-          KAvatar(name: widget.userName, size: 34),
+          // Avatar : icône groupe ou avatar utilisateur
+          if (widget.isGroupe)
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: KColors.primary.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.directions_car_rounded, color: KColors.primary, size: 18),
+            )
+          else
+            KAvatar(name: widget.userName, size: 34),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -666,9 +679,13 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                   fontWeight: FontWeight.w700, color: KColors.baseContent,
                 )),
                 Text(
-                  _enLigne ? 'En ligne' : _wsConnected ? 'Connecté' : 'Reconnexion…',
+                  widget.isGroupe
+                      ? 'Chat du trajet'
+                      : (_enLigne ? 'En ligne' : _wsConnected ? 'Connecté' : 'Reconnexion…'),
                   style: KTextStyles.caption.copyWith(
-                    color: _enLigne ? KColors.success : KColors.baseContentMid,
+                    color: widget.isGroupe
+                        ? KColors.primary
+                        : (_enLigne ? KColors.success : KColors.baseContentMid),
                     fontSize: 10,
                   ),
                 ),
@@ -745,6 +762,7 @@ class _ConversationPageState extends ConsumerState<ConversationPage> {
                               message:       msg,
                               isMine:        isMine,
                               interlocuteur: widget.userName,
+                              isGroupe:      widget.isGroupe,
                             ),
                           ),
                         ]);
@@ -1017,10 +1035,12 @@ class _MessageBubble extends StatelessWidget {
   final MessageModel message;
   final bool isMine;
   final String interlocuteur;
+  final bool isGroupe;
   const _MessageBubble({
     required this.message,
     required this.isMine,
     required this.interlocuteur,
+    this.isGroupe = false,
   });
 
   @override
@@ -1059,6 +1079,19 @@ class _MessageBubble extends StatelessWidget {
         crossAxisAlignment:
             isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          // Nom de l'auteur dans un groupe
+          if (isGroupe && !isMine)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 2),
+              child: Text(
+                message.username,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: KColors.primary.withOpacity(0.7),
+                ),
+              ),
+            ),
           Container(
             margin: const EdgeInsets.only(bottom: 2),
             constraints: BoxConstraints(

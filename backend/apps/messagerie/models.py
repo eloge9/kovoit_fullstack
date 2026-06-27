@@ -11,12 +11,30 @@ class Conversation(models.Model):
         (FERMEE,        'Fermée'),
     ]
 
+    TYPE_PRIVATE = 'private'
+    TYPE_TRAJET  = 'trajet'
+    TYPE_CHOICES = [
+        (TYPE_PRIVATE, 'Privé'),
+        (TYPE_TRAJET,  'Groupe trajet'),
+    ]
+
     reservation = models.OneToOneField(
         'modeles.Reservation',
         null=True, blank=True,
         on_delete=models.SET_NULL,
         related_name='conversation',
     )
+    trajet = models.ForeignKey(
+        'modeles.Trajet',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='groupe_conversations',
+    )
+    type = models.CharField(
+        max_length=10, choices=TYPE_CHOICES,
+        default=TYPE_PRIVATE, db_index=True,
+    )
+    titre = models.CharField(max_length=200, null=True, blank=True)
     statut     = models.CharField(
         max_length=20, choices=STATUT_CHOICES,
         default=OUVERTE, db_index=True,
@@ -26,8 +44,20 @@ class Conversation(models.Model):
 
     class Meta:
         ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['trajet', 'type']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['trajet'],
+                condition=models.Q(type='trajet'),
+                name='unique_groupe_par_trajet',
+            )
+        ]
 
     def __str__(self):
+        if self.type == self.TYPE_TRAJET:
+            return f"Groupe #{self.pk} [{self.titre or 'sans titre'}]"
         return f"Conversation #{self.pk} [{self.statut}]"
 
 

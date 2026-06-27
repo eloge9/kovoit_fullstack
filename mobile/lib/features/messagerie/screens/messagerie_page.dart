@@ -122,6 +122,17 @@ class _ConvTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasUnread = conv.unreadCount > 0;
+
+    // Dernier message affiché
+    String lastMsgText;
+    if (conv.lastMessage == null) {
+      lastMsgText = 'Démarrez la conversation';
+    } else if (conv.isGroupe && conv.lastMessageAuthor != null) {
+      lastMsgText = '${conv.lastMessageAuthor}: ${conv.lastMessage}';
+    } else {
+      lastMsgText = conv.lastMessage!;
+    }
+
     return Material(
       color: KColors.base100,
       child: InkWell(
@@ -135,11 +146,27 @@ class _ConvTile extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  KAvatar(
-                    name: conv.userName,
-                    photoUrl: conv.userPhoto,
-                    size: 44,
-                  ),
+                  // Avatar : icône groupe pour trajet, avatar utilisateur pour privé
+                  if (conv.isGroupe)
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: KColors.primary.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.directions_car_rounded,
+                        color: KColors.primary,
+                        size: 22,
+                      ),
+                    )
+                  else
+                    KAvatar(
+                      name: conv.userName,
+                      photoUrl: conv.userPhoto,
+                      size: 44,
+                    ),
                   if (hasUnread)
                     Positioned(
                       right: 0,
@@ -170,42 +197,56 @@ class _ConvTile extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            conv.userName,
-                            style: KTextStyles.bodySm.copyWith(
-                              fontWeight: hasUnread
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: KColors.baseContent,
-                            ),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  conv.userName,
+                                  style: KTextStyles.bodySm.copyWith(
+                                    fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+                                    color: KColors.baseContent,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (conv.isGroupe) ...[
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: KColors.primary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${conv.participantsCount}',
+                                    style: KTextStyles.meta.copyWith(
+                                      color: KColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                         if (conv.lastMessageTime != null)
                           Text(
                             Formatters.relativeTime(conv.lastMessageTime!),
                             style: KTextStyles.caption.copyWith(
-                              color: hasUnread
-                                  ? KColors.primary
-                                  : KColors.baseContentMid,
-                              fontWeight: hasUnread
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
+                              color: hasUnread ? KColors.primary : KColors.baseContentMid,
+                              fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
                             ),
                           ),
                       ],
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      conv.lastMessage ?? 'Démarrez la conversation',
+                      lastMsgText,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: KTextStyles.caption.copyWith(
-                        color: hasUnread
-                            ? KColors.baseContent
-                            : KColors.baseContentMid,
-                        fontWeight: hasUnread
-                            ? FontWeight.w500
-                            : FontWeight.normal,
+                        color: hasUnread ? KColors.baseContent : KColors.baseContentMid,
+                        fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
                       ),
                     ),
                   ],

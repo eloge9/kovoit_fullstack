@@ -28,14 +28,21 @@ export interface DernierMessage {
 }
 
 export interface ConversationItem {
-  id:              number;
-  statut:          'ouverte' | 'lecture_seule' | 'fermee';
-  reservation_id:  number | null;
-  trajet:          TrajetInfo | null;
-  interlocuteurs:  InterlocuteurInfo[];
-  dernier_message: DernierMessage | null;
-  non_lus:         number;
-  updated_at:      string;
+  id:                 number;
+  type:               'private' | 'trajet';
+  is_groupe:          boolean;
+  titre:              string | null;
+  statut:             'ouverte' | 'lecture_seule' | 'fermee';
+  reservation_id:     number | null;
+  trajet_id:          number | null;
+  trajet:             TrajetInfo | null;
+  interlocuteurs:     InterlocuteurInfo[];
+  participants_count: number;
+  dernier_message:    DernierMessage | null;
+  non_lus:            number;
+  updated_at:         string;
+  exists?:            boolean;
+  created?:           boolean;
 }
 
 export interface ReplyInfo {
@@ -122,6 +129,15 @@ export const reagirMessage = (
 
 export const getNonLus = (): Promise<{ count: number }> =>
   api("/messagerie/non-lus/", "GET");
+
+export const getOrCreatePrivate = (userId: string): Promise<ConversationItem> =>
+  api(`/messagerie/private/${userId}/`, "POST");
+
+export const getGroupeTrajet = (trajetId: number): Promise<ConversationItem> =>
+  api(`/messagerie/trajet/${trajetId}/groupe/`, "GET");
+
+export const getOrCreateGroupeTrajet = (trajetId: number): Promise<ConversationItem> =>
+  api(`/messagerie/trajet/${trajetId}/groupe/`, "POST");
 
 // ── Divers ───────────────────────────────────────────────────────────────────
 

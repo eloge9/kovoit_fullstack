@@ -7,6 +7,7 @@ import { api } from "@/src/services/api";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
 import { getQrCode } from "@/src/services/messagerie.service";
 import { ajouterPlaces } from "@/src/services/reservation.service";
+import { getOrCreateGroupeTrajet } from "@/src/services/messagerie.service";
 import { QRCodeSVG } from "qrcode.react";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -30,6 +31,7 @@ interface ReservationDetail {
     date_reservation: string;
     places_reservees?: number;
     conversation_id?: number | null;
+    groupe_conv_id?: number | null;
     trajet_info?: Trajet;
     paiement_statut?: string | null;
     paiement_moyen?: string | null;
@@ -49,6 +51,7 @@ export default function DetailReservationPage() {
     const [ajoutDialog, setAjoutDialog] = useState(false);
     const [ajoutPlaces, setAjoutPlaces] = useState(1);
     const [ajoutLoading, setAjoutLoading] = useState(false);
+    const [groupeChatLoading, setGroupeChatLoading] = useState(false);
 
     useEffect(() => {
         const fetchReservation = async () => {
@@ -432,18 +435,60 @@ export default function DetailReservationPage() {
                 </div>
             )}
 
-            {/* ACTIONS */}
-            {/* MESSAGE CONDUCTEUR — disponible dès qu'une conversation existe */}
-            {reservation.conversation_id && reservation.statut !== "annulee" && (
-                <button
-                    onClick={() => router.push(`/communication/messages?conv=${reservation.conversation_id}`)}
-                    className={`btn rounded-full w-full gap-2 ${reservation.statut === "declinee" ? "btn-ghost border border-base-300" : "btn-outline btn-primary"}`}
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                    {reservation.statut === "declinee" ? "Voir la conversation" : "Message conducteur"}
-                </button>
+            {/* ACTIONS — Messagerie */}
+            {reservation.statut !== "annulee" && (
+                <div className="flex flex-col gap-3">
+                    {/* Conversation privée conducteur */}
+                    {reservation.conversation_id && (
+                        <button
+                            onClick={() => router.push(`/communication/messages?conv=${reservation.conversation_id}`)}
+                            className={`btn rounded-full w-full gap-2 ${reservation.statut === "declinee" ? "btn-ghost border border-base-300" : "btn-outline btn-primary"}`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            {reservation.statut === "declinee" ? "Voir la conversation" : "Message conducteur"}
+                        </button>
+                    )}
+                    {/* Chat de groupe du trajet */}
+                    {(reservation.statut === "confirmee") && (
+                        reservation.groupe_conv_id ? (
+                            <button
+                                onClick={() => router.push(`/communication/messages?conv=${reservation.groupe_conv_id}&groupe=true`)}
+                                className="btn btn-outline rounded-full w-full gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                Chat du trajet
+                            </button>
+                        ) : (
+                            <button
+                                onClick={async () => {
+                                    setGroupeChatLoading(true);
+                                    try {
+                                        const conv = await getOrCreateGroupeTrajet(reservation.trajet_id);
+                                        setReservation(prev => prev ? { ...prev, groupe_conv_id: conv.id } : prev);
+                                        router.push(`/communication/messages?conv=${conv.id}&groupe=true`);
+                                    } catch { /* silencieux */ }
+                                    finally { setGroupeChatLoading(false); }
+                                }}
+                                disabled={groupeChatLoading}
+                                className="btn btn-outline rounded-full w-full gap-2"
+                            >
+                                {groupeChatLoading
+                                    ? <span className="loading loading-spinner loading-xs" />
+                                    : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                    )
+                                }
+                                Chat du trajet
+                            </button>
+                        )
+                    )}
+                </div>
             )}
 
             {/* Modal ajouter des places */}

@@ -37,8 +37,9 @@ class ReservationSerializer(serializers.ModelSerializer):
     paiement_moyen            = serializers.SerializerMethodField()
     paiement_reference_mobile = serializers.SerializerMethodField()
 
-    # Lien vers la conversation messagerie
-    conversation_id = serializers.SerializerMethodField()
+    # Lien vers les conversations messagerie
+    conversation_id  = serializers.SerializerMethodField()
+    groupe_conv_id   = serializers.SerializerMethodField()
 
     class Meta:
         model = Reservation
@@ -61,7 +62,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             # Paiement
             'paiement_statut', 'paiement_moyen', 'paiement_reference_mobile',
             # Messagerie
-            'conversation_id',
+            'conversation_id', 'groupe_conv_id',
         ]
 
     def get_conducteur(self, obj):
@@ -114,7 +115,30 @@ class ReservationSerializer(serializers.ModelSerializer):
 
     def get_conversation_id(self, obj):
         try:
+            from apps.messagerie.models import Conversation
+            # Conv privée permanente entre passager et conducteur
+            conv_id = (
+                Conversation.objects
+                .filter(type=Conversation.TYPE_PRIVATE,
+                        participants__utilisateur=obj.passager)
+                .filter(participants__utilisateur=obj.trajet.conducteur)
+                .values_list('id', flat=True)
+                .first()
+            )
+            if conv_id:
+                return conv_id
+            # Fallback : ancienne conv liée directement à la réservation
             return obj.conversation.id
+        except Exception:
+            return None
+
+    def get_groupe_conv_id(self, obj):
+        try:
+            from apps.messagerie.models import Conversation
+            conv = Conversation.objects.filter(
+                trajet=obj.trajet, type=Conversation.TYPE_TRAJET,
+            ).values_list('id', flat=True).first()
+            return conv
         except Exception:
             return None
 

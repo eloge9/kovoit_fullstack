@@ -167,13 +167,18 @@ class MessageModel {
 
 class ConversationModel {
   final int convId;
-  final String userId;
-  final String userName;
+  final String userId;      // premier interlocuteur (pour conv privée)
+  final String userName;    // nom affiché (titre pour groupe, nom pour privé)
   final String? userPhoto;
   final String? lastMessage;
+  final String? lastMessageAuthor; // Pour les groupes : "Fabrice: ..."
   final DateTime? lastMessageTime;
   final int unreadCount;
-  final String statut; // 'ouverte' | 'lecture_seule' | 'fermee'
+  final String statut;       // 'ouverte' | 'lecture_seule' | 'fermee'
+  final String type;         // 'private' | 'trajet'
+  final String? titre;       // Titre du groupe (ex: "Cotonou → Abomey")
+  final int participantsCount;
+  final bool isGroupe;
 
   const ConversationModel({
     required this.convId,
@@ -181,32 +186,58 @@ class ConversationModel {
     required this.userName,
     this.userPhoto,
     this.lastMessage,
+    this.lastMessageAuthor,
     this.lastMessageTime,
     this.unreadCount = 0,
     this.statut = 'ouverte',
+    this.type = 'private',
+    this.titre,
+    this.participantsCount = 2,
+    this.isGroupe = false,
   });
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
+    final isGroupe = json['is_groupe'] as bool? ?? false;
+    final type     = json['type']?.toString() ?? 'private';
+    final titre    = json['titre']?.toString();
+
     final interlocuteurs = json['interlocuteurs'] as List?;
     final first = (interlocuteurs != null && interlocuteurs.isNotEmpty)
         ? interlocuteurs.first as Map<String, dynamic>
         : null;
 
-    final _dernierMsgRaw = json['dernier_message'];
-    final dernierMsg = _dernierMsgRaw is Map<String, dynamic> ? _dernierMsgRaw : null;
+    final dernierMsgRaw = json['dernier_message'];
+    final dernierMsg = dernierMsgRaw is Map<String, dynamic> ? dernierMsgRaw : null;
+
+    // Nom affiché : titre pour groupe, nom de l'interlocuteur pour privé
+    final displayName = isGroupe
+        ? (titre ?? 'Groupe trajet')
+        : (first?['nom']?.toString() ?? first?['username']?.toString() ?? '');
+
+    // Dernier message : pour les groupes on préfixe avec le nom de l'auteur
+    String? lastMsgContent = dernierMsg?['contenu'] as String?;
+    String? lastMsgAuthor;
+    if (isGroupe && dernierMsg != null) {
+      final moi = dernierMsg['moi'] as bool? ?? false;
+      lastMsgAuthor = moi ? 'Vous' : (dernierMsg['username']?.toString());
+    }
 
     return ConversationModel(
-      convId:           json['id'] as int,
-      userId:           first?['id']?.toString() ?? '',
-      userName:         first?['nom']?.toString() ??
-                        first?['username']?.toString() ?? '',
-      userPhoto:        first?['photo_profil']?.toString(),
-      lastMessage:      dernierMsg?['contenu'] as String?,
-      lastMessageTime:  dernierMsg?['timestamp'] != null
-                          ? DateTime.tryParse(dernierMsg!['timestamp'] as String)
-                          : null,
-      unreadCount:      json['non_lus'] as int? ?? 0,
-      statut:           json['statut']?.toString() ?? 'ouverte',
+      convId:              json['id'] as int,
+      userId:              first?['id']?.toString() ?? '',
+      userName:            displayName,
+      userPhoto:           isGroupe ? null : first?['photo_profil']?.toString(),
+      lastMessage:         lastMsgContent,
+      lastMessageAuthor:   lastMsgAuthor,
+      lastMessageTime:     dernierMsg?['timestamp'] != null
+                               ? DateTime.tryParse(dernierMsg!['timestamp'] as String)
+                               : null,
+      unreadCount:         json['non_lus'] as int? ?? 0,
+      statut:              json['statut']?.toString() ?? 'ouverte',
+      type:                type,
+      titre:               titre,
+      participantsCount:   json['participants_count'] as int? ?? 2,
+      isGroupe:            isGroupe,
     );
   }
 }

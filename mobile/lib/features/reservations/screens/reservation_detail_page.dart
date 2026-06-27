@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../models/reservation_model.dart';
 import '../repositories/reservation_repository.dart';
+import '../../messagerie/repositories/messagerie_repository.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -42,6 +43,7 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
   bool _annulerLoading = false;
   bool _especeLoading = false;
   bool _ajouterPlacesLoading = false;
+  bool _groupeChatLoading = false;
 
   // Pulsing animation for live tracking banner
   late final AnimationController _pulseCtrl;
@@ -246,6 +248,44 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
             ),
             const SizedBox(height: KSpacing.md),
           ],
+          // Messagerie — conversation privée + groupe trajet
+          if (r.isConfirmee || r.isEnAttente) ...[
+            // Chat privé avec le conducteur
+            if (r.conversationId != null)
+              KButton(
+                label: 'Message au conducteur',
+                icon: Icons.chat_bubble_outline_rounded,
+                variant: KButtonVariant.outline,
+                onPressed: () => context.push(
+                  '$prefix/messages/${r.conversationId}'
+                  '?name=${Uri.encodeComponent(r.trajet?.conducteurNom ?? 'Conducteur')}'
+                  '&statut=ouverte',
+                ),
+              ),
+            if (r.conversationId != null) const SizedBox(height: KSpacing.md),
+            // Chat du trajet (groupe)
+            if (r.groupeConvId != null)
+              KButton(
+                label: 'Chat du trajet',
+                icon: Icons.directions_car_rounded,
+                variant: KButtonVariant.outline,
+                onPressed: () => context.push(
+                  '$prefix/messages/${r.groupeConvId}'
+                  '?name=${Uri.encodeComponent(r.trajet != null ? "${r.trajet!.depart} → ${r.trajet!.destination}" : "Groupe trajet")}'
+                  '&isGroupe=true'
+                  '&statut=ouverte',
+                ),
+              )
+            else
+              KButton(
+                label: 'Chat du trajet',
+                icon: Icons.directions_car_rounded,
+                variant: KButtonVariant.outline,
+                isLoading: _groupeChatLoading,
+                onPressed: _groupeChatLoading ? null : () => _ouvrirGroupeTrajet(context, r, prefix),
+              ),
+            const SizedBox(height: KSpacing.md),
+          ],
           // Annuler si en_attente
           if (r.isEnAttente) ...[
             KButton(
@@ -281,6 +321,42 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
             ),
             const SizedBox(height: KSpacing.md),
           ],
+          // Chat privé + groupe trajet pour le conducteur
+          if (r.isConfirmee || isEnCours) ...[
+            if (r.conversationId != null)
+              KButton(
+                label: 'Message à ${r.passagerNom}',
+                icon: Icons.chat_bubble_outline_rounded,
+                variant: KButtonVariant.outline,
+                onPressed: () => context.push(
+                  '$prefix/messages/${r.conversationId}'
+                  '?name=${Uri.encodeComponent(r.passagerNom)}'
+                  '&statut=ouverte',
+                ),
+              ),
+            if (r.conversationId != null) const SizedBox(height: KSpacing.md),
+            if (r.groupeConvId != null)
+              KButton(
+                label: 'Chat du trajet',
+                icon: Icons.directions_car_rounded,
+                variant: KButtonVariant.outline,
+                onPressed: () => context.push(
+                  '$prefix/messages/${r.groupeConvId}'
+                  '?name=${Uri.encodeComponent(r.trajet != null ? "${r.trajet!.depart} → ${r.trajet!.destination}" : "Groupe trajet")}'
+                  '&isGroupe=true'
+                  '&statut=ouverte',
+                ),
+              )
+            else
+              KButton(
+                label: 'Créer le chat du trajet',
+                icon: Icons.directions_car_rounded,
+                variant: KButtonVariant.outline,
+                isLoading: _groupeChatLoading,
+                onPressed: _groupeChatLoading ? null : () => _ouvrirGroupeTrajet(context, r, prefix),
+              ),
+            const SizedBox(height: KSpacing.md),
+          ],
           // Confirmation paiement espèces
           if (r.paiement != null &&
               r.paiement!.isEspece &&
@@ -299,6 +375,37 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
         ],
       ],
     );
+  }
+
+  Future<void> _ouvrirGroupeTrajet(
+      BuildContext context, ReservationModel r, String prefix) async {
+    setState(() => _groupeChatLoading = true);
+    try {
+      final conv = await MessagerieRepository().getOrCreateGroupeTrajet(r.trajetId);
+      if (!mounted) return;
+      final titre = r.trajet != null
+          ? '${r.trajet!.depart} → ${r.trajet!.destination}'
+          : 'Groupe trajet';
+      await context.push(
+        '$prefix/messages/${conv.convId}'
+        '?name=${Uri.encodeComponent(titre)}'
+        '&isGroupe=true'
+        '&statut=ouverte',
+      );
+      // Rafraîchir pour obtenir le nouveau groupeConvId
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Impossible d\'ouvrir le chat du trajet.'),
+            backgroundColor: KColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _groupeChatLoading = false);
+    }
   }
 
   Widget _buildPaiementButton(

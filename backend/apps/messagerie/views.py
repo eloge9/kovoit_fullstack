@@ -6,11 +6,13 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from django.db import transaction
 from django.utils import timezone
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .models import Conversation, Participant, MessageConv, MessageReaction
+from ..modeles.models import Utilisateur, Trajet, Reservation
 
 logger = logging.getLogger(__name__)
 
@@ -113,15 +115,20 @@ def _conv_data(conv: Conversation, current_user) -> dict:
             'id':        dernier.id,
             'contenu':   contenu_affiché,
             'auteur_id': str(dernier.auteur_id),
+            'username':  dernier.auteur.username,
             'timestamp': dernier.created_at.isoformat(),
             'moi':       dernier.auteur_id == current_user.id,
         }
 
-    interlocuteurs = []
-    for p in conv.participants.exclude(utilisateur=current_user).select_related('utilisateur'):
-        interlocuteurs.append(_user_info(p.utilisateur))
+    all_participants = list(conv.participants.select_related('utilisateur'))
+    interlocuteurs = [
+        _user_info(p.utilisateur)
+        for p in all_participants
+        if p.utilisateur_id != current_user.id
+    ]
 
     trajet_info = None
+    # Trajet via réservation (conv privée existante)
     if conv.reservation_id:
         try:
             res = conv.reservation
@@ -136,22 +143,39 @@ def _conv_data(conv: Conversation, current_user) -> dict:
             }
         except Exception:
             pass
+    # Trajet via conv groupe
+    elif conv.trajet_id:
+        try:
+            t = conv.trajet
+            trajet_info = {
+                'id':          t.id,
+                'depart':      t.depart,
+                'destination': t.destination,
+                'date':        t.date_heure_depart.isoformat() if t.date_heure_depart else None,
+            }
+        except Exception:
+            pass
 
     try:
-        p_current = conv.participants.get(utilisateur=current_user)
+        p_current = next(p for p in all_participants if p.utilisateur_id == current_user.id)
         non_lus   = _non_lus_pour_participant(p_current)
-    except Participant.DoesNotExist:
+    except StopIteration:
         non_lus = 0
 
     return {
-        'id':             conv.id,
-        'statut':         conv.statut,
-        'reservation_id': conv.reservation_id,
-        'trajet':         trajet_info,
-        'interlocuteurs': interlocuteurs,
-        'dernier_message': dernier_data,
-        'non_lus':        non_lus,
-        'updated_at':     conv.updated_at.isoformat(),
+        'id':                conv.id,
+        'type':              conv.type,
+        'is_groupe':         conv.type == Conversation.TYPE_TRAJET,
+        'titre':             conv.titre,
+        'statut':            conv.statut,
+        'reservation_id':    conv.reservation_id,
+        'trajet_id':         conv.trajet_id,
+        'trajet':            trajet_info,
+        'interlocuteurs':    interlocuteurs,
+        'participants_count': len(all_participants),
+        'dernier_message':   dernier_data,
+        'non_lus':           non_lus,
+        'updated_at':        conv.updated_at.isoformat(),
     }
 
 
@@ -472,3 +496,106 @@ def non_lus_count(request):
     for p in Participant.objects.filter(utilisateur=request.user).prefetch_related('conversation__messages'):
         total += _non_lus_pour_participant(p)
     return Response({'count': total})
+
+
+# ── Conversation privée permanente (WhatsApp-style) ───────────────────────────
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def get_or_create_private(request, user_id):
+    """Retourne ou crée la conversation privée permanente entre l'utilisateur courant et user_id."""
+    try:
+        cible = Utilisateur.objects.get(pk=user_id)
+    except Utilisateur.DoesNotExist:
+        return Response({"error": "Utilisateur introuvable."}, status=404)
+
+    if cible.pk == request.user.pk:
+        return Response({"error": "Vous ne pouvez pas vous écrire à vous-même."}, status=400)
+
+    # Chercher une conv privée existante entre les deux users
+    conv = (
+        Conversation.objects
+        .filter(type=Conversation.TYPE_PRIVATE, participants__utilisateur=request.user)
+        .filter(participants__utilisateur=cible)
+        .prefetch_related('participants__utilisateur', 'messages')
+        .first()
+    )
+
+    created = False
+    if conv is None:
+        with transaction.atomic():
+            conv = Conversation.objects.create(type=Conversation.TYPE_PRIVATE)
+            Participant.objects.create(conversation=conv, utilisateur=request.user)
+            Participant.objects.create(conversation=conv, utilisateur=cible)
+            created = True
+
+    data = _conv_data(conv, request.user)
+    data['created'] = created
+    return Response(data, status=201 if created else 200)
+
+
+# ── Conversation groupe trajet (Uber-style) ───────────────────────────────────
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def get_or_create_groupe_trajet(request, trajet_id):
+    """Retourne ou crée la conversation de groupe pour un trajet."""
+    try:
+        trajet = Trajet.objects.select_related('conducteur').get(pk=trajet_id)
+    except Trajet.DoesNotExist:
+        return Response({"error": "Trajet introuvable."}, status=404)
+
+    # Vérifier l'accès : conducteur ou passager confirmé
+    is_conducteur = trajet.conducteur_id == request.user.pk
+    is_passager = Reservation.objects.filter(
+        trajet=trajet, passager=request.user,
+        statut__in=['confirmee', 'terminee'],
+    ).exists()
+
+    if not is_conducteur and not is_passager:
+        return Response({"error": "Accès non autorisé à ce trajet."}, status=403)
+
+    if request.method == 'GET':
+        conv = (
+            Conversation.objects
+            .filter(trajet=trajet, type=Conversation.TYPE_TRAJET)
+            .prefetch_related('participants__utilisateur', 'messages')
+            .first()
+        )
+        if conv is None:
+            return Response({"exists": False, "id": None})
+        data = _conv_data(conv, request.user)
+        data['exists'] = True
+        return Response(data)
+
+    # POST : get_or_create
+    with transaction.atomic():
+        conv, created = Conversation.objects.get_or_create(
+            trajet=trajet,
+            type=Conversation.TYPE_TRAJET,
+            defaults={
+                'titre':  f"{trajet.depart} → {trajet.destination}",
+                'statut': Conversation.OUVERTE,
+            },
+        )
+        if created:
+            # Ajouter le conducteur
+            Participant.objects.get_or_create(conversation=conv, utilisateur=trajet.conducteur)
+            # Ajouter tous les passagers déjà confirmés
+            for r in Reservation.objects.filter(
+                trajet=trajet, statut__in=['confirmee', 'terminee']
+            ).select_related('passager'):
+                Participant.objects.get_or_create(conversation=conv, utilisateur=r.passager)
+        else:
+            # S'assurer que l'utilisateur courant est bien participant
+            Participant.objects.get_or_create(conversation=conv, utilisateur=request.user)
+
+    # Re-fetch avec prefetch pour éviter les N+1
+    conv = (
+        Conversation.objects
+        .prefetch_related('participants__utilisateur', 'messages')
+        .get(pk=conv.pk)
+    )
+    data = _conv_data(conv, request.user)
+    data['created'] = created
+    return Response(data, status=201 if created else 200)

@@ -17,6 +17,7 @@ class ReservationModel {
   final String? codeEmbarquement;
   final String statutEmbarquement;
   final int? conversationId;
+  final int? groupeConvId;
 
   const ReservationModel({
     required this.id,
@@ -33,6 +34,7 @@ class ReservationModel {
     this.codeEmbarquement,
     this.statutEmbarquement = 'non_embarque',
     this.conversationId,
+    this.groupeConvId,
   });
 
   static double _toDouble(dynamic v) {
@@ -114,6 +116,7 @@ class ReservationModel {
       codeEmbarquement: json['code_embarquement']?.toString(),
       statutEmbarquement: json['statut_embarquement']?.toString() ?? 'non_embarque',
       conversationId: json['conversation_id'] as int?,
+      groupeConvId: json['groupe_conv_id'] as int?,
     );
   }
 

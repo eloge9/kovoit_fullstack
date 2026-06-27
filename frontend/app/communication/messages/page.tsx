@@ -163,11 +163,12 @@ function AudioRecorder({ onSend, onCancel }: {
 // ── Bulle de message ──────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, isMine, interlocuteur, canEdit, onReply, onEdit, onDelete, onReact,
+  msg, isMine, interlocuteur, isGroupe, canEdit, onReply, onEdit, onDelete, onReact,
 }: {
   msg:            ChatMessage;
   isMine:         boolean;
   interlocuteur:  InterlocuteurInfo | null;
+  isGroupe:       boolean;
   canEdit:        boolean;
   onReply:        (msg: ChatMessage) => void;
   onEdit:         (msg: ChatMessage) => void;
@@ -191,16 +192,24 @@ function MessageBubble({
     ? "bg-primary text-primary-content rounded-2xl rounded-br-sm"
     : "bg-base-100 text-base-content border border-base-200 rounded-2xl rounded-bl-sm";
 
+  const avatarLetter = isGroupe
+    ? (msg.username[0]?.toUpperCase() ?? "?")
+    : (interlocuteur?.nom[0]?.toUpperCase() ?? "?");
+
   return (
     <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 group relative`}>
-      {/* Avatar interlocuteur */}
+      {/* Avatar */}
       {!isMine && (
         <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary mr-2 shrink-0 self-end mb-0.5">
-          {interlocuteur?.nom[0]?.toUpperCase() ?? "?"}
+          {avatarLetter}
         </div>
       )}
 
       <div className="max-w-[75%] md:max-w-md space-y-0.5">
+        {/* Nom de l'auteur (groupes uniquement) */}
+        {isGroupe && !isMine && (
+          <p className="text-[11px] font-semibold text-primary/70 px-1">{msg.username}</p>
+        )}
         {/* Réponse citée */}
         {msg.reply_to && (
           <div className={`text-xs px-3 py-1.5 rounded-t-xl border-l-2 border-primary/60 ${
@@ -598,13 +607,27 @@ export default function MessagesPage() {
             </div>
           ) : (
             conversations.map(conv => {
+              const isGroupe = conv.is_groupe;
               const autre    = conv.interlocuteurs[0];
               const isActive = selectedConv?.id === conv.id;
+              const displayName = isGroupe
+                  ? (conv.titre ?? "Groupe trajet")
+                  : (autre?.nom ?? "Conversation");
+              const lastMsgText = conv.dernier_message
+                  ? (isGroupe && !conv.dernier_message.moi
+                      ? `${conv.dernier_message.contenu}`
+                      : (conv.dernier_message.moi ? `Vous : ${conv.dernier_message.contenu}` : conv.dernier_message.contenu))
+                  : null;
+
               return (
                 <button key={conv.id} onClick={() => openConversation(conv)}
                   className={`w-full flex items-center gap-3 px-4 py-3 border-b border-base-100 hover:bg-base-200 transition-colors text-left ${isActive ? "bg-primary/8" : ""}`}>
                   <div className="relative shrink-0">
-                    {autre ? <Avatar user={autre} size={10} /> : (
+                    {isGroupe ? (
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Car className="w-5 h-5 text-primary" />
+                      </div>
+                    ) : autre ? <Avatar user={autre} size={10} /> : (
                       <div className="w-10 h-10 rounded-full bg-base-300 flex items-center justify-center">
                         <MessageSquare className="w-4 h-4 text-base-content/40" />
                       </div>
@@ -617,23 +640,29 @@ export default function MessagesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
-                      <p className={`text-sm truncate ${conv.non_lus > 0 ? "font-semibold text-base-content" : "text-base-content/80"}`}>
-                        {autre?.nom ?? "Conversation"}
-                      </p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className={`text-sm truncate ${conv.non_lus > 0 ? "font-semibold text-base-content" : "text-base-content/80"}`}>
+                          {displayName}
+                        </p>
+                        {isGroupe && (
+                          <span className="shrink-0 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">
+                            {conv.participants_count}
+                          </span>
+                        )}
+                      </div>
                       {conv.dernier_message && (
                         <span className="text-xs text-base-content/40 shrink-0">{fmtDateLabel(conv.dernier_message.timestamp)}</span>
                       )}
                     </div>
-                    {conv.trajet && (
+                    {!isGroupe && conv.trajet && (
                       <p className="text-xs text-base-content/40 truncate flex items-center gap-1">
                         <Car className="w-3 h-3 inline shrink-0" />
                         {conv.trajet.depart} → {conv.trajet.destination}
                       </p>
                     )}
-                    {conv.dernier_message ? (
+                    {lastMsgText ? (
                       <p className={`text-xs truncate ${conv.non_lus > 0 ? "text-base-content/60 font-medium" : "text-base-content/40"}`}>
-                        {conv.dernier_message.moi ? "Vous : " : ""}
-                        {conv.dernier_message.contenu}
+                        {lastMsgText}
                       </p>
                     ) : (
                       <p className="text-xs text-base-content/30 italic">Démarrez la conversation</p>
@@ -651,20 +680,32 @@ export default function MessagesPage() {
           Colonne droite — Conversation active
       ═════════════════════════════════════════════════════════════════ */}
       <main className={`flex-1 flex flex-col min-w-0 ${!showSidebar ? "flex" : "hidden md:flex"}`}>
-        {selectedConv && interlocuteur ? (
+        {selectedConv ? (
           <>
             {/* ── Header ─────────────────────────────────────────────── */}
             <header className="bg-base-100 border-b border-base-200 px-4 py-3 flex items-center gap-3 shrink-0">
               <button className="md:hidden btn btn-ghost btn-sm btn-square" onClick={() => setShowSidebar(true)}>
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <Avatar user={interlocuteur} size={9} />
+              {selectedConv.is_groupe ? (
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Car className="w-4.5 h-4.5 text-primary" />
+                </div>
+              ) : interlocuteur ? (
+                <Avatar user={interlocuteur} size={9} />
+              ) : null}
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{interlocuteur.nom}</p>
-                <p className={`text-xs font-medium ${interlocuteurEnLigne ? "text-success" : "text-base-content/40"}`}>
-                  {interlocuteurEnLigne ? "En ligne" : selectedConv.trajet
-                    ? `${selectedConv.trajet.depart} → ${selectedConv.trajet.destination}`
-                    : "Hors ligne"}
+                <p className="font-semibold text-sm truncate">
+                  {selectedConv.is_groupe
+                    ? (selectedConv.titre ?? "Groupe trajet")
+                    : (interlocuteur?.nom ?? "Conversation")}
+                </p>
+                <p className={`text-xs font-medium ${selectedConv.is_groupe ? "text-primary" : interlocuteurEnLigne ? "text-success" : "text-base-content/40"}`}>
+                  {selectedConv.is_groupe
+                    ? `${selectedConv.participants_count} participants`
+                    : interlocuteurEnLigne ? "En ligne" : selectedConv.trajet
+                      ? `${selectedConv.trajet.depart} → ${selectedConv.trajet.destination}`
+                      : "Hors ligne"}
                 </p>
               </div>
               <div className={`flex items-center gap-1.5 text-xs shrink-0 ${isConnected ? "text-success" : "text-warning"}`}>
@@ -714,6 +755,7 @@ export default function MessagesPage() {
                         msg={msg}
                         isMine={isMine}
                         interlocuteur={interlocuteur}
+                        isGroupe={selectedConv?.is_groupe ?? false}
                         canEdit={canEditMsg(msg)}
                         onReply={m => { setReplyTo(m); setEditingMsg(null); inputRef.current?.focus(); }}
                         onEdit={m => { setEditingMsg(m); setInput(m.contenu); setReplyTo(null); inputRef.current?.focus(); }}
@@ -729,7 +771,7 @@ export default function MessagesPage() {
               {isTyping && (
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                    {interlocuteur.nom[0]?.toUpperCase()}
+                    {interlocuteur?.nom[0]?.toUpperCase() ?? "?"}
                   </div>
                   <div className="bg-base-100 border border-base-200 px-4 py-2.5 rounded-2xl rounded-bl-sm shadow-sm">
                     <p className="text-xs text-base-content/50 mb-1">{typingUsername} écrit…</p>
