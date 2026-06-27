@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
 import { reserver } from "@/src/services/reservation.service";
@@ -12,7 +12,16 @@ const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 export default function DetailTrajetPage() {
     const { id } = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { user } = useAuth();
+
+    // Coordonnées segment transmises depuis la page de recherche (mode itinéraire)
+    const pickupLat  = searchParams.get("pickupLat")  ? Number(searchParams.get("pickupLat"))  : null;
+    const pickupLng  = searchParams.get("pickupLng")  ? Number(searchParams.get("pickupLng"))  : null;
+    const dropoffLat = searchParams.get("dropoffLat") ? Number(searchParams.get("dropoffLat")) : null;
+    const dropoffLng = searchParams.get("dropoffLng") ? Number(searchParams.get("dropoffLng")) : null;
+    const prixPassager = searchParams.get("prixPassager") ? Number(searchParams.get("prixPassager")) : null;
+    const isSegment = pickupLat !== null && pickupLng !== null && dropoffLat !== null && dropoffLng !== null;
 
     const [trajet, setTrajet] = useState<Trajet | null>(null);
     const [loading, setLoading] = useState(true);
@@ -43,7 +52,15 @@ export default function DetailTrajetPage() {
         setReserving(true);
         setError(null);
         try {
-            await reserver({ trajet_id: Number(id) });
+            await reserver({
+                trajet_id: Number(id),
+                ...(isSegment ? {
+                    prise_en_charge_lat: pickupLat!,
+                    prise_en_charge_lng: pickupLng!,
+                    depose_lat:          dropoffLat!,
+                    depose_lng:          dropoffLng!,
+                } : {}),
+            });
             setSuccess(true);
         } catch (err: any) {
             setError(err.response?.data?.error || "Erreur lors de la réservation.");
@@ -215,14 +232,20 @@ export default function DetailTrajetPage() {
                 <div className="flex items-center justify-between mb-4">
                     <div>
                         <p className="text-xs text-base-content/40 uppercase tracking-widest font-medium">
-                            Prix par place
+                            {isSegment ? "Votre part (segment)" : "Prix par place"}
                         </p>
                         <p className="text-3xl font-bold text-primary mt-1">
-                            {Number(trajet.prix_par_place).toLocaleString("fr-FR")} FCFA
+                            {(prixPassager ?? Number(trajet.prix_par_place)).toLocaleString("fr-FR")} FCFA
                         </p>
-                        <p className="text-xs text-base-content/30 mt-0.5">
-                            Recalculé selon le nombre de passagers confirmés
-                        </p>
+                        {isSegment ? (
+                            <p className="text-xs text-base-content/40 mt-0.5">
+                                Prix calculé pour votre portion du trajet
+                            </p>
+                        ) : (
+                            <p className="text-xs text-base-content/30 mt-0.5">
+                                Prix du trajet complet {trajet.depart} → {trajet.destination}
+                            </p>
+                        )}
                     </div>
                     <div className="text-right">
                         <span className={`badge rounded-full font-medium ${placesRestantes > 0
@@ -233,6 +256,22 @@ export default function DetailTrajetPage() {
                         </span>
                     </div>
                 </div>
+
+                {/* Rappel du segment recherché */}
+                {isSegment && (
+                    <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 mb-4 flex items-start gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-primary mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        </svg>
+                        <div>
+                            <p className="text-xs font-semibold text-primary">Réservation pour votre segment</p>
+                            <p className="text-xs text-base-content/50 mt-0.5">
+                                Le conducteur fait {trajet.depart} → {trajet.destination}.
+                                Vous montez et descendez aux points que vous avez sélectionnés.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Erreur */}
                 {error && (

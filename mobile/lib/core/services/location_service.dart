@@ -7,7 +7,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/api_constants.dart';
 import 'storage_service.dart';
 
-/// Données de position temps réel enrichies
+// ── Modèles de données ────────────────────────────────────────────────────────
+
 class LocationData {
   final double latitude;
   final double longitude;
@@ -37,7 +38,8 @@ class LocationData {
   factory LocationData.fromJson(Map<String, dynamic> json) => LocationData(
         latitude: (json['latitude'] as num).toDouble(),
         longitude: (json['longitude'] as num).toDouble(),
-        speedKmh: ((json['speed'] as num?)?.toDouble() ?? 0) * 3.6,
+        speedKmh: (json['vitesse_kmh'] as num?)?.toDouble() ??
+            ((json['speed'] as num?)?.toDouble() ?? 0) * 3.6,
         heading: (json['heading'] as num?)?.toDouble() ?? 0,
         accuracy: (json['accuracy'] as num?)?.toDouble() ?? 0,
         timestamp: json['timestamp'] != null
@@ -46,18 +48,76 @@ class LocationData {
       );
 }
 
+/// Position d'un passager reçue côté conducteur.
+class PassengerPositionData {
+  final String userId;
+  final String nom;
+  final double latitude;
+  final double longitude;
+  final DateTime? timestamp;
+
+  const PassengerPositionData({
+    required this.userId,
+    required this.nom,
+    required this.latitude,
+    required this.longitude,
+    this.timestamp,
+  });
+
+  factory PassengerPositionData.fromJson(Map<String, dynamic> json) =>
+      PassengerPositionData(
+        userId: json['user_id']?.toString() ?? '',
+        nom: (json['nom'] as String?)?.isNotEmpty == true
+            ? json['nom'] as String
+            : 'Passager',
+        latitude: (json['latitude'] as num).toDouble(),
+        longitude: (json['longitude'] as num).toDouble(),
+        timestamp: json['timestamp'] != null
+            ? DateTime.tryParse(json['timestamp'] as String)
+            : null,
+      );
+}
+
+/// Événement reçu quand le conducteur est arrivé chez un passager.
+class DriverArrivedEvent {
+  final String userId;
+  final String nom;
+  final int distanceM;
+
+  const DriverArrivedEvent({
+    required this.userId,
+    required this.nom,
+    required this.distanceM,
+  });
+
+  factory DriverArrivedEvent.fromJson(Map<String, dynamic> json) =>
+      DriverArrivedEvent(
+        userId: json['user_id']?.toString() ?? '',
+        nom: (json['nom'] as String?) ?? '',
+        distanceM: (json['distance_m'] as num?)?.toInt() ?? 0,
+      );
+}
+
+// ── Service principal ─────────────────────────────────────────────────────────
+
 class LocationService {
   WebSocketChannel? _channel;
   StreamSubscription<Position>? _positionSub;
-  StreamController<LocationData>? _locationController;
   Timer? _reconnectTimer;
+  Timer? _passengerSendTimer;
   bool _disposed = false;
-  int _trajetId = 0;
-  bool _isSending = false;
+  String _userNom = '';
+
+  // Streams exposés
+  StreamController<LocationData>? _locationController;         // position conducteur → passager
+  StreamController<PassengerPositionData>? _passengersController; // positions passagers → conducteur
+  StreamController<DriverArrivedEvent>? _driverArrivedController; // alerte arrivée
 
   Stream<LocationData>? get locationStream => _locationController?.stream;
+  Stream<PassengerPositionData>? get passengersStream => _passengersController?.stream;
+  Stream<DriverArrivedEvent>? get driverArrivedStream => _driverArrivedController?.stream;
 
-  // ── Permissions ──────────────────────────────────────────────────────────────
+  // ── Permissions ───────────────────────────────────────────────────────────
 
   static Future<bool> requestPermission() async {
     var permission = await Geolocator.checkPermission();
@@ -68,22 +128,22 @@ class LocationService {
         permission != LocationPermission.deniedForever;
   }
 
-  // ── Conducteur : envoi de position ──────────────────────────────────────────
+  // ── Conducteur : envoi de position + réception positions passagers ─────────
 
   Future<void> startSendingLocation(int trajetId) async {
-    _trajetId = trajetId;
-    _isSending = true;
+    _passengersController = StreamController<PassengerPositionData>.broadcast();
+    _driverArrivedController = StreamController<DriverArrivedEvent>.broadcast();
+
     final hasPermission = await requestPermission();
     if (!hasPermission) {
       debugPrint('[LocationService] permission GPS refusée');
       return;
     }
-
-    await _connectWs(trajetId);
+    await _connectWsConducteur(trajetId);
     _startPositionStream();
   }
 
-  Future<void> _connectWs(int trajetId) async {
+  Future<void> _connectWsConducteur(int trajetId) async {
     if (_disposed) return;
     final token = await StorageService.getAccessToken();
     if (token == null) return;
@@ -91,34 +151,34 @@ class LocationService {
     try {
       final uri = Uri.parse('${ApiConstants.wsBaseUrl}/gps/$trajetId/?token=$token');
       _channel = WebSocketChannel.connect(uri);
-      debugPrint('[LocationService] WS connecté trajet=$trajetId');
+      debugPrint('[LocationService] conducteur WS connecté trajet=$trajetId');
 
-      // Surveiller la déconnexion pour reconnexion auto
       _channel!.stream.listen(
-        (_) {},
+        (rawData) {
+          try {
+            final json = jsonDecode(rawData as String) as Map<String, dynamic>;
+            final type = json['type'] as String?;
+            if (type == 'passenger_position') {
+              _passengersController?.add(PassengerPositionData.fromJson(json));
+            } else if (type == 'driver_arrived') {
+              _driverArrivedController?.add(DriverArrivedEvent.fromJson(json));
+            }
+          } catch (e) {
+            debugPrint('[LocationService] parse error: $e');
+          }
+        },
         onError: (e) {
-          debugPrint('[LocationService] WS error: $e');
-          _scheduleReconnect();
+          debugPrint('[LocationService] conducteur WS error: $e');
+          _scheduleReconnect(() => _connectWsConducteur(trajetId));
         },
         onDone: () {
-          debugPrint('[LocationService] WS fermé');
-          if (!_disposed) _scheduleReconnect();
+          if (!_disposed) _scheduleReconnect(() => _connectWsConducteur(trajetId));
         },
       );
     } catch (e) {
       debugPrint('[LocationService] WS connexion échouée: $e');
-      _scheduleReconnect();
+      _scheduleReconnect(() => _connectWsConducteur(trajetId));
     }
-  }
-
-  void _scheduleReconnect() {
-    if (_disposed) return;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () async {
-      if (_disposed) return;
-      debugPrint('[LocationService] Reconnexion WS...');
-      await _connectWs(_trajetId);
-    });
   }
 
   void _startPositionStream() {
@@ -126,43 +186,41 @@ class LocationService {
     _positionSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // envoi si déplacement de 5m minimum
+        distanceFilter: 5,
       ),
     ).listen((position) {
       final data = LocationData.fromPosition(position);
-      _sendPosition(data);
-      if (!_isSending) {
-        _locationController?.add(data);
-      }
+      _sendConducteurPosition(data);
     });
   }
 
-  void _sendPosition(LocationData data) {
+  void _sendConducteurPosition(LocationData data) {
     try {
       _channel?.sink.add(jsonEncode({
-        'type': 'location_update',
+        'type': 'position',
         'latitude': data.latitude,
         'longitude': data.longitude,
-        'speed': data.speedKmh / 3.6,
+        'vitesse_kmh': data.speedKmh,
         'heading': data.heading,
         'accuracy': data.accuracy,
         'timestamp': data.timestamp.toIso8601String(),
       }));
     } catch (e) {
-      debugPrint('[LocationService] sendPosition error: $e');
+      debugPrint('[LocationService] sendConducteurPosition error: $e');
     }
   }
 
-  // ── Passager : réception de position ────────────────────────────────────────
+  // ── Passager : réception position conducteur + envoi sa position ───────────
 
-  Future<void> startReceivingLocation(int trajetId) async {
-    _trajetId = trajetId;
-    _isSending = false;
+  Future<void> startReceivingLocation(int trajetId, {String nom = ''}) async {
+    _userNom = nom;
     _locationController = StreamController<LocationData>.broadcast();
-    await _connectWsReceiver(trajetId);
+    _driverArrivedController = StreamController<DriverArrivedEvent>.broadcast();
+    await _connectWsPassager(trajetId);
+    _startPassengerPositionSending();
   }
 
-  Future<void> _connectWsReceiver(int trajetId) async {
+  Future<void> _connectWsPassager(int trajetId) async {
     if (_disposed) return;
     final token = await StorageService.getAccessToken();
     if (token == null) return;
@@ -170,45 +228,80 @@ class LocationService {
     try {
       final uri = Uri.parse('${ApiConstants.wsBaseUrl}/gps/$trajetId/?token=$token');
       _channel = WebSocketChannel.connect(uri);
-      debugPrint('[LocationService] WS passager connecté trajet=$trajetId');
+      debugPrint('[LocationService] passager WS connecté trajet=$trajetId');
 
       _channel!.stream.listen(
-        (data) {
+        (rawData) {
           try {
-            final json = jsonDecode(data as String) as Map<String, dynamic>;
-            if (json['type'] == 'location_update' || json['latitude'] != null) {
+            final json = jsonDecode(rawData as String) as Map<String, dynamic>;
+            final type = json['type'] as String?;
+            if (type == 'position_update' || json['latitude'] != null && type != 'passenger_position' && type != 'driver_arrived') {
               _locationController?.add(LocationData.fromJson(json));
+            } else if (type == 'driver_arrived') {
+              _driverArrivedController?.add(DriverArrivedEvent.fromJson(json));
             }
           } catch (e) {
-            debugPrint('[LocationService] parse error: $e');
+            debugPrint('[LocationService] passager parse error: $e');
           }
         },
         onError: (e) {
-          debugPrint('[LocationService] WS passager error: $e');
-          _scheduleReconnectReceiver(trajetId);
+          debugPrint('[LocationService] passager WS error: $e');
+          _scheduleReconnect(() => _connectWsPassager(trajetId));
         },
         onDone: () {
-          debugPrint('[LocationService] WS passager fermé');
-          if (!_disposed) _scheduleReconnectReceiver(trajetId);
+          if (!_disposed) _scheduleReconnect(() => _connectWsPassager(trajetId));
         },
       );
     } catch (e) {
-      debugPrint('[LocationService] WS passager connexion échouée: $e');
-      _scheduleReconnectReceiver(trajetId);
+      debugPrint('[LocationService] passager WS connexion échouée: $e');
+      _scheduleReconnect(() => _connectWsPassager(trajetId));
     }
   }
 
-  void _scheduleReconnectReceiver(int trajetId) {
+  void _startPassengerPositionSending() async {
+    final hasPermission = await requestPermission();
+    if (!hasPermission || _disposed) return;
+
+    // Envoyer immédiatement puis toutes les 5 secondes
+    _sendPassengerPosition();
+    _passengerSendTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!_disposed) _sendPassengerPosition();
+    });
+  }
+
+  Future<void> _sendPassengerPosition() async {
+    if (_disposed) return;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+      if (_disposed) return;
+      _channel?.sink.add(jsonEncode({
+        'type': 'passenger_position',
+        'latitude': pos.latitude,
+        'longitude': pos.longitude,
+        'nom': _userNom,
+        'timestamp': DateTime.now().toIso8601String(),
+      }));
+    } catch (e) {
+      debugPrint('[LocationService] sendPassengerPosition error: $e');
+    }
+  }
+
+  void _scheduleReconnect(Future<void> Function() reconnectFn) {
     if (_disposed) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), () async {
       if (_disposed) return;
-      debugPrint('[LocationService] Reconnexion passager WS...');
-      await _connectWsReceiver(trajetId);
+      debugPrint('[LocationService] Reconnexion WS...');
+      await reconnectFn();
     });
   }
 
-  // ── Utilitaires statiques ────────────────────────────────────────────────────
+  // ── Utilitaires statiques ─────────────────────────────────────────────────
 
   static Future<Position?> getCurrentPosition() async {
     final hasPermission = await requestPermission();
@@ -226,7 +319,6 @@ class LocationService {
     }
   }
 
-  /// Calcule la distance en km entre deux points (formule Haversine)
   static double distanceKm(
     double lat1, double lng1,
     double lat2, double lng2,
@@ -242,23 +334,28 @@ class LocationService {
 
   static double _rad(double deg) => deg * pi / 180;
 
-  /// ETA en minutes depuis la vitesse actuelle et la distance restante
   static int etaMinutes(double distanceKm, double speedKmh) {
     if (speedKmh < 2) return -1;
     return (distanceKm / speedKmh * 60).round();
   }
 
-  // ── Dispose ──────────────────────────────────────────────────────────────────
+  // ── Dispose ───────────────────────────────────────────────────────────────
 
   void dispose() {
     _disposed = true;
     _reconnectTimer?.cancel();
+    _passengerSendTimer?.cancel();
     _positionSub?.cancel();
     _channel?.sink.close();
     _locationController?.close();
+    _passengersController?.close();
+    _driverArrivedController?.close();
     _reconnectTimer = null;
+    _passengerSendTimer = null;
     _positionSub = null;
     _channel = null;
     _locationController = null;
+    _passengersController = null;
+    _driverArrivedController = null;
   }
 }

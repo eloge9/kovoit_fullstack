@@ -35,6 +35,7 @@ import '../features/admin/screens/admin_conducteur_detail_page.dart';
 // Features partagées
 import '../features/trajets/screens/trajets_list_page.dart';
 import '../features/trajets/screens/trajet_detail_page.dart';
+import '../features/trajets/models/trajet_model.dart' show MatchingInfo;
 import '../features/trajets/screens/create_trajet_page.dart';
 import '../features/reservations/screens/reservations_page.dart';
 import '../features/paiements/screens/paiement_page.dart';
@@ -217,6 +218,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/passager/trajet/:id',
         builder: (_, state) => TrajetDetailPage(
           trajetId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+          matching: state.extra is MatchingInfo ? state.extra as MatchingInfo : null,
         ),
       ),
       GoRoute(

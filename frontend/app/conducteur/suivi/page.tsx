@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import maplibregl from "maplibre-gl";
-import { useTrajetWebSocket } from "@/src/hooks/useTrajetWebSocket";
+import { useTrajetWebSocket, type PassengerPosition } from "@/src/hooks/useTrajetWebSocket";
 import trajetApi from "@/libs/trajet-api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,17 +17,17 @@ interface TrajetInfo {
     places_disponibles: number;
 }
 
-// ── Carte en temps réel ───────────────────────────────────────────────────────
+// ── Carte en temps réel (conducteur) ─────────────────────────────────────────
 
 function MapLivePosition({
-    lat, lng, heading,
-}: { lat: number; lng: number; heading?: number | null }) {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef       = useRef<maplibregl.Map | null>(null);
-    const markerRef    = useRef<maplibregl.Marker | null>(null);
-    const initializedRef = useRef(false);
+    lat, lng, passengers,
+}: { lat: number; lng: number; passengers: Map<string, PassengerPosition> }) {
+    const containerRef    = useRef<HTMLDivElement>(null);
+    const mapRef          = useRef<maplibregl.Map | null>(null);
+    const markerRef       = useRef<maplibregl.Marker | null>(null);
+    const passengerMarkersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+    const initializedRef  = useRef(false);
 
-    // Init carte une seule fois
     useEffect(() => {
         if (mapRef.current || !containerRef.current) return;
         mapRef.current = new maplibregl.Map({
@@ -43,33 +43,83 @@ function MapLivePosition({
         });
         mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
+        // Marqueur conducteur (bleu)
         const el = document.createElement("div");
         el.style.cssText = `
-            width:40px;height:40px;
+            width:44px;height:44px;
             background:#2563eb;
             border:3px solid #fff;
             border-radius:50%;
-            box-shadow:0 0 0 6px rgba(37,99,235,0.25),0 4px 12px rgba(0,0,0,0.3);
+            box-shadow:0 0 0 8px rgba(37,99,235,0.2),0 4px 12px rgba(0,0,0,0.3);
             display:flex;align-items:center;justify-content:center;
         `;
-        el.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`;
+        el.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+            <path d="M21 3L3 10.53v.98l6.84 2.65L12.48 21h.98L21 3z"/>
+        </svg>`;
+        el.title = "Vous";
 
         markerRef.current = new maplibregl.Marker({ element: el })
             .setLngLat([lng, lat])
             .addTo(mapRef.current);
 
         initializedRef.current = true;
-
-        return () => { mapRef.current?.remove(); mapRef.current = null; };
+        return () => {
+            passengerMarkersRef.current.forEach(m => m.remove());
+            passengerMarkersRef.current.clear();
+            mapRef.current?.remove();
+            mapRef.current = null;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Mettre à jour la position du marqueur
+    // Mettre à jour position conducteur
     useEffect(() => {
         if (!initializedRef.current) return;
         markerRef.current?.setLngLat([lng, lat]);
         mapRef.current?.easeTo({ center: [lng, lat], duration: 800 });
     }, [lat, lng]);
+
+    // Mettre à jour marqueurs passagers
+    useEffect(() => {
+        if (!mapRef.current || !initializedRef.current) return;
+        const existing = passengerMarkersRef.current;
+
+        passengers.forEach((p, userId) => {
+            const lngLat: [number, number] = [p.longitude, p.latitude];
+            if (existing.has(userId)) {
+                existing.get(userId)!.setLngLat(lngLat);
+            } else {
+                // Créer marqueur passager (orange)
+                const el = document.createElement("div");
+                const initiale = p.nom.charAt(0).toUpperCase() || "?";
+                el.style.cssText = `
+                    width:40px;height:40px;
+                    background:#f97316;
+                    border:3px solid #fff;
+                    border-radius:50%;
+                    box-shadow:0 0 0 6px rgba(249,115,22,0.2),0 4px 12px rgba(0,0,0,0.25);
+                    display:flex;align-items:center;justify-content:center;
+                    color:white;font-weight:700;font-size:16px;cursor:pointer;
+                `;
+                el.textContent = initiale;
+                el.title = p.nom;
+
+                const marker = new maplibregl.Marker({ element: el })
+                    .setLngLat(lngLat)
+                    .setPopup(new maplibregl.Popup({ offset: 25 }).setText(`${p.nom} — passager`))
+                    .addTo(mapRef.current!);
+                existing.set(userId, marker);
+            }
+        });
+
+        // Supprimer les marqueurs des passagers disparus
+        existing.forEach((marker, userId) => {
+            if (!passengers.has(userId)) {
+                marker.remove();
+                existing.delete(userId);
+            }
+        });
+    }, [passengers]);
 
     return <div ref={containerRef} style={{ width: "100%", height: "100%" }} className="z-0 rounded-2xl overflow-hidden" />;
 }
@@ -106,7 +156,7 @@ export default function ConducteurSuiviPage() {
 
     // Ne connecter le WS que si le trajet est réellement en_cours (sinon rejet 4003)
     const wsTrajetId = trajet?.statut === "en_cours" ? trajetId : null;
-    const { isConnected, sendPosition } = useTrajetWebSocket({ trajetId: wsTrajetId });
+    const { isConnected, sendPosition, passengers } = useTrajetWebSocket({ trajetId: wsTrajetId });
 
     // ── Charger les infos du trajet ───────────────────────────────────────────
 
@@ -128,7 +178,8 @@ export default function ConducteurSuiviPage() {
             sendPosition({
                 latitude:    pos.coords.latitude,
                 longitude:   pos.coords.longitude,
-                vitesse_kmh: pos.coords.speed != null ? pos.coords.speed * 3.6 : undefined,
+                vitesse_kmh: pos.coords.speed != null ? pos.coords.speed * 3.6 : 0,
+                heading:     pos.coords.heading ?? undefined,
             });
             setLastSent(new Date());
         }, 2000);
@@ -282,7 +333,7 @@ export default function ConducteurSuiviPage() {
             {/* ── Carte ── */}
             <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden" style={{ height: 380 }}>
                 {lat != null && lng != null ? (
-                    <MapLivePosition lat={lat} lng={lng} />
+                    <MapLivePosition lat={lat} lng={lng} passengers={passengers} />
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-base-content/30 gap-3">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -330,17 +381,46 @@ export default function ConducteurSuiviPage() {
                 </div>
             )}
 
-            {/* ── Info passagers ── */}
+            {/* ── Info suivi actif ── */}
             {trajetEnCours && isConnected && gpsActive && (
                 <div className="bg-success/8 border border-success/20 rounded-2xl p-4 flex items-center gap-3">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
-                        <p className="text-sm font-semibold text-success">Suivi actif</p>
+                        <p className="text-sm font-semibold text-success">Suivi actif — vos passagers voient votre position</p>
                         <p className="text-xs text-base-content/60">
-                            Vos passagers voient votre position en temps réel sur leur application mobile.
+                            {passengers.size > 0
+                                ? `${passengers.size} passager${passengers.size > 1 ? "s" : ""} partage${passengers.size === 1 ? "" : "nt"} leur position.`
+                                : "En attente de la position des passagers…"}
                         </p>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Liste passagers sur carte ── */}
+            {passengers.size > 0 && (
+                <div className="bg-base-100 rounded-2xl border border-base-200 p-4">
+                    <p className="text-xs font-bold text-base-content/40 uppercase tracking-widest mb-3">
+                        Passagers localisés ({passengers.size})
+                    </p>
+                    <div className="space-y-2">
+                        {Array.from(passengers.values()).map(p => (
+                            <div key={p.user_id} className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-orange-100 border-2 border-orange-400 flex items-center justify-center shrink-0">
+                                    <span className="text-orange-600 font-bold text-sm">
+                                        {p.nom.charAt(0).toUpperCase()}
+                                    </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-base-content truncate">{p.nom}</p>
+                                    <p className="text-xs text-base-content/40">
+                                        {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)}
+                                    </p>
+                                </div>
+                                <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse shrink-0" />
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

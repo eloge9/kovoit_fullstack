@@ -17,7 +17,14 @@ export interface Reservation {
 }
 
 // Passager — réserver une place
-export const reserver = (data: { trajet_id: number }) =>
+export interface ReserverPayload {
+  trajet_id: number;
+  prise_en_charge_lat?: number;
+  prise_en_charge_lng?: number;
+  depose_lat?: number;
+  depose_lng?: number;
+}
+export const reserver = (data: ReserverPayload) =>
   api("/reservations/reserver/", "POST", data);
 
 // Passager — mes réservations

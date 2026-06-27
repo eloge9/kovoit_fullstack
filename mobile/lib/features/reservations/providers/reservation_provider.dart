@@ -136,10 +136,22 @@ class ReservationsNotifier extends StateNotifier<ReservationsState> {
     }
   }
 
-  Future<bool> reserver(int trajetId) async {
+  Future<bool> reserver(
+    int trajetId, {
+    double? priseEnChargeLat,
+    double? priseEnChargeLng,
+    double? deposeLat,
+    double? deposeLng,
+  }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final reservation = await _repo.reserver(trajetId);
+      final reservation = await _repo.reserver(
+        trajetId,
+        priseEnChargeLat: priseEnChargeLat,
+        priseEnChargeLng: priseEnChargeLng,
+        deposeLat: deposeLat,
+        deposeLng: deposeLng,
+      );
       state = state.copyWith(
         isLoading: false,
         mesReservations: [reservation, ...state.mesReservations],

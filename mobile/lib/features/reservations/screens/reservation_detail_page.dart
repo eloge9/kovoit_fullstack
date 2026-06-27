@@ -40,6 +40,7 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
   bool _loading = false;
   String? _error;
   bool _annulerLoading = false;
+  bool _especeLoading = false;
 
   // Pulsing animation for live tracking banner
   late final AnimationController _pulseCtrl;
@@ -268,6 +269,21 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
             ),
             const SizedBox(height: KSpacing.md),
           ],
+          // Confirmation paiement espèces
+          if (r.paiement != null &&
+              r.paiement!.isEspece &&
+              r.paiement!.isEnAttenteConfirm) ...[
+            KButton(
+              label: 'Confirmer le paiement en espèces',
+              icon: Icons.handshake_rounded,
+              variant: KButtonVariant.success,
+              isLoading: _especeLoading,
+              onPressed: _especeLoading
+                  ? null
+                  : () => _confirmerEspeces(context, r),
+            ),
+            const SizedBox(height: KSpacing.md),
+          ],
         ],
       ],
     );
@@ -307,6 +323,58 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
       variant: KButtonVariant.warning,
       onPressed: () => context.push('$prefix/paiement/${r.id}'),
     );
+  }
+
+  Future<void> _confirmerEspeces(BuildContext context, ReservationModel r) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Confirmer la réception ?'),
+        content: Text(
+          'Confirmez-vous avoir reçu ${Formatters.currency(r.montantTotal)} en espèces de ${r.passagerNom} ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Non'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Oui, confirmer',
+              style: TextStyle(color: KColors.successContent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _especeLoading = true);
+    try {
+      await ReservationRepository().confirmerPaiementEspeces(r.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Paiement en espèces confirmé !'),
+        backgroundColor: KColors.successContent,
+      ));
+      // Mettre à jour le paiement localement pour rafraîchir l'UI
+      if (_reservation?.paiement != null) {
+        setState(() {
+          _reservation = _reservation!.copyWith(
+            paiement: _reservation!.paiement!.copyWith(statut: 'CONFIRME'),
+          );
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur : $e'),
+        backgroundColor: KColors.error,
+      ));
+    } finally {
+      if (mounted) setState(() => _especeLoading = false);
+    }
   }
 
   Future<void> _annuler(BuildContext context, ReservationModel r) async {

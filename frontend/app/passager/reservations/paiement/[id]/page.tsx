@@ -81,7 +81,7 @@ export default function PaiementPage() {
 
     // Arrêter le polling dès confirmation / échec
     useEffect(() => {
-        if (statut?.statut === "payee" || statut?.statut === "echouee") {
+        if (statut?.statut === "CONFIRME" || statut?.statut === "echouee") {
             if (intervalRef.current) clearInterval(intervalRef.current);
         }
     }, [statut]);
@@ -175,11 +175,14 @@ export default function PaiementPage() {
         );
     }
 
-    const montant    = Number(reservation.prix_par_place) * (reservation.places_reservees || 1);
+    // Utiliser prix_passager (segment) si disponible, sinon prix_par_place (trajet complet)
+    const prixParPlace = Number(reservation.prix_passager || reservation.prix_par_place);
+    const isSegment    = !!reservation.prix_passager && reservation.prix_passager !== reservation.prix_par_place;
+    const montant    = prixParPlace * (reservation.places_reservees || 1);
     const commission = Math.round(montant * 0.10);
 
     // ── Succès Mobile Money ───────────────────────────────────────────────────
-    if (statut?.statut === "payee") {
+    if (statut?.statut === "CONFIRME") {
         return (
             <div className="max-w-lg mx-auto py-16 text-center space-y-5">
                 <div className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center mx-auto">
@@ -232,7 +235,7 @@ export default function PaiementPage() {
                 <div className="divide-y divide-base-200">
                     {[
                         { label: "Places réservées", value: `${reservation.places_reservees || 1}` },
-                        { label: "Prix par place",   value: `${Number(reservation.prix_par_place).toLocaleString("fr-FR")} FCFA` },
+                        { label: isSegment ? "Prix segment (votre part)" : "Prix par place", value: `${prixParPlace.toLocaleString("fr-FR")} FCFA` },
                         { label: "Commission KoVoit (10%)", value: `${commission.toLocaleString("fr-FR")} FCFA` },
                         { label: "Conducteur reçoit",       value: `${(montant - commission).toLocaleString("fr-FR")} FCFA` },
                     ].map((item) => (
@@ -390,7 +393,7 @@ export default function PaiementPage() {
             )}
 
             {/* ── EN ATTENTE Mobile Money ── */}
-            {token && statut?.statut !== "payee" && (
+            {token && (
                 <div className="bg-base-100 rounded-2xl border border-base-200 p-6 space-y-5 text-center">
                     <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mx-auto">
                         {statut?.statut === "echouee"

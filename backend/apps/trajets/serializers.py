@@ -117,16 +117,23 @@ class TrajetCreateSerializer(serializers.ModelSerializer):
         vehicule    = Vehicule.objects.get(pk=vehicule_id)
         validated_data['conducteur'] = self.context['request'].user
         validated_data['vehicule']   = vehicule
-        trajet = super().create(validated_data)
-        # Calcul du prix côté serveur (BlaBlaCar-style)
+
+        # Calculer le prix AVANT create pour satisfaire la contrainte NOT NULL
         try:
-            from .tarification import calculer_prix_trajet
-            tarif = calculer_prix_trajet(trajet)
-            trajet.prix_par_place = tarif['prix_par_place']
-            trajet.cout_total     = tarif['cout_total']
-            trajet.save(update_fields=['prix_par_place', 'cout_total'])
+            from .tarification import calculer_prix, type_vehicule_str, capacite_vehicule
+            tarif = calculer_prix(
+                float(validated_data.get('distance_km') or 0),
+                type_vehicule_str(vehicule),
+                capacite_vehicule(vehicule),
+            )
+            validated_data['prix_par_place'] = tarif['prix_par_place']
+            validated_data['cout_total']     = tarif['cout_total']
         except Exception:
-            pass
+            validated_data.setdefault('prix_par_place', 0)
+            validated_data.setdefault('cout_total', 0)
+
+        trajet = super().create(validated_data)
+
         # Store OSRM polyline (non-blocking)
         try:
             from .matching import fetch_and_store_polyline

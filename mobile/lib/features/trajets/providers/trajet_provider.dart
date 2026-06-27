@@ -123,9 +123,23 @@ class TrajetsNotifier extends StateNotifier<TrajetsState> {
         '[TrajetsNotifier] rechercherItineraire: ${result.count} résultats '
         'algo=${result.algorithm} tol=${result.toleranceKm}km',
       );
+      // Injecter les coordonnées de recherche dans chaque matching
+      // pour pouvoir les passer au backend lors de la réservation
+      final trajetsAvecCoords = result.trajets.map((t) {
+        if (t.matching == null) return t;
+        return t.copyWith(
+          matching: t.matching!.withCoords(
+            pickupLat: pickupLat,
+            pickupLng: pickupLng,
+            dropoffLat: dropoffLat,
+            dropoffLng: dropoffLng,
+          ),
+        );
+      }).toList();
+
       state = state.copyWith(
         isLoading: false,
-        trajets: result.trajets,
+        trajets: trajetsAvecCoords,
         isGeoSearch: true,
         algorithm: result.algorithm,
         toleranceKm: result.toleranceKm,

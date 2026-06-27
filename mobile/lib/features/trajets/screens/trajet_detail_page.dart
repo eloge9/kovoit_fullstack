@@ -28,11 +28,14 @@ final _trajetDetailProvider = FutureProvider.family<TrajetModel, int>(
 class TrajetDetailPage extends ConsumerWidget {
   final int trajetId;
   final bool isConducteur;
+  // Matching transmis depuis la liste de recherche (contient prix segment + coords)
+  final MatchingInfo? matching;
 
   const TrajetDetailPage({
     super.key,
     required this.trajetId,
     this.isConducteur = false,
+    this.matching,
   });
 
   @override
@@ -94,11 +97,17 @@ class TrajetDetailPage extends ConsumerWidget {
             ],
           ),
         ),
-        data: (trajet) => _Body(
-          trajet: trajet,
-          isConducteur: isConducteur,
-          onRefresh: () => ref.invalidate(_trajetDetailProvider(trajetId)),
-        ),
+        data: (trajet) {
+          // Injecter le matching de la recherche s'il est disponible
+          final t = matching != null
+              ? trajet.copyWith(matching: matching)
+              : trajet;
+          return _Body(
+            trajet: t,
+            isConducteur: isConducteur,
+            onRefresh: () => ref.invalidate(_trajetDetailProvider(trajetId)),
+          );
+        },
       ),
     );
   }
@@ -588,8 +597,9 @@ class _BodyState extends ConsumerState<_Body> {
         title: const Text('Confirmer la réservation'),
         content: Text(
           'Réserver une place sur le trajet\n'
+          '${t.matching != null ? "${t.matching!.distancePassagerKm.toStringAsFixed(0)} km — " : ""}'
           '${t.depart} → ${t.destination}\n'
-          'pour ${Formatters.currency(t.prixParPlace)} ?',
+          'pour ${Formatters.currency(t.prixAffiche)} ?',
         ),
         actions: [
           TextButton(
@@ -610,7 +620,13 @@ class _BodyState extends ConsumerState<_Body> {
     if (confirm != true || !context.mounted) return;
 
     setState(() => _reserving = true);
-    final ok = await ref.read(reservationsProvider.notifier).reserver(t.id);
+    final ok = await ref.read(reservationsProvider.notifier).reserver(
+      t.id,
+      priseEnChargeLat: t.matching?.pickupLat,
+      priseEnChargeLng: t.matching?.pickupLng,
+      deposeLat: t.matching?.dropoffLat,
+      deposeLng: t.matching?.dropoffLng,
+    );
     if (!context.mounted) return;
     setState(() => _reserving = false);
 

@@ -13,15 +13,21 @@ class ReservationRepository {
     String? priseEnCharge,
     double? priseEnChargeLat,
     double? priseEnChargeLng,
+    String? pointDepose,
+    double? deposeLat,
+    double? deposeLng,
   }) async {
     try {
       final body = <String, dynamic>{
         'trajet_id': trajetId,
         'places_reservees': placesReservees,
       };
-      if (priseEnCharge != null) body['prise_en_charge'] = priseEnCharge;
+      if (priseEnCharge != null) body['point_prise_en_charge'] = priseEnCharge;
       if (priseEnChargeLat != null) body['prise_en_charge_lat'] = priseEnChargeLat;
       if (priseEnChargeLng != null) body['prise_en_charge_lng'] = priseEnChargeLng;
+      if (pointDepose != null) body['point_depose'] = pointDepose;
+      if (deposeLat != null) body['depose_lat'] = deposeLat;
+      if (deposeLng != null) body['depose_lng'] = deposeLng;
       final response = await DioClient.post(ApiConstants.reserver, data: body);
       final raw = response.data;
       debugPrint('[ReservationRepo] reserver raw type: ${raw.runtimeType}');
@@ -183,6 +189,21 @@ class ReservationRepository {
       if (raw is Map<String, dynamic>) return PaiementModel.fromJson(raw);
       if (raw is Map) return PaiementModel.fromJson(Map<String, dynamic>.from(raw));
       throw Exception('Réponse paiement espèces inattendue: ${raw.runtimeType}');
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  Future<PaiementModel> confirmerPaiementEspeces(int reservationId) async {
+    try {
+      final response = await DioClient.post(
+        ApiConstants.confirmerEspeces,
+        data: {'reservation_id': reservationId},
+      );
+      final raw = response.data;
+      if (raw is Map<String, dynamic>) return PaiementModel.fromJson(raw);
+      if (raw is Map) return PaiementModel.fromJson(Map<String, dynamic>.from(raw));
+      throw Exception('Réponse inattendue: ${raw.runtimeType}');
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }

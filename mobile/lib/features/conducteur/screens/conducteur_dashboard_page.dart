@@ -115,6 +115,21 @@ class ConducteurDashboardPage extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Bandeau GPS si trajet en cours
+                        dashAsync.when(
+                          loading: () => const SizedBox(),
+                          error: (_, _) => const SizedBox(),
+                          data: (d) {
+                            final actif = d.trajets.where(
+                              (t) => t.statut == 'en_cours').toList();
+                            if (actif.isEmpty) return const SizedBox();
+                            return Column(children: [
+                              _TrajetEnCoursBanner(trajet: actif.first),
+                              const SizedBox(height: KSpacing.xl),
+                            ]);
+                          },
+                        ),
+
                         // Statistiques générales
                         dashAsync.when(
                           loading: () => _StatsSkeletonGrid(),
@@ -170,6 +185,7 @@ class ConducteurDashboardPage extends ConsumerWidget {
                           data: (d) => _MessagesCard(
                             conversations: d.conversations,
                             prefix: '/conducteur',
+                            onReturn: () => ref.invalidate(_conducteurDashProvider),
                           ),
                         ),
                         const SizedBox(height: KSpacing.xl),
@@ -443,6 +459,105 @@ class _RevenusMiniCard extends StatelessWidget {
   }
 }
 
+// ── Bandeau trajet en cours ───────────────────────────────────────────────────
+
+class _TrajetEnCoursBanner extends StatelessWidget {
+  final TrajetModel trajet;
+  const _TrajetEnCoursBanner({required this.trajet});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.push(
+        '/conducteur/trajet/${trajet.id}/gps'
+        '?depart=${Uri.encodeComponent(trajet.depart)}'
+        '&destination=${Uri.encodeComponent(trajet.destination)}'
+        '&departLat=${trajet.departLat ?? ""}'
+        '&departLng=${trajet.departLng ?? ""}'
+        '&destinationLat=${trajet.destinationLat ?? ""}'
+        '&destinationLng=${trajet.destinationLng ?? ""}',
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(KSpacing.xl),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF1B8F4C), Color(0xFF26B160)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1B8F4C).withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 26),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'TRAJET EN COURS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white70,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${trajet.depart} → ${trajet.destination}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.gps_fixed_rounded, color: Colors.white, size: 14),
+                  SizedBox(width: 5),
+                  Text('GPS', style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Prochains trajets ─────────────────────────────────────────────────────────
 
 class _UpcomingTrajetsCard extends StatelessWidget {
@@ -519,7 +634,8 @@ class _RecentReservationsCard extends StatelessWidget {
 class _MessagesCard extends StatelessWidget {
   final List<ConversationModel> conversations;
   final String prefix;
-  const _MessagesCard({required this.conversations, required this.prefix});
+  final VoidCallback? onReturn;
+  const _MessagesCard({required this.conversations, required this.prefix, this.onReturn});
 
   @override
   Widget build(BuildContext context) {
@@ -539,7 +655,7 @@ class _MessagesCard extends StatelessWidget {
             for (final c in items) _ConvRow(
               conv: c,
               prefix: prefix,
-              onReturn: () => ref.invalidate(_conducteurDashProvider),
+              onReturn: onReturn,
             ),
         ],
       ),

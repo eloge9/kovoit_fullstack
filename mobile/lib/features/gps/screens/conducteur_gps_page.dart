@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,6 +57,17 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
   double _speedKmh = 0;
   String _heureArrivee = '';
 
+  // Passagers
+  final Map<String, PassengerPositionData> _passengerPositions = {};
+  StreamSubscription? _passengerSub;
+  final Set<String> _announcedPassengers = {};
+
+  // Heading pour rotation du marqueur
+  double _currentHeading = 0;
+
+  // Recalcul route périodique depuis position actuelle
+  Timer? _routeRecalcTimer;
+
   // Animation marqueur
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
@@ -72,14 +84,22 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     );
 
     _startTracking();
-    _chargerRoute();
     _tts.init();
+    // Recalcul route toutes les 45s depuis GPS actuel
+    _routeRecalcTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (_currentPosition != null) _recalcRouteFromCurrentPos();
+    });
   }
 
   Future<void> _chargerRoute() async {
-    if (widget.departLat == null || widget.destinationLat == null) return;
+    if (widget.destinationLat == null) return;
+    // Partir de la position GPS actuelle si disponible, sinon du départ du trajet
+    final fromLat = _currentPosition?.latitude ?? widget.departLat;
+    final fromLng = _currentPosition?.longitude ?? widget.departLng;
+    if (fromLat == null || fromLng == null) return;
+
     final route = await OsrmService.getRoute(
-      widget.departLat!, widget.departLng!,
+      fromLat, fromLng,
       widget.destinationLat!, widget.destinationLng!,
     );
     if (!mounted || route == null) return;
@@ -94,6 +114,23 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     }
   }
 
+  Future<void> _recalcRouteFromCurrentPos() async {
+    if (_currentPosition == null || widget.destinationLat == null) return;
+    final route = await OsrmService.getRoute(
+      _currentPosition!.latitude, _currentPosition!.longitude,
+      widget.destinationLat!, widget.destinationLng!,
+    );
+    if (!mounted || route == null) return;
+    setState(() {
+      _routePoints = route.points;
+      _distanceRestanteKm = route.distanceKm;
+      if (route.durationMin > 0) {
+        _etaMinutes = route.durationMin;
+        _heureArrivee = _calcHeureArrivee(route.durationMin);
+      }
+    });
+  }
+
   Future<void> _startTracking() async {
     final pos = await LocationService.getCurrentPosition();
     if (!mounted) return;
@@ -102,11 +139,18 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
         _currentPosition = pos;
         _isTracking = true;
         _speedKmh = pos.speed * 3.6;
+        _currentHeading = pos.heading;
       });
       _moveCameraToPosition(pos);
     }
 
     await _locationService.startSendingLocation(widget.trajetId);
+
+    // Calcul initial de la route depuis la position GPS actuelle
+    _chargerRoute();
+
+    // Écoute des positions des passagers
+    _passengerSub = _locationService.passengersStream?.listen(_onPassengerPosition);
 
     _posSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -118,11 +162,40 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
       setState(() {
         _currentPosition = position;
         _speedKmh = position.speed * 3.6;
+        _currentHeading = position.heading;
         _isTracking = true;
       });
       _updateNavMetrics(position);
+      _checkPassengerProximity(position);
       if (_navigationMode) _moveCameraToPosition(position);
     });
+  }
+
+  void _onPassengerPosition(PassengerPositionData p) {
+    if (!mounted) return;
+    setState(() => _passengerPositions[p.userId] = p);
+  }
+
+  void _checkPassengerProximity(Position pos) {
+    for (final p in _passengerPositions.values) {
+      final dist = LocationService.distanceKm(
+        pos.latitude, pos.longitude, p.latitude, p.longitude,
+      );
+      if (dist < 0.15 && !_announcedPassengers.contains(p.userId)) {
+        _announcedPassengers.add(p.userId);
+        final label = dist < 0.1
+            ? '${(dist * 1000).toInt()} mètres'
+            : '${(dist * 1000).toInt()} mètres';
+        _tts.speak('Vous approchez de ${p.nom}, à $label');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Vous approchez de ${p.nom} (${(dist * 1000).toInt()} m)'),
+            backgroundColor: KColors.success,
+            duration: const Duration(seconds: 6),
+          ));
+        }
+      }
+    }
   }
 
   void _moveCameraToPosition(Position pos) {
@@ -184,6 +257,8 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
   void dispose() {
     _pulseCtrl.dispose();
     _posSub?.cancel();
+    _passengerSub?.cancel();
+    _routeRecalcTimer?.cancel();
     _locationService.dispose();
     _tts.dispose();
     super.dispose();
@@ -245,7 +320,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                     width: 40, height: 40,
                     child: _buildMarker(KColors.error, Icons.location_on),
                   ),
-                // Conducteur — marqueur animé
+                // Conducteur — marqueur animé avec rotation bearing
                 if (hasPosition)
                   Marker(
                     point: center,
@@ -278,13 +353,27 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                                 spreadRadius: 2,
                               )],
                             ),
-                            child: const Icon(
-                              Icons.navigation_rounded,
-                              color: Colors.white, size: 20,
+                            child: Transform.rotate(
+                              angle: _currentHeading * math.pi / 180,
+                              child: const Icon(
+                                Icons.navigation_rounded,
+                                color: Colors.white, size: 20,
+                              ),
                             ),
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                // Passagers — marqueurs avec nom et distance
+                for (final p in _sortedPassengers)
+                  Marker(
+                    point: LatLng(p.latitude, p.longitude),
+                    width: 80, height: 72,
+                    child: _PassengerMapMarker(
+                      data: p,
+                      driverLat: _currentPosition?.latitude,
+                      driverLng: _currentPosition?.longitude,
                     ),
                   ),
               ]),
@@ -399,6 +488,23 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
         ),
         child: Icon(icon, color: Colors.white, size: 18),
       );
+
+  List<PassengerPositionData> get _sortedPassengers {
+    final list = _passengerPositions.values.toList();
+    if (_currentPosition == null) return list;
+    list.sort((a, b) {
+      final da = LocationService.distanceKm(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        a.latitude, a.longitude,
+      );
+      final db = LocationService.distanceKm(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        b.latitude, b.longitude,
+      );
+      return da.compareTo(db);
+    });
+    return list;
+  }
 }
 
 // ── Widgets locaux ────────────────────────────────────────────────────────────
@@ -632,4 +738,71 @@ class _MetricDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Container(width: 1, height: 40, color: KColors.border);
+}
+
+class _PassengerMapMarker extends StatelessWidget {
+  final PassengerPositionData data;
+  final double? driverLat;
+  final double? driverLng;
+
+  const _PassengerMapMarker({
+    required this.data,
+    this.driverLat,
+    this.driverLng,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String distLabel = '';
+    if (driverLat != null && driverLng != null) {
+      final dist = LocationService.distanceKm(
+        driverLat!, driverLng!, data.latitude, data.longitude,
+      );
+      distLabel = dist < 1
+          ? ' · ${(dist * 1000).toInt()}m'
+          : ' · ${dist.toStringAsFixed(1)}km';
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(99),
+            boxShadow: [
+              BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2)),
+            ],
+          ),
+          child: Text(
+            '${data.nom.split(' ').first}$distLabel',
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF333333),
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF8C00),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withValues(alpha: 0.5),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: const Icon(Icons.person_rounded, color: Colors.white, size: 17),
+        ),
+      ],
+    );
+  }
 }

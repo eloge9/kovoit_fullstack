@@ -34,7 +34,7 @@ export interface PaiementEspecesResponse {
 }
 
 export interface PaiementStatut {
-  statut: "payee" | "en_attente" | "echouee" | "EN_ATTENTE_CONFIRMATION" | "CONFIRME" | "ANNULE" | "AUCUN";
+  statut: "en_attente" | "echouee" | "EN_ATTENTE_CONFIRMATION" | "CONFIRME" | "ANNULE" | "AUCUN";
   message?: string;
   pp_status?: string;
   token?: string;

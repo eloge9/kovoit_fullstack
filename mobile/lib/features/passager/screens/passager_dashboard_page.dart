@@ -202,6 +202,7 @@ class PassagerDashboardPage extends ConsumerWidget {
                           data: (d) => _MessagesCard(
                             conversations: d.conversations,
                             prefix: '/passager',
+                            onReturn: () => ref.invalidate(_passagerDashProvider),
                           ),
                         ),
                         const SizedBox(height: KSpacing.xl),
@@ -448,7 +449,8 @@ class _UpcomingCard extends StatelessWidget {
 class _MessagesCard extends StatelessWidget {
   final List<ConversationModel> conversations;
   final String prefix;
-  const _MessagesCard({required this.conversations, required this.prefix});
+  final VoidCallback? onReturn;
+  const _MessagesCard({required this.conversations, required this.prefix, this.onReturn});
 
   @override
   Widget build(BuildContext context) {
@@ -471,7 +473,7 @@ class _MessagesCard extends StatelessWidget {
             for (final c in items) _ConvRow(
               conv: c,
               prefix: prefix,
-              onReturn: () => ref.invalidate(_passagerDashProvider),
+              onReturn: onReturn,
             ),
         ],
       ),

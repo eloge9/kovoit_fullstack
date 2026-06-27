@@ -270,7 +270,10 @@ class _TrajetsListPageState extends ConsumerState<TrajetsListPage> {
                     return _TrajetCard(
                       trajet: t,
                       showActions: widget.isMesTrajets,
-                      onTap: () => context.push('$prefix/trajet/${t.id}'),
+                      onTap: () => context.push(
+                        '$prefix/trajet/${t.id}',
+                        extra: t.matching,
+                      ),
                       onCommencer: widget.isMesTrajets && t.statut == 'ouvert'
                           ? () async => ref
                               .read(trajetsProvider.notifier)

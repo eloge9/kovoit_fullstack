@@ -13,6 +13,12 @@ class MatchingInfo {
   final int prixPassager;
   final String raison;
 
+  // Coordonnées de recherche — injectées côté client pour passer à la réservation
+  final double? pickupLat;
+  final double? pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+
   const MatchingInfo({
     required this.score,
     required this.distancePassagerKm,
@@ -22,7 +28,31 @@ class MatchingInfo {
     required this.directionOk,
     required this.prixPassager,
     required this.raison,
+    this.pickupLat,
+    this.pickupLng,
+    this.dropoffLat,
+    this.dropoffLng,
   });
+
+  MatchingInfo withCoords({
+    required double pickupLat,
+    required double pickupLng,
+    required double dropoffLat,
+    required double dropoffLng,
+  }) => MatchingInfo(
+        score: score,
+        distancePassagerKm: distancePassagerKm,
+        distancePickupKm: distancePickupKm,
+        distanceDropoffKm: distanceDropoffKm,
+        detourKm: detourKm,
+        directionOk: directionOk,
+        prixPassager: prixPassager,
+        raison: raison,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        dropoffLat: dropoffLat,
+        dropoffLng: dropoffLng,
+      );
 
   static double _toDouble(dynamic v) {
     if (v is num) return v.toDouble();

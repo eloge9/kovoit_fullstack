@@ -6,7 +6,9 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../trajets/models/escale_model.dart';
 import '../../trajets/providers/trajet_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/navigation_tts_service.dart';
 import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -40,6 +42,7 @@ class PassagerSuiviPage extends ConsumerStatefulWidget {
 class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
     with TickerProviderStateMixin {
   final _locationService = LocationService();
+  final _tts = NavigationTtsService();
   final _mapController = MapController();
 
   LocationData? _conducteurData;
@@ -47,6 +50,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
   List<LatLng> _routePoints = [];
   List<EscaleModel> _escales = [];
   bool _showPanel = true;
+  bool _conducteurEstArrive = false;
+  StreamSubscription? _driverArrivedSub;
 
   // Métriques
   double _distanceRestanteKm = 0;
@@ -78,16 +83,22 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
       duration: const Duration(milliseconds: 800),
     )..addListener(_onMoveUpdate);
 
+    _tts.init();
     _connect();
     _chargerRoute();
     _chargerEscales();
   }
 
   Future<void> _connect() async {
-    await _locationService.startReceivingLocation(widget.trajetId);
+    final user = ref.read(currentUserProvider);
+    final nom = user != null
+        ? '${user.firstName ?? ''} ${user.lastName ?? ''}'.trim()
+        : '';
+    await _locationService.startReceivingLocation(widget.trajetId, nom: nom);
     if (!mounted) return;
     setState(() => _statusText = 'Connecté');
 
+    // Écouter la position du conducteur
     _locationService.locationStream?.listen(
       (data) {
         if (!mounted) return;
@@ -107,6 +118,13 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
         if (mounted) setState(() => _statusText = 'Reconnexion…');
       },
     );
+
+    // Écoute de l'arrivée du conducteur (détectée côté backend)
+    _driverArrivedSub = _locationService.driverArrivedStream?.listen((event) {
+      if (!mounted || _conducteurEstArrive) return;
+      setState(() => _conducteurEstArrive = true);
+      _tts.speak('Votre conducteur est arrivé. Préparez-vous à monter.');
+    });
   }
 
   void _onMoveUpdate() {
@@ -181,7 +199,9 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
   void dispose() {
     _pulseCtrl.dispose();
     _moveCtrl.dispose();
+    _driverArrivedSub?.cancel();
     _locationService.dispose();
+    _tts.dispose();
     super.dispose();
   }
 
@@ -380,6 +400,39 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               ),
             ),
 
+          // ── Notification conducteur arrivé ───────────────────────────────
+          if (_conducteurEstArrive)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 16, right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: KColors.success,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [BoxShadow(
+                    color: KColors.success.withValues(alpha: 0.4),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  )],
+                ),
+                child: Row(children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Le conducteur est arrivé à votre position !',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+
           // ── Attente de la position du conducteur ──────────────────────────
           if (!hasDriver)
             Center(
@@ -431,6 +484,17 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               child: _MapButton(
                 icon: Icons.info_outline,
                 onTap: () => setState(() => _showPanel = true),
+              ),
+            ),
+
+          // ── Overlay "Conducteur arrivé" ───────────────────────────────────
+          if (_conducteurEstArrive)
+            Positioned(
+              left: 16, right: 16,
+              bottom: MediaQuery.of(context).padding.bottom + 100,
+              child: _DriverArrivedCard(
+                conducteurNom: widget.conducteurNom,
+                onDismiss: () => setState(() => _conducteurEstArrive = false),
               ),
             ),
         ],
@@ -667,6 +731,91 @@ class _EscaleRow extends StatelessWidget {
           style: KTextStyles.caption.copyWith(color: color),
         ),
       ]),
+    );
+  }
+}
+
+class _DriverArrivedCard extends StatelessWidget {
+  final String conducteurNom;
+  final VoidCallback onDismiss;
+
+  const _DriverArrivedCard({
+    required this.conducteurNom,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: KColors.success, width: 2),
+        boxShadow: [BoxShadow(
+          color: KColors.success.withValues(alpha: 0.25),
+          blurRadius: 20,
+          spreadRadius: 2,
+          offset: const Offset(0, 4),
+        )],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(
+              color: KColors.success.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.directions_car_rounded,
+              color: KColors.success,
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Votre conducteur est arrivé !',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: KColors.baseContent,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$conducteurNom vous attend. Préparez-vous à monter.',
+            style: KTextStyles.caption,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: onDismiss,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: KColors.success,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'Je monte !',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ),
     );
   }
 }

@@ -599,7 +599,22 @@ export default function RechercherTrajetPage() {
                                         key={trajet.id}
                                         onMouseEnter={() => setTrajetSurvole(trajet)}
                                         onMouseLeave={() => setTrajetSurvole(null)}
-                                        onClick={() => router.push(`/passager/trajets/${trajet.id}`)}
+                                        onClick={() => {
+                                            if (modeRecherche === "itineraire" && depart && destination) {
+                                                const qs = new URLSearchParams({
+                                                    pickupLat: String(depart.lat),
+                                                    pickupLng: String(depart.lng),
+                                                    dropoffLat: String(destination.lat),
+                                                    dropoffLng: String(destination.lng),
+                                                });
+                                                if (matching?.prix_passager != null) {
+                                                    qs.set("prixPassager", String(matching.prix_passager));
+                                                }
+                                                router.push(`/passager/trajets/${trajet.id}?${qs}`);
+                                            } else {
+                                                router.push(`/passager/trajets/${trajet.id}`);
+                                            }
+                                        }}
                                         className={`bg-base-100 rounded-2xl border overflow-hidden cursor-pointer transition-all hover:shadow-md ${trajetSurvole?.id === trajet.id
                                                 ? "border-primary shadow-md"
                                                 : "border-base-200"
