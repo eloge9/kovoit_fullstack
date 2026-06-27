@@ -147,18 +147,11 @@ class ReservationViewSet(viewsets.GenericViewSet):
             except Exception as exc:
                 logger.warning("Erreur conversation privée: %s", exc)
 
-            prix_unitaire = float(prix_passager or trajet.prix_par_place or 0)
-            prix_total    = prix_unitaire * places_demandees
-
-            return Response({
-                "message": "Réservation envoyée. En attente de confirmation.",
-                "reservation_id": reservation.id,
-                "conversation_id": conv_id,
-                "code_embarquement": reservation.code_embarquement,
-                "places_reservees": places_demandees,
-                "prix_prevu":  str(prix_unitaire),
-                "prix_total":  str(prix_total),
-            }, status=201)
+            # Re-fetch avec toutes les relations pour le serializer
+            reservation_full = Reservation.objects.select_related(
+                'trajet', 'trajet__conducteur', 'passager', 'paiement'
+            ).get(pk=reservation.pk)
+            return Response(ReservationSerializer(reservation_full).data, status=201)
 
     @action(detail=False, methods=['get'])
     def mes_reservations(self, request):
@@ -281,13 +274,10 @@ class ReservationViewSet(viewsets.GenericViewSet):
         except Exception as exc:
             logger.warning("Erreur groupe trajet: %s", exc)
 
-        return Response({
-            "message": "Réservation confirmée.",
-            "prix_par_place":   prix_par_place,
-            "places_reservees": reservation.places_reservees,
-            "prix_total":       str(prix_unitaire * reservation.places_reservees),
-            "nb_places_confirmees": places_confirmees + reservation.places_reservees,
-        })
+        reservation_full = Reservation.objects.select_related(
+            'trajet', 'trajet__conducteur', 'passager', 'paiement'
+        ).get(pk=reservation.pk)
+        return Response(ReservationConducteurSerializer(reservation_full, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
     def decliner(self, request, pk=None):
@@ -312,7 +302,10 @@ class ReservationViewSet(viewsets.GenericViewSet):
         except Exception:
             pass
 
-        return Response({"message": "Réservation déclinée."})
+        reservation_full = Reservation.objects.select_related(
+            'trajet', 'trajet__conducteur', 'passager', 'paiement'
+        ).get(pk=reservation.pk)
+        return Response(ReservationConducteurSerializer(reservation_full, context={'request': request}).data)
     
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):

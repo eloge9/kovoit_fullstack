@@ -275,14 +275,34 @@ class _TrajetsListPageState extends ConsumerState<TrajetsListPage> {
                         extra: t.matching,
                       ),
                       onCommencer: widget.isMesTrajets && t.statut == 'ouvert'
-                          ? () async => ref
-                              .read(trajetsProvider.notifier)
-                              .commencerTrajet(t.id)
+                          ? () async {
+                              final ok = await ref
+                                  .read(trajetsProvider.notifier)
+                                  .commencerTrajet(t.id);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text(ok
+                                    ? 'Trajet commencé !'
+                                    : ref.read(trajetsProvider).error ?? 'Erreur'),
+                                backgroundColor: ok ? KColors.success : KColors.error,
+                                duration: const Duration(seconds: 2),
+                              ));
+                            }
                           : null,
                       onTerminer: widget.isMesTrajets && t.statut == 'en_cours'
-                          ? () async => ref
-                              .read(trajetsProvider.notifier)
-                              .terminerTrajet(t.id)
+                          ? () async {
+                              final ok = await ref
+                                  .read(trajetsProvider.notifier)
+                                  .terminerTrajet(t.id);
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text(ok
+                                    ? 'Trajet terminé !'
+                                    : ref.read(trajetsProvider).error ?? 'Erreur'),
+                                backgroundColor: ok ? KColors.success : KColors.error,
+                                duration: const Duration(seconds: 2),
+                              ));
+                            }
                           : null,
                     );
                   },

@@ -158,7 +158,10 @@ class TrajetViewSet(viewsets.ModelViewSet):
             return Response({"error": "Seuls les trajets ouverts peuvent être commencés."}, status=400)
         trajet.statut = 'en_cours'
         trajet.save()
-        return Response({"message": "Trajet commencé avec succès."})
+        return Response({
+            "message": "Trajet commencé avec succès.",
+            "trajet": TrajetSerializer(trajet).data,
+        })
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def terminer(self, request, pk=None):
@@ -189,8 +192,8 @@ class TrajetViewSet(viewsets.ModelViewSet):
             
             return Response({
                 "message": "Trajet terminé avec succès.",
+                "trajet": TrajetSerializer(trajet).data,
                 "reservations_terminees": count_reservations,
-                "ancien_statut": ancien_statut
             })
             
         except Exception as e:
