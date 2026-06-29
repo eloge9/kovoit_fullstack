@@ -4,7 +4,7 @@ services:
     name: kovoit-backend
     runtime: python
     rootDir: .
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py loaddata users_export.json
     startCommand: daphne -b 0.0.0.0 -p $PORT backend.asgi:application
     plan: free
     envVars:
