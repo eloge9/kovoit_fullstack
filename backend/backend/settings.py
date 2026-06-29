@@ -93,7 +93,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 _DATABASE_URL = os.getenv('DATABASE_URL', '')
 if _DATABASE_URL:
     import dj_database_url
-    DATABASES = {'default': dj_database_url.parse(_DATABASE_URL, conn_max_age=600)}
+    DATABASES = {'default': dj_database_url.parse(_DATABASE_URL, conn_max_age=0)}
 else:
     DATABASES = {
         'default': {
