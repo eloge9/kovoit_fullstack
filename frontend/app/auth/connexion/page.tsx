@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import logoSrc from "@/public/logo/logo1.png";
 import { useAuth } from "@/src/hooks/useAuth";
 import { connexion } from "@/src/services/auth.service";
 
-export default function ConnexionPage() {
+function ConnexionForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { login } = useAuth();
@@ -172,5 +172,13 @@ export default function ConnexionPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function ConnexionPage() {
+    return (
+        <Suspense>
+            <ConnexionForm />
+        </Suspense>
     );
 }
