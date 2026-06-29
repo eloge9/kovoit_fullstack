@@ -1,29 +1,24 @@
-/**
- * Utilitaires pour la gestion des images
- */
+const BACKEND_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api")
+    .replace(/\/api\/?$/, "");
 
 export const getMediaUrl = (path?: string | null): string => {
     if (!path) {
         return '';
     }
-    
-    // Si l'URL est déjà complète (commence par http), la retourner telle quelle
+
     if (path.startsWith('http')) {
         return path;
     }
-    
-    // Si l'URL commence par /media/, construire l'URL complète
+
     if (path.startsWith('/media/')) {
-        return `http://127.0.0.1:8000${path}`;
+        return `${BACKEND_ORIGIN}${path}`;
     }
-    
-    // Si l'URL commence par media/ (sans / au début)
+
     if (path.startsWith('media/')) {
-        return `http://127.0.0.1:8000/${path}`;
+        return `${BACKEND_ORIGIN}/${path}`;
     }
-    
-    // Sinon, considérer que c'est un chemin relatif vers media
-    return `http://127.0.0.1:8000/media/${path}`;
+
+    return `${BACKEND_ORIGIN}/media/${path}`;
 };
 
 export const getUserPhotoUrl = (photoProfil?: string | null): string => {
