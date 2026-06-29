@@ -96,8 +96,8 @@ export function useChatbot() {
       // Mettre à jour l'historique
       historyRef.current = [
         ...historyRef.current,
-        { role: "user",      content: text.trim() },
-        { role: "assistant", content: fullText },
+        { role: "user" as const,      content: text.trim() },
+        { role: "assistant" as const, content: fullText },
       ].slice(-(MAX_HISTORY * 2));
 
     } catch {

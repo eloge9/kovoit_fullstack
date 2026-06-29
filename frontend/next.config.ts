@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+// URL du backend (sans /api) pour le CSP — ex: https://kovoit-backend.onrender.com
+const backendOrigin = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api")
+  .replace(/\/api\/?$/, "");
+
 const securityHeaders = [
   { key: "X-Frame-Options",           value: "DENY" },
   { key: "X-Content-Type-Options",    value: "nosniff" },
@@ -14,11 +18,11 @@ const securityHeaders = [
     key:   "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",   // 'unsafe-inline' requis par Next.js — à durcir après migration
+      "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: http: https:",
       "font-src 'self' data:",
-      "connect-src 'self' http://localhost:8000 http://192.168.0.0/16 ws://localhost:8000 ws://192.168.0.0/16 https:",
+      `connect-src 'self' ${backendOrigin} ${backendOrigin.replace(/^http/, "ws")} https: wss:`,
       "frame-ancestors 'none'",
       "object-src 'none'",
     ].join("; "),
