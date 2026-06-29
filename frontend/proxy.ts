@@ -87,6 +87,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    // Exclure les assets Next.js et TOUTES les routes /api/ (login, logout, etc.)
-    matcher: ['/((?!_next/static|_next/image|favicon.ico|api/).*)'],
+    matcher: [],
 };
