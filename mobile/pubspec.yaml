@@ -14,6 +14,12 @@ dependencies:
   # HTTP Client avec intercepteurs
   dio: ^5.7.0
 
+  # HTTP standard (streaming SSE pour chatbot)
+  http: ^1.2.2
+
+  # Stockage clé-valeur (session chatbot)
+  shared_preferences: ^2.3.3
+
   # State Management
   flutter_riverpod: ^2.5.1
 

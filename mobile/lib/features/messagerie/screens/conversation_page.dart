@@ -1084,7 +1084,7 @@ class _MessageBubble extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 2),
               child: Text(
-                message.username,
+                message.expediteurNom,
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,

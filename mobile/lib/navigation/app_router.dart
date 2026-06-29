@@ -51,6 +51,7 @@ import '../features/economie/screens/passager_economie_page.dart';
 import '../features/gps/screens/conducteur_gps_page.dart';
 import '../features/gps/screens/passager_suivi_page.dart';
 import '../features/evaluations/screens/evaluation_list_page.dart';
+import '../features/chatbot/chatbot_screen.dart';
 import '../features/passager/screens/devenir_conducteur_page.dart';
 import '../features/conducteur/screens/verification_page.dart';
 import '../features/notifications/screens/notifications_page.dart';
@@ -314,6 +315,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
         ),
       ),
+      GoRoute(path: '/chatbot',                      builder: (_, _) => const ChatbotScreen()),
       GoRoute(path: '/conducteur/create-trajet',   builder: (_, _) => const CreateTrajetPage()),
       GoRoute(path: '/conducteur/vehicules',        builder: (_, _) => const VehiculesPage()),
       GoRoute(

@@ -56,6 +56,7 @@ class _PassagerShellState extends ConsumerState<PassagerShell> {
           user: user,
           onNotificationsTap: () => context.push('/passager/notifications'),
           onAvatarTap: () => _showAccountMenu(context, user),
+          onChatbotTap: () => context.push('/chatbot'),
         ),
         body: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -138,11 +139,13 @@ class _KPassagerAppBar extends StatelessWidget implements PreferredSizeWidget {
   final UserModel? user;
   final VoidCallback onNotificationsTap;
   final VoidCallback onAvatarTap;
+  final VoidCallback onChatbotTap;
 
   const _KPassagerAppBar({
     required this.user,
     required this.onNotificationsTap,
     required this.onAvatarTap,
+    required this.onChatbotTap,
   });
 
   @override
@@ -181,6 +184,16 @@ class _KPassagerAppBar extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
+        // Assistant Kovi
+        IconButton(
+          icon: const Icon(
+            Icons.smart_toy_outlined,
+            color: KColors.baseContentMid,
+            size: 24,
+          ),
+          onPressed: onChatbotTap,
+          tooltip: 'Assistant Kovi',
+        ),
         // Icône notifications
         IconButton(
           icon: const Icon(

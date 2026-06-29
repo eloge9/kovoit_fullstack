@@ -55,6 +55,7 @@ class _ConducteurShellState extends ConsumerState<ConducteurShell> {
           user: user,
           onNotificationsTap: () => context.push('/conducteur/notifications'),
           onAvatarTap: () => _showAccountMenu(context, user),
+          onChatbotTap: () => context.push('/chatbot'),
         ),
         body: Column(
           children: [
@@ -132,11 +133,13 @@ class _KConducteurAppBar extends StatelessWidget
   final UserModel? user;
   final VoidCallback onNotificationsTap;
   final VoidCallback onAvatarTap;
+  final VoidCallback onChatbotTap;
 
   const _KConducteurAppBar({
     required this.user,
     required this.onNotificationsTap,
     required this.onAvatarTap,
+    required this.onChatbotTap,
   });
 
   @override
@@ -176,6 +179,16 @@ class _KConducteurAppBar extends StatelessWidget
         ],
       ),
       actions: [
+        // Assistant Kovi
+        IconButton(
+          icon: const Icon(
+            Icons.smart_toy_outlined,
+            color: KColors.baseContentMid,
+            size: 24,
+          ),
+          onPressed: onChatbotTap,
+          tooltip: 'Assistant Kovi',
+        ),
         IconButton(
           icon: const Icon(
             Icons.notifications_outlined,

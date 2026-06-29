@@ -29,4 +29,5 @@ urlpatterns = [
     path('api/statistiques/',  include('apps.statistiques.urls')),
     path('api/economie/',      include('apps.modeles.urls')),
     path('api/verification/',  include('apps.verification.urls')),
+    path('api/chat/',          include('apps.chatbot.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

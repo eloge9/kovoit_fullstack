@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'apps.statistiques',
     'apps.modeles',
     'apps.verification',
+    'apps.chatbot',
 
     # DRF et CORS
     'rest_framework',
@@ -137,6 +138,7 @@ REST_FRAMEWORK = {
         'auth':        '30/minute' if DEBUG else '5/minute',  # Plus souple en dev
         'signalement': '10/hour',     # Signalement d'évaluations abusives
         'sos':         '5/hour',      # Bouton SOS (anti-spam)
+        'chatbot':     '20/minute',   # Chatbot Kovi (anti-spam)
     },
 }
 
@@ -195,6 +197,12 @@ AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
 
 # ── IA / Anthropic ────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+
+# ── Chatbot Kovi — providers IA (Groq → Gemini → Claude) ─────────────────────
+GROQ_API_KEY                  = os.getenv('GROQ_API_KEY', '')
+GEMINI_API_KEY_CHATBOT        = os.getenv('GEMINI_API_KEY_CHATBOT', '')
+CHATBOT_MAX_HISTORY_MESSAGES  = int(os.getenv('CHATBOT_MAX_HISTORY_MESSAGES', '10'))
+CHATBOT_MAX_TOKENS_RESPONSE   = int(os.getenv('CHATBOT_MAX_TOKENS_RESPONSE', '500'))
 
 # ── Celery ────────────────────────────────────────────────────────────────────
 CELERY_BROKER_URL         = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/1')
