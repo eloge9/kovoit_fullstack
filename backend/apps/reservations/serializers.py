@@ -33,9 +33,8 @@ class ReservationSerializer(serializers.ModelSerializer):
     passager_photo     = serializers.SerializerMethodField()
 
     # Infos paiement (pour les deux parties)
-    paiement_statut           = serializers.SerializerMethodField()
-    paiement_moyen            = serializers.SerializerMethodField()
-    paiement_reference_mobile = serializers.SerializerMethodField()
+    paiement_statut = serializers.SerializerMethodField()
+    paiement_moyen  = serializers.SerializerMethodField()
 
     # Lien vers les conversations messagerie
     conversation_id  = serializers.SerializerMethodField()
