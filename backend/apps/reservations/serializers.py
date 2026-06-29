@@ -59,8 +59,8 @@ class ReservationSerializer(serializers.ModelSerializer):
             'heure_embarquement', 'heure_depose',
             'point_prise_en_charge', 'point_depose',
             'distance_passager', 'penalite_annulation',
-            # Paiement
-            'paiement_statut', 'paiement_moyen', 'paiement_reference_mobile',
+            # Paiement (référence_mobile retirée : sensible, non nécessaire côté client)
+            'paiement_statut', 'paiement_moyen',
             # Messagerie
             'conversation_id', 'groupe_conv_id',
         ]

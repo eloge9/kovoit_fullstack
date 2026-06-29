@@ -197,11 +197,11 @@ class TrajetViewSet(viewsets.ModelViewSet):
             })
             
         except Exception as e:
-            logger.error("Erreur lors de la terminaison du trajet %s: %s", pk, str(e))
-            
-            return Response({
-                "error": f"Erreur serveur lors de la terminaison du trajet: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error("Erreur lors de la terminaison du trajet %s: %s", pk, str(e), exc_info=True)
+            return Response(
+                {"error": "Erreur serveur. Veuillez réessayer."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def annuler(self, request, pk=None):
@@ -323,7 +323,10 @@ class TrajetViewSet(viewsets.ModelViewSet):
         if date:
             queryset = queryset.filter(date_heure_depart__date=date)
         if places:
-            queryset = queryset.filter(places_disponibles__gte=int(places))
+            try:
+                queryset = queryset.filter(places_disponibles__gte=int(places))
+            except (ValueError, TypeError):
+                return Response({"error": "Le paramètre 'places' doit être un entier."}, status=400)
         if type_vehicule:
             queryset = queryset.filter(
                 vehicule__type_vehicule__icontains=type_vehicule
@@ -497,11 +500,19 @@ out geom;
             return Response({"error": "Action réservée au conducteur."}, status=403)
 
         data = request.data
+        try:
+            lat = float(data.get('lat', 0))
+            lng = float(data.get('lng', 0))
+        except (TypeError, ValueError):
+            return Response({"error": "lat/lng invalides."}, status=400)
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            return Response({"error": "Coordonnées GPS hors limites."}, status=400)
+        nom = str(data.get('nom', ''))[:100]
         stop = TripStop.objects.create(
             trajet=trajet,
-            nom=data.get('nom', ''),
-            lat=float(data.get('lat', 0)),
-            lng=float(data.get('lng', 0)),
+            nom=nom,
+            lat=lat,
+            lng=lng,
             ordre=data.get('ordre', trajet.escales.count()),
             heure_prevue=data.get('heure_prevue'),
         )
@@ -555,9 +566,12 @@ out geom;
         dropoff_lat = request.data.get('dropoff_lat')
         dropoff_lng = request.data.get('dropoff_lng')
         date         = request.data.get('date')
-        places       = int(request.data.get('places', 1))
-        tolerance_km = float(request.data.get('tolerance_km', 2.0))
-        score_min    = int(request.data.get('score_minimum', 50))
+        try:
+            places       = max(1, int(request.data.get('places', 1)))
+            tolerance_km = float(request.data.get('tolerance_km', 2.0))
+            score_min    = int(request.data.get('score_minimum', 50))
+        except (TypeError, ValueError):
+            return Response({"error": "Paramètres numériques invalides."}, status=400)
 
         if not all([pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]):
             return Response(

@@ -6,7 +6,9 @@ const MAX_HISTORY = 10;
 const SESSION_KEY = "kovoit_chat_session";
 
 function generateSessionId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 export interface UIMessage {

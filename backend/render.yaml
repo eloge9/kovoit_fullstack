@@ -1,0 +1,19 @@
+services:
+  # ── Web Service — Django + Daphne (ASGI + WebSockets) ─────────────────────
+  - type: web
+    name: kovoit-backend
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    startCommand: daphne -b 0.0.0.0 -p $PORT backend.asgi:application
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEBUG
+        value: "False"
+      - key: CHANNEL_LAYER_TYPE
+        value: inmemory   # Redis Upstash optionnel — inmemory suffit pour démo
+      - key: SECRET_KEY
+        generateValue: true
+      # Les autres variables sont à renseigner dans le dashboard Render

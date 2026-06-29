@@ -154,6 +154,14 @@ class PaiementViewSet(viewsets.GenericViewSet):
         if not token:
             return Response({'error': 'token requis.'}, status=400)
 
+        # Vérifier que le token appartient bien à un paiement de l'utilisateur courant
+        # avant tout appel PayPlus (évite l'exposition des données d'un tiers)
+        if not Paiement.objects.filter(
+            reference_mobile=token,
+            reservation__passager=request.user,
+        ).exists():
+            return Response({'error': 'Paiement introuvable.'}, status=404)
+
         try:
             data = payplus.verifier_statut(token)
         except payplus.PayPlusError as exc:
@@ -299,8 +307,8 @@ class PaiementViewSet(viewsets.GenericViewSet):
                 logger.info('[Paiement] espèces confirmé paiement=%s conducteur=%s', paiement.id, request.user)
 
         except Exception as exc:
-            logger.error('[Paiement] confirmer_especes error: %s', exc)
-            return Response({'error': f'Erreur lors de la confirmation : {exc}'}, status=500)
+            logger.error('[Paiement] confirmer_especes error: %s', exc, exc_info=True)
+            return Response({'error': 'Erreur interne. Veuillez réessayer.'}, status=500)
 
         montant, commission, net = _calcul(paiement)
         _notifier(reservation.passager, 'Le conducteur a confirmé la réception de votre paiement en espèces.')
@@ -491,8 +499,14 @@ class PaiementViewSet(viewsets.GenericViewSet):
           - Retourne 500 pour forcer le retry PayPlus en cas d'erreur inattendue.
         """
         # ── Vérification de signature ─────────────────────────────────────
-        signature = request.headers.get('X-PayPlus-Signature', '')
-        if signature:
+        # La signature est OBLIGATOIRE quand un secret est configuré.
+        # Un webhook sans header X-PayPlus-Signature doit être rejeté.
+        webhook_secret = getattr(settings, 'PAYPLUS_WEBHOOK_SECRET', '')
+        if webhook_secret:
+            signature = request.headers.get('X-PayPlus-Signature', '')
+            if not signature:
+                logger.warning('[Webhook] signature absente IP=%s', request.META.get('REMOTE_ADDR'))
+                return Response(status=403)
             raw_body = request._request.body
             if not payplus.verifier_signature_webhook(raw_body, signature):
                 logger.warning('[Webhook] signature invalide IP=%s', request.META.get('REMOTE_ADDR'))
@@ -608,6 +622,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
         except Reservation.DoesNotExist:
             return Response({'error': 'Réservation introuvable.'}, status=404)
         except Exception as exc:
-            return Response({'error': str(exc)}, status=500)
+            logger.error('[Paiement] annuler_paiement error: %s', exc, exc_info=True)
+            return Response({'error': 'Erreur interne. Veuillez réessayer.'}, status=500)
 
         return Response({'message': 'Paiement annulé.', 'statut': Paiement.Statut.ANNULE})

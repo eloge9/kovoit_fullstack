@@ -318,6 +318,28 @@ def envoyer_audio(request, conv_id):
     if not audio:
         return Response({"error": "Fichier audio manquant."}, status=400)
 
+    # Validation taille (10 Mo max)
+    if audio.size > 10 * 1024 * 1024:
+        return Response({"error": "Fichier audio trop volumineux (max 10 Mo)."}, status=400)
+
+    # Validation type MIME via Content-Type déclaré (protection de base)
+    ALLOWED_AUDIO = {
+        'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm',
+        'audio/aac', 'audio/mp4', 'audio/x-m4a',
+    }
+    declared_type = getattr(audio, 'content_type', '') or ''
+    if declared_type not in ALLOWED_AUDIO:
+        return Response({"error": "Format audio non autorisé (mp3, ogg, wav, webm, aac)."}, status=400)
+
+    # Renommage aléatoire pour empêcher toute exécution via URL prévisible
+    import uuid, os
+    ext_map = {
+        'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+        'audio/webm': '.webm', 'audio/aac': '.aac',
+        'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a',
+    }
+    audio.name = f"{uuid.uuid4().hex}{ext_map.get(declared_type, '.bin')}"
+
     duration = request.data.get('duration')
     try:
         duration = int(duration) if duration else None

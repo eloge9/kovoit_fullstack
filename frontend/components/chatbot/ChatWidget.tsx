@@ -2,14 +2,22 @@
 import { useState, useEffect, useRef } from "react";
 import { useChatbot, type UIMessage } from "@/src/hooks/useChatbot";
 import { MessageSquare, X, Send, RefreshCw, ChevronDown } from "lucide-react";
+import DOMPurify from "dompurify";
 
-// ── Rendu Markdown simple ──────────────────────────────────────────────────────
+// ── Rendu Markdown simple avec sanitisation XSS ───────────────────────────────
 
 function renderMarkdown(text: string): string {
-  return text
+  // Échapper le HTML brut AVANT d'appliquer le Markdown
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const withMarkdown = escaped
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g,     "<em>$1</em>")
     .replace(/\n/g,            "<br/>");
+  return DOMPurify.sanitize(withMarkdown, { ALLOWED_TAGS: ["strong", "em", "br"] });
 }
 
 // ── Bulle de message ──────────────────────────────────────────────────────────

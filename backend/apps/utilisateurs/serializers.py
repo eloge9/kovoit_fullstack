@@ -50,6 +50,9 @@ class InscriptionSerializer(serializers.ModelSerializer):
     couleur = serializers.CharField(required=False, allow_blank=True)
     plaque  = serializers.CharField(required=False, allow_blank=True)
 
+    # Rôle limité : 'admin' interdit à l'inscription publique
+    role = serializers.ChoiceField(choices=['passager', 'conducteur'], default='passager')
+
     class Meta:
         model  = Utilisateur
         fields = [
@@ -180,9 +183,17 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'photo_profil': {'required': False, 'allow_null': True},
             'photo_cni':    {'required': False, 'allow_null': True},
             'photo_permis': {'required': False, 'allow_null': True},
-            'username': {'required': False},
-            'email':    {'required': False},
-            'role':     {'required': False},
+            'username':           {'required': False},
+            'email':              {'required': False},
+            # Champs administratifs : jamais modifiables via l'API profil utilisateur
+            'role':               {'read_only': True},
+            'is_active':          {'read_only': True},
+            'peut_conduire':      {'read_only': True},
+            'is_driver':          {'read_only': True},
+            'statut_validation':  {'read_only': True},
+            'note':               {'read_only': True},
+            'date_joined':        {'read_only': True},
+            'last_login':         {'read_only': True},
         }
 
     def get_driver_status(self, obj):

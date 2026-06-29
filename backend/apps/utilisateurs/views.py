@@ -1,4 +1,5 @@
 import logging
+import uuid
 import requests as http_requests
 
 from rest_framework import viewsets, status, serializers as drf_serializers
@@ -22,6 +23,27 @@ from django.core.mail import send_mail
 from .serializers import InscriptionSerializer, ConnexionSerializer, UtilisateurSerializer, ChangePasswordSerializer
 from .tokens import KovoitRefreshToken
 import random
+import re
+import secrets
+
+# Types MIME autorisés pour les documents d'identité
+_ALLOWED_DOC_MIME = {'image/jpeg', 'image/png', 'image/webp', 'application/pdf'}
+_MAX_DOC_SIZE     = 10 * 1024 * 1024  # 10 Mo
+
+
+def _validate_document_file(f):
+    """Valide taille et MIME déclaré d'un fichier document ; renomme aléatoirement."""
+    if f.size > _MAX_DOC_SIZE:
+        raise drf_serializers.ValidationError("Fichier trop volumineux (max 10 Mo).")
+    mime = getattr(f, 'content_type', '') or ''
+    if mime not in _ALLOWED_DOC_MIME:
+        raise drf_serializers.ValidationError("Format non autorisé (JPG, PNG, WEBP ou PDF).")
+    ext_map = {
+        'image/jpeg': '.jpg', 'image/png': '.png',
+        'image/webp': '.webp', 'application/pdf': '.pdf',
+    }
+    f.name = f"{uuid.uuid4().hex}{ext_map.get(mime, '.bin')}"
+    return f
 
 
 class AuthRateThrottle(AnonRateThrottle):
@@ -139,7 +161,7 @@ class AuthViewSet(viewsets.GenericViewSet):
         # Invalider les anciens codes
         PasswordResetCode.objects.filter(email=email, used=False).update(used=True)
 
-        code = f"{random.randint(0, 999999):06d}"
+        code = f"{secrets.randbelow(1_000_000):06d}"
         PasswordResetCode.objects.create(email=email, code=code)
 
         try:
@@ -347,12 +369,15 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
         user = request.user
         recu = False
 
-        if 'photo_cni' in request.FILES:
-            user.photo_cni = request.FILES['photo_cni']
-            recu = True
-        if 'photo_permis' in request.FILES:
-            user.photo_permis = request.FILES['photo_permis']
-            recu = True
+        try:
+            if 'photo_cni' in request.FILES:
+                user.photo_cni = _validate_document_file(request.FILES['photo_cni'])
+                recu = True
+            if 'photo_permis' in request.FILES:
+                user.photo_permis = _validate_document_file(request.FILES['photo_permis'])
+                recu = True
+        except drf_serializers.ValidationError as exc:
+            return Response({"error": exc.detail[0] if exc.detail else "Fichier invalide."}, status=400)
 
         if not recu:
             return Response({"error": "Aucun document fourni."}, status=status.HTTP_400_BAD_REQUEST)
@@ -409,11 +434,14 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
         if Vehicule.objects.filter(plaque=plaque).exists():
             return Response({"plaque": "Cette plaque est déjà enregistrée."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Upload documents si fournis
-        if 'photo_cni' in request.FILES:
-            user.photo_cni = request.FILES['photo_cni']
-        if 'photo_permis' in request.FILES:
-            user.photo_permis = request.FILES['photo_permis']
+        # Upload documents si fournis (avec validation)
+        try:
+            if 'photo_cni' in request.FILES:
+                user.photo_cni = _validate_document_file(request.FILES['photo_cni'])
+            if 'photo_permis' in request.FILES:
+                user.photo_permis = _validate_document_file(request.FILES['photo_permis'])
+        except drf_serializers.ValidationError as exc:
+            return Response({"error": exc.detail[0] if exc.detail else "Fichier invalide."}, status=400)
 
         # Changer le rôle et passer en attente
         user.role = 'conducteur'
@@ -614,6 +642,14 @@ class UtilisateurViewSet(viewsets.GenericViewSet):
         if not nom or not telephone:
             return Response(
                 {"error": "Le nom et le téléphone du contact d'urgence sont requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validation format téléphone (international ou local Bénin/CI)
+        _TEL_RE = re.compile(r'^\+?[1-9]\d{7,14}$')
+        if not _TEL_RE.match(telephone.replace(' ', '').replace('-', '')):
+            return Response(
+                {"error": "Numéro de téléphone invalide (ex : +22991271004)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

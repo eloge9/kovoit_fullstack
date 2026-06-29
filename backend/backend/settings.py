@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_extensions',
     'channels',
+    'storages',
 
     # mes application
     'apps.utilisateurs',
@@ -59,6 +60,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -87,16 +89,22 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
+# Render et Supabase fournissent DATABASE_URL directement
+_DATABASE_URL = os.getenv('DATABASE_URL', '')
+if _DATABASE_URL:
+    import dj_database_url
+    DATABASES = {'default': dj_database_url.parse(_DATABASE_URL, conn_max_age=600)}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME':     os.getenv('DB_NAME'),
+            'USER':     os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST':     os.getenv('DB_HOST'),
+            'PORT':     os.getenv('DB_PORT'),
+        }
     }
-}
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -114,11 +122,31 @@ USE_TZ = True
 
 # ── Static & Media files ──────────────────────────────────────────────────
 STATIC_URL = 'static/'
-# CORRECTION AUDIT : Ajout de STATIC_ROOT pour la commande collectstatic en production
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# ── Stockage fichiers : Cloudflare R2 en production, local en dev ─────────
+_R2_ACCOUNT_ID    = os.getenv('CF_R2_ACCOUNT_ID', '')
+_R2_ACCESS_KEY    = os.getenv('CF_R2_ACCESS_KEY', '')
+_R2_SECRET_KEY    = os.getenv('CF_R2_SECRET_KEY', '')
+_R2_BUCKET        = os.getenv('CF_R2_BUCKET', 'kovoit-media')
+_R2_PUBLIC_DOMAIN = os.getenv('CF_R2_PUBLIC_DOMAIN', '')  # ex: media.kovoit.com
+
+if not DEBUG and _R2_ACCOUNT_ID:
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    AWS_ACCESS_KEY_ID     = _R2_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY = _R2_SECRET_KEY
+    AWS_STORAGE_BUCKET_NAME = _R2_BUCKET
+    AWS_S3_ENDPOINT_URL   = f'https://{_R2_ACCOUNT_ID}.r2.cloudflarestorage.com'
+    AWS_S3_CUSTOM_DOMAIN  = _R2_PUBLIC_DOMAIN or None
+    AWS_DEFAULT_ACL       = None
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH  = False
+    MEDIA_URL = f'https://{_R2_PUBLIC_DOMAIN}/' if _R2_PUBLIC_DOMAIN else f'{AWS_S3_ENDPOINT_URL}/{_R2_BUCKET}/'
+    MEDIA_ROOT = ''
+else:
+    MEDIA_URL  = '/media/'
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # ── Django REST Framework ─────────────────────────────────────────────────
 REST_FRAMEWORK = {
@@ -237,13 +265,33 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'KoVoit <noreply@kovoit.ci>
 VERIFICATION_MAX_FILE_SIZE_MB = 10
 VERIFICATION_ALLOWED_TYPES    = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
-SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
-SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
-CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False').lower() == 'true'
-SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
-SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
-SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
-X_FRAME_OPTIONS = 'DENY'
+X_FRAME_OPTIONS         = 'DENY'
+SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# Note : SECURE_CONTENT_SECURITY_POLICY n'est pas un setting Django natif. 
-# Si tu utilises django-csp, utilise plutôt CSP_DEFAULT_SRC, CSP_SCRIPT_SRC, etc.
+if DEBUG:
+    # Développement local : paramètres souples
+    SECURE_SSL_REDIRECT            = False
+    SESSION_COOKIE_SECURE          = False
+    CSRF_COOKIE_SECURE             = False
+    SECURE_HSTS_SECONDS            = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD            = False
+    SESSION_COOKIE_HTTPONLY        = True
+    CSRF_COOKIE_HTTPONLY           = True
+else:
+    # Production : HTTPS obligatoire, cookies sécurisés
+    SECURE_SSL_REDIRECT            = os.getenv('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
+    SESSION_COOKIE_SECURE          = True
+    CSRF_COOKIE_SECURE             = True
+    SECURE_HSTS_SECONDS            = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD            = True
+    SESSION_COOKIE_HTTPONLY        = True
+    CSRF_COOKIE_HTTPONLY           = True
+
+# ── Hachage des mots de passe — Argon2 (recommandé OWASP) ────────────────────
+# Nécessite : pip install argon2-cffi
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',   # fallback migration douce
+]

@@ -12,6 +12,7 @@
     "@types/leaflet": "^1.9.21",
     "axios": "^1.13.5",
     "daisyui": "^5.5.19",
+    "dompurify": "^3.4.11",
     "jose": "^6.2.3",
     "js-cookie": "^3.0.5",
     "leaflet": "^1.9.4",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
+    "@types/dompurify": "^3.0.5",
     "@types/js-cookie": "^3.0.6",
     "@types/node": "^20",
     "@types/react": "^19",
