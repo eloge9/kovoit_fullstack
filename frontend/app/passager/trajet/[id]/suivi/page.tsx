@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import maplibregl from "maplibre-gl";
@@ -176,7 +176,7 @@ function etaLabel(pos: PositionPayload | null): string {
 
 // ── Page principale ───────────────────────────────────────────────────────────
 
-export default function PassagerSuiviPage() {
+function PassagerSuiviContent() {
     const params       = useParams();
     const searchParams = useSearchParams();
     const router       = useRouter();
@@ -392,5 +392,13 @@ export default function PassagerSuiviPage() {
             )}
 
         </div>
+    );
+}
+
+export default function PassagerSuiviPage() {
+    return (
+        <Suspense>
+            <PassagerSuiviContent />
+        </Suspense>
     );
 }

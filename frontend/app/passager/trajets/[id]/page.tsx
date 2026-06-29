@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { getTrajet, type Trajet } from "@/src/services/trajet.service";
@@ -9,7 +9,7 @@ import { useAuth } from "@/src/hooks/useAuth";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
-export default function DetailTrajetPage() {
+function DetailTrajetContent() {
     const { id } = useParams();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -429,5 +429,13 @@ export default function DetailTrajetPage() {
             </div>
 
         </div>
+    );
+}
+
+export default function DetailTrajetPage() {
+    return (
+        <Suspense>
+            <DetailTrajetContent />
+        </Suspense>
     );
 }

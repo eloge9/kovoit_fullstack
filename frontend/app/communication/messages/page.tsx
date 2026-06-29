@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/src/hooks/useAuth";
 import { useChat } from "@/src/hooks/useChat";
@@ -318,7 +318,7 @@ function MessageBubble({
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-export default function MessagesPage() {
+function MessagesContent() {
   const { user }     = useAuth();
   const searchParams = useSearchParams();
   const initConvId   = searchParams.get("conv") ? Number(searchParams.get("conv")) : null;
@@ -876,5 +876,13 @@ export default function MessagesPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense>
+      <MessagesContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import maplibregl from "maplibre-gl";
@@ -137,7 +137,7 @@ function StatusDot({ ok, label }: { ok: boolean; label: string }) {
 
 // ── Page principale ───────────────────────────────────────────────────────────
 
-export default function ConducteurSuiviPage() {
+function ConducteurSuiviContent() {
     const router       = useRouter();
     const searchParams = useSearchParams();
     const trajetId     = searchParams.get("trajet");
@@ -426,5 +426,13 @@ export default function ConducteurSuiviPage() {
             )}
 
         </div>
+    );
+}
+
+export default function ConducteurSuiviPage() {
+    return (
+        <Suspense>
+            <ConducteurSuiviContent />
+        </Suspense>
     );
 }

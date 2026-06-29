@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { reinitialisation } from "@/src/services/auth.service";
 
 type Etape = "formulaire" | "succes" | "lien_invalide";
 
-export default function ReinitialisationPage() {
+function ReinitialisationForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -304,5 +304,13 @@ export default function ReinitialisationPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function ReinitialisationPage() {
+    return (
+        <Suspense>
+            <ReinitialisationForm />
+        </Suspense>
     );
 }
