@@ -125,24 +125,38 @@ STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# ── Stockage fichiers : Cloudflare R2 en production, local en dev ─────────
-_R2_ACCOUNT_ID    = os.getenv('CF_R2_ACCOUNT_ID', '')
-_R2_ACCESS_KEY    = os.getenv('CF_R2_ACCESS_KEY', '')
-_R2_SECRET_KEY    = os.getenv('CF_R2_SECRET_KEY', '')
-_R2_BUCKET        = os.getenv('CF_R2_BUCKET', 'kovoit-media')
-_R2_PUBLIC_DOMAIN = os.getenv('CF_R2_PUBLIC_DOMAIN', '')  # ex: media.kovoit.com
+# ── Stockage fichiers : S3-compatible (Supabase Storage ou Cloudflare R2) ──
+# Supabase Storage : fournir S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT_URL
+# Cloudflare R2    : fournir CF_R2_ACCOUNT_ID, CF_R2_ACCESS_KEY, CF_R2_SECRET_KEY
+_S3_ACCESS_KEY   = os.getenv('S3_ACCESS_KEY',  os.getenv('CF_R2_ACCESS_KEY', ''))
+_S3_SECRET_KEY   = os.getenv('S3_SECRET_KEY',  os.getenv('CF_R2_SECRET_KEY', ''))
+_S3_BUCKET       = os.getenv('S3_BUCKET',      os.getenv('CF_R2_BUCKET', 'kovoit-media'))
+_S3_ENDPOINT_URL = os.getenv('S3_ENDPOINT_URL', '')   # ex: https://xxx.supabase.co/storage/v1/s3
+_S3_REGION       = os.getenv('S3_REGION', 'auto')
+# Fallback Cloudflare R2 (endpoint construit depuis l'account id)
+_CF_ACCOUNT_ID   = os.getenv('CF_R2_ACCOUNT_ID', '')
+if not _S3_ENDPOINT_URL and _CF_ACCOUNT_ID:
+    _S3_ENDPOINT_URL = f'https://{_CF_ACCOUNT_ID}.r2.cloudflarestorage.com'
 
-if not DEBUG and _R2_ACCOUNT_ID:
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-    AWS_ACCESS_KEY_ID     = _R2_ACCESS_KEY
-    AWS_SECRET_ACCESS_KEY = _R2_SECRET_KEY
-    AWS_STORAGE_BUCKET_NAME = _R2_BUCKET
-    AWS_S3_ENDPOINT_URL   = f'https://{_R2_ACCOUNT_ID}.r2.cloudflarestorage.com'
-    AWS_S3_CUSTOM_DOMAIN  = _R2_PUBLIC_DOMAIN or None
-    AWS_DEFAULT_ACL       = None
-    AWS_S3_FILE_OVERWRITE = False
-    AWS_QUERYSTRING_AUTH  = False
-    MEDIA_URL = f'https://{_R2_PUBLIC_DOMAIN}/' if _R2_PUBLIC_DOMAIN else f'{AWS_S3_ENDPOINT_URL}/{_R2_BUCKET}/'
+if not DEBUG and _S3_ACCESS_KEY and _S3_ENDPOINT_URL:
+    DEFAULT_FILE_STORAGE    = 'storages.backends.s3boto3.S3Boto3Storage'
+    AWS_ACCESS_KEY_ID       = _S3_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY   = _S3_SECRET_KEY
+    AWS_STORAGE_BUCKET_NAME = _S3_BUCKET
+    AWS_S3_ENDPOINT_URL     = _S3_ENDPOINT_URL
+    AWS_S3_REGION_NAME      = _S3_REGION
+    AWS_DEFAULT_ACL         = 'public-read'
+    AWS_S3_FILE_OVERWRITE   = False
+    AWS_QUERYSTRING_AUTH    = False
+    # URL publique : Supabase = .../object/public/<bucket>/  |  R2 = domaine custom
+    _cf_public = os.getenv('CF_R2_PUBLIC_DOMAIN', '')
+    if _cf_public:
+        MEDIA_URL = f'https://{_cf_public}/'
+    elif 'supabase.co' in _S3_ENDPOINT_URL:
+        _proj = _S3_ENDPOINT_URL.split('.supabase.co')[0].replace('https://', '')
+        MEDIA_URL = f'https://{_proj}.supabase.co/storage/v1/object/public/{_S3_BUCKET}/'
+    else:
+        MEDIA_URL = f'{_S3_ENDPOINT_URL}/{_S3_BUCKET}/'
     MEDIA_ROOT = ''
 else:
     MEDIA_URL  = '/media/'

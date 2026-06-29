@@ -1,4 +1,7 @@
 class ApiConstants {
+  // URL fixe en production (release)
+  static const String productionUrl = 'https://kovoit-backend.onrender.com';
+
   // Mis à jour dynamiquement par ServerProvider au démarrage
   static String baseUrl = 'http://192.168.1.1:8000/api';
   static String wsBaseUrl = 'ws://192.168.1.1:8000/ws';
@@ -27,9 +30,12 @@ class ApiConstants {
   ];
 
   static void updateServerUrl(String serverUrl) {
-    // serverUrl ex: 'http://192.168.1.100:8000'
+    // serverUrl ex: 'http://192.168.1.100:8000' ou 'https://kovoit-backend.onrender.com'
     baseUrl = '$serverUrl/api';
-    wsBaseUrl = '${serverUrl.replaceFirst('http://', 'ws://')}/ws';
+    final wsUrl = serverUrl
+        .replaceFirst('https://', 'wss://')
+        .replaceFirst('http://', 'ws://');
+    wsBaseUrl = '$wsUrl/ws';
     _serverBase = serverUrl;
   }
 

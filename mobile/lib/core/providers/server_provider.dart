@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../constants/api_constants.dart';
 import '../network/dio_client.dart';
@@ -48,6 +49,12 @@ class ServerNotifier extends StateNotifier<ServerState> {
 
   // Appelé au démarrage depuis SplashScreen
   Future<void> initialize() async {
+    // En production (release), URL fixe — pas de scan réseau
+    if (kReleaseMode) {
+      _applyUrl(ApiConstants.productionUrl);
+      return;
+    }
+
     state = const ServerState(
       status: ServerStatus.checking,
       message: 'Vérification du serveur...',
