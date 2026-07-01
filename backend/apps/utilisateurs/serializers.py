@@ -171,7 +171,7 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'first_name', 'last_name',
             'email', 'role', 'mode_courant', 'numero_telephone',
-            'photo_profil', 'note', 'is_active',
+            'photo_profil', 'photo_url', 'auth_provider', 'note', 'is_active',
             'date_joined', 'last_login',
             'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire', 'is_driver',
             'contact_urgence_nom', 'contact_urgence_telephone',
@@ -183,6 +183,8 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'photo_profil': {'required': False, 'allow_null': True},
             'photo_cni':    {'required': False, 'allow_null': True},
             'photo_permis': {'required': False, 'allow_null': True},
+            'photo_url':    {'required': False, 'allow_null': True, 'read_only': True},
+            'auth_provider':      {'read_only': True},
             'username':           {'required': False},
             'email':              {'required': False},
             # Champs administratifs : jamais modifiables via l'API profil utilisateur

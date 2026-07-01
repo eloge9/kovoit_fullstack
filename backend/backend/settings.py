@@ -237,6 +237,9 @@ PAYPLUS_NOTIFY_URL     = os.getenv('PAYPLUS_NOTIFY_URL', '')
 AFRICASTALKING_API_KEY  = os.getenv('AFRICASTALKING_API_KEY', '')
 AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
 
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+
 # ── IA / Anthropic ────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 

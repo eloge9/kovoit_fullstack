@@ -4,7 +4,8 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import logoSrc from "@/public/logo/logo1.png";
 import { useAuth } from "@/src/hooks/useAuth";
-import { connexion } from "@/src/services/auth.service";
+import { connexion, googleAuth } from "@/src/services/auth.service";
+import { GoogleLogin } from "@react-oauth/google";
 
 function ConnexionForm() {
     const router = useRouter();
@@ -17,6 +18,25 @@ function ConnexionForm() {
 
     const set = (field: keyof typeof form, value: string) =>
         setForm((prev) => ({ ...prev, [field]: value }));
+
+    const handleGoogleSuccess = async (idToken: string) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await googleAuth(idToken);
+            await login(data);
+            const redirect = searchParams.get("redirect");
+            if (redirect) { router.push(redirect); return; }
+            const role = data.utilisateur?.role;
+            if (role === "conducteur") router.push("/conducteur/dashboard");
+            else if (role === "admin") router.push("/admin/dashboard");
+            else router.push("/passager/dashboard");
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Connexion Google échouée. Réessayez.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -158,6 +178,21 @@ function ConnexionForm() {
                                 }
                             </button>
                         </form>
+
+                        {/* Google Sign-In */}
+                        {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (<>
+                        <div className="divider text-sm">ou</div>
+                        <div className="flex justify-center">
+                            <GoogleLogin
+                                onSuccess={(cr) => handleGoogleSuccess(cr.credential!)}
+                                onError={() => setError("Connexion Google échouée.")}
+                                text="continue_with"
+                                shape="rectangular"
+                                locale="fr"
+                                width={360}
+                            />
+                        </div>
+                        </>)}
 
                         {/* Lien inscription */}
                         <div className="divider text-sm">ou</div>

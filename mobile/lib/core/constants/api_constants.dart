@@ -53,6 +53,11 @@ class ApiConstants {
     return '$base$path';
   }
 
+  // Google OAuth — Web Client ID du projet Firebase kovoit-9a5b5
+  static const String googleServerClientId =
+      '759421384126-qfee4hqg8k1fhshldg0hgbrt8e5mivib.apps.googleusercontent.com';
+  static const String googleAuth = '/utilisateurs/auth/google/';
+
   // Auth
   static const String inscription = '/utilisateurs/auth/inscription/';
   static const String connexion = '/utilisateurs/auth/connexion/';

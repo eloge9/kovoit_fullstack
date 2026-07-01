@@ -38,6 +38,9 @@ export const initierConducteur = (data: {
   plaque: string;
 }) => api("/utilisateurs/ko/basculer-role/", "POST", data);
 
+export const googleAuth = (id_token: string) =>
+  api("/utilisateurs/auth/google/", "POST", { id_token }, null);
+
 export const demanderCodeReset = (email: string) =>
   api("/utilisateurs/auth/demander-code/", "POST", { email }, null);
 

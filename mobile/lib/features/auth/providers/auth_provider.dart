@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/network/api_interceptor.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/services/session_service.dart';
@@ -67,6 +69,38 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final data = await _repo.connexion(email: email, password: password);
       // Le backend retourne { "utilisateur": {...}, "tokens": {...} }
+      final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
+      final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
+      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
+      return true;
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: _parseError(e));
+      return false;
+    }
+  }
+
+  Future<bool> googleConnexion() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final gs = GoogleSignIn(
+        serverClientId: ApiConstants.googleServerClientId,
+        scopes: ['email', 'profile'],
+      );
+      final account = await gs.signIn();
+      if (account == null) {
+        state = state.copyWith(isLoading: false);
+        return false;
+      }
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null) {
+        state = state.copyWith(
+          isLoading: false,
+          error: 'Token Google introuvable. Réessayez.',
+        );
+        return false;
+      }
+      final data = await _repo.googleSignIn(idToken);
       final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
       final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
       state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);

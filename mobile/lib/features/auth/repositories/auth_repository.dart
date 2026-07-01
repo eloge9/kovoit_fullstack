@@ -40,6 +40,21 @@ class AuthRepository {
     }
   }
 
+  Future<Map<String, dynamic>> googleSignIn(String idToken) async {
+    try {
+      final response = await DioClient.post(
+        ApiConstants.googleAuth,
+        data: {'id_token': idToken},
+        requireAuth: false,
+      );
+      final data = response.data as Map<String, dynamic>;
+      await _saveTokensFromBody(data);
+      return data;
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
   Future<void> _saveTokensFromBody(Map<String, dynamic> data) async {
     final tokens = data['tokens'] as Map<String, dynamic>?;
     if (tokens != null) {

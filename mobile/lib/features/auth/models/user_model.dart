@@ -19,6 +19,7 @@ class UserModel {
   final String? numeroPermis;
   final int? experienceAnnees;
   final String? driverStatus;
+  final String authProvider;
 
   const UserModel({
     required this.id,
@@ -41,6 +42,7 @@ class UserModel {
     this.numeroPermis,
     this.experienceAnnees,
     this.driverStatus,
+    this.authProvider = 'email',
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -54,7 +56,7 @@ class UserModel {
       firstName:              json['first_name'],
       lastName:               json['last_name'],
       phoneNumber:            json['numero_telephone'],
-      photoProfile:           json['photo_profil'] ?? json['photo_profile'],
+      photoProfile:           json['photo_profil'] ?? json['photo_profile'] ?? json['photo_url'],
       note:                   (json['note'] as num?)?.toDouble() ?? 0.0,
       photoCNI:               json['photo_cni'],
       photoPermis:            json['photo_permis'],
@@ -67,6 +69,7 @@ class UserModel {
       numeroPermis:           json['numero_permis'],
       experienceAnnees:       json['experience_annees'],
       driverStatus:           json['driver_status'],
+      authProvider:           json['auth_provider'] ?? 'email',
     );
   }
 
@@ -94,7 +97,7 @@ class UserModel {
     String? statutValidation, bool? peutConduire, bool? isDriver,
     String? contactUrgenceNom, String? contactUrgenceTelephone,
     String? modeCourant, String? numeroPermis, int? experienceAnnees,
-    String? driverStatus,
+    String? driverStatus, String? authProvider,
   }) {
     return UserModel(
       id:                     id ?? this.id,
@@ -117,10 +120,13 @@ class UserModel {
       numeroPermis:           numeroPermis ?? this.numeroPermis,
       experienceAnnees:       experienceAnnees ?? this.experienceAnnees,
       driverStatus:           driverStatus ?? this.driverStatus,
+      authProvider:           authProvider ?? this.authProvider,
     );
   }
 
   // Peut basculer = validé, driver, rôle conducteur, ou était conducteur avant ce switch
+  bool get isGoogleAccount => authProvider == 'google';
+
   bool get peutBasculerEnConducteur =>
       peutConduire || isDriver || role == 'conducteur' || modeCourant == 'conducteur';
   bool get isConducteur => role == 'conducteur' || peutConduire;

@@ -193,6 +193,98 @@ class AuthViewSet(viewsets.GenericViewSet):
 
         return Response({'message': 'Si cet email existe, un code a été envoyé.'})
 
+    @action(detail=False, methods=['post'], url_path='google')
+    def google_auth(self, request):
+        """
+        POST /api/utilisateurs/auth/google/
+        Body: { "id_token": "<Google ID token>" }
+        Vérifie le token, crée ou trouve l'utilisateur, retourne des JWT KoVoit.
+        """
+        id_token_str = request.data.get('id_token', '').strip()
+        if not id_token_str:
+            return Response({'error': 'id_token requis.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        client_id = getattr(settings, 'GOOGLE_CLIENT_ID', '')
+        if not client_id:
+            logger.error("GOOGLE_CLIENT_ID non configuré")
+            return Response(
+                {'error': 'Google Sign-In non configuré sur le serveur.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            from google.oauth2 import id_token as google_id_token
+            from google.auth.transport import requests as google_requests
+            idinfo = google_id_token.verify_oauth2_token(
+                id_token_str, google_requests.Request(), client_id,
+            )
+        except ValueError:
+            return Response(
+                {'error': 'Token Google invalide ou expiré.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        google_sub = idinfo.get('sub', '')
+        email      = idinfo.get('email', '').lower().strip()
+        first_name = idinfo.get('given_name', '')
+        last_name  = idinfo.get('family_name', '')
+        picture    = idinfo.get('picture', '')
+
+        if not email or not google_sub:
+            return Response(
+                {'error': 'Compte Google incomplet (email ou identifiant manquant).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_new = False
+
+        # 1) Lookup par google_id (compte déjà lié)
+        try:
+            utilisateur = Utilisateur.objects.get(google_id=google_sub)
+        except Utilisateur.DoesNotExist:
+            # 2) Lookup par email (compte email existant → on lie)
+            try:
+                utilisateur = Utilisateur.objects.get(email=email)
+                if not utilisateur.google_id:
+                    fields_to_update = ['google_id', 'auth_provider']
+                    utilisateur.google_id = google_sub
+                    utilisateur.auth_provider = 'google'
+                    if picture and not utilisateur.photo_url:
+                        utilisateur.photo_url = picture
+                        fields_to_update.append('photo_url')
+                    utilisateur.save(update_fields=fields_to_update)
+            except Utilisateur.DoesNotExist:
+                # 3) Nouveau compte passager via Google
+                username_base = re.sub(r'[^a-zA-Z0-9_]', '_', email.split('@')[0])[:28]
+                username = username_base
+                counter  = 1
+                while Utilisateur.objects.filter(username=username).exists():
+                    username = f"{username_base}{counter}"
+                    counter += 1
+
+                utilisateur = Utilisateur(
+                    email=email,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    google_id=google_sub,
+                    auth_provider='google',
+                    photo_url=picture,
+                    role=Utilisateur.Role.PASSAGER,
+                )
+                utilisateur.set_unusable_password()
+                utilisateur.save()
+                Passager.objects.create(utilisateur=utilisateur)
+                is_new = True
+
+        tokens = get_tokens(utilisateur)
+        return Response({
+            'message': 'Connexion Google réussie.',
+            'utilisateur': UtilisateurSerializer(utilisateur).data,
+            'tokens': tokens,
+            'is_new_user': is_new,
+        }, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['post'], url_path='reinitialisation')
     def reinitialisation(self, request):
         email        = request.data.get('email', '').strip().lower()

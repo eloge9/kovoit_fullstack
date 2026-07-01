@@ -97,6 +97,14 @@ class Utilisateur(AbstractUser):
         choices=[('passager', 'Passager'), ('conducteur', 'Conducteur')],
     )
 
+    # --- Authentification Google ---
+    google_id     = models.CharField(max_length=128, blank=True, null=True, unique=True)
+    auth_provider = models.CharField(
+        max_length=20, default='email',
+        choices=[('email', 'Email'), ('google', 'Google')],
+    )
+    photo_url = models.URLField(max_length=500, blank=True, null=True)
+
     # --- Contact d'urgence (obligatoire pour le bouton SOS) ---
     contact_urgence_nom       = models.CharField(max_length=100, blank=True, default='')
     contact_urgence_telephone = models.CharField(max_length=20,  blank=True, default='')

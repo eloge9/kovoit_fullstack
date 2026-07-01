@@ -1,6 +1,7 @@
 import "./globals.css";
 import { AuthProvider } from "@/src/context/AuthContext";
 import ChatWidget from "@/components/chatbot/ChatWidget";
+import GoogleOAuthWrapper from "@/components/GoogleOAuthWrapper";
 
 export const metadata = {
     title: "KoVoit - Covoiturage",
@@ -15,8 +16,10 @@ export default function RootLayout({ children }: any) {
         <html suppressHydrationWarning>
             <body>
                 <AuthProvider>
-                    {children}
-                    <ChatWidget />
+                    <GoogleOAuthWrapper>
+                        {children}
+                        <ChatWidget />
+                    </GoogleOAuthWrapper>
                 </AuthProvider>
             </body>
         </html>

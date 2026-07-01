@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import logoSrc from "@/public/logo/logo1.png";
-import { inscription } from "@/src/services/auth.service";
+import { inscription, googleAuth } from "@/src/services/auth.service";
 import { useAuth } from "@/src/hooks/useAuth";
 import { PLACES_MAX_PAR_TYPE } from "@/src/services/trajet.service";
+import { GoogleLogin } from "@react-oauth/google";
 
 type Role = "passager" | "conducteur";
 
@@ -45,6 +46,20 @@ export default function InscriptionPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [step, setStep] = useState<1 | 2>(1);
+
+    const handleGoogleSuccess = async (idToken: string) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await googleAuth(idToken);
+            await login(data);
+            router.push("/passager/dashboard");
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Inscription Google échouée. Réessayez.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const [form, setForm] = useState<InscriptionForm>({
         username: "",
@@ -176,6 +191,26 @@ export default function InscriptionPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <span className="text-sm">{error}</span>
+                            </div>
+                        )}
+
+                        {/* Google Sign-In — visible uniquement à l'étape 1 */}
+                        {step === 1 && process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
+                            <div className="flex flex-col items-center gap-2">
+                                <div className="flex justify-center w-full">
+                                    <GoogleLogin
+                                        onSuccess={(cr) => handleGoogleSuccess(cr.credential!)}
+                                        onError={() => setError("Inscription Google échouée.")}
+                                        text="signup_with"
+                                        shape="rectangular"
+                                        locale="fr"
+                                        width={400}
+                                    />
+                                </div>
+                                <p className="text-xs text-base-content/40">
+                                    Crée un compte passager en un clic
+                                </p>
+                                <div className="divider text-xs w-full">ou remplis le formulaire</div>
                             </div>
                         )}
 

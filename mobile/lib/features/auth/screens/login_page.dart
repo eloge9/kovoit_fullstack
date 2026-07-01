@@ -11,6 +11,62 @@ import '../../../core/widgets/k_alert.dart';
 import '../../../core/widgets/k_section_header.dart';
 import '../../../core/services/storage_service.dart';
 
+class _GoogleSignInButton extends StatelessWidget {
+  final VoidCallback? onPressed;
+  final bool isLoading;
+  const _GoogleSignInButton({required this.onPressed, this.isLoading = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: const BorderSide(color: KColors.border),
+        backgroundColor: KColors.base100,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+      ),
+      child: isLoading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: KColors.border),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'G',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4285F4),
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Continuer avec Google',
+                  style: KTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -25,6 +81,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _obscurePassword = true;
   bool _rememberMe = false;
   String? _error;
+  bool _googleLoading = false;
 
   @override
   void initState() {
@@ -48,6 +105,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _googleSignIn() async {
+    setState(() { _error = null; _googleLoading = true; });
+    final success = await ref.read(authProvider.notifier).googleConnexion();
+    if (!mounted) return;
+    setState(() => _googleLoading = false);
+    if (success) {
+      final user = ref.read(authProvider).user;
+      if (user?.role == 'conducteur') context.go('/conducteur');
+      else if (user?.role == 'admin') context.go('/admin');
+      else context.go('/passager');
+    } else {
+      setState(() {
+        _error = ref.read(authProvider).error ?? 'Connexion Google échouée.';
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -262,6 +336,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       // Divider
                       const KDividerText(text: 'ou'),
                       const SizedBox(height: KSpacing.lg),
+
+                      // Bouton Google
+                      _GoogleSignInButton(
+                        onPressed: (isLoading || _googleLoading) ? null : _googleSignIn,
+                        isLoading: _googleLoading,
+                      ),
+                      const SizedBox(height: KSpacing.xl),
 
                       // Lien inscription
                       Row(
