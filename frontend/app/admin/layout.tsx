@@ -8,7 +8,9 @@ import { Shield } from "lucide-react";
 import { useAuth } from "@/src/hooks/useAuth";
 import { deconnexion } from "@/src/services/auth.service";
 
-const DJANGO_ADMIN_URL = process.env.NEXT_PUBLIC_DJANGO_ADMIN_URL || "http://127.0.0.1:8000/admin/";
+const DJANGO_ADMIN_URL = process.env.NEXT_PUBLIC_DJANGO_ADMIN_URL ||
+    (process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "") + "/admin/") ||
+    "http://127.0.0.1:8000/admin/";
 
 const NAV_GROUPS = [
     {

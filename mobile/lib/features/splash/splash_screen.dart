@@ -67,8 +67,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       await ref.read(authProvider.notifier).loadProfil();
     }
 
-    // Attendre la fin du chargement
+    // Attendre la fin du chargement (15s max — cold start Render)
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
     while (mounted && ref.read(authProvider).isLoading) {
+      if (DateTime.now().isAfter(deadline)) {
+        // Force isLoading=false pour débloquer le redirect GoRouter
+        ref.read(authProvider.notifier).cancelLoading();
+        break;
+      }
       await Future.delayed(const Duration(milliseconds: 100));
     }
     if (!mounted) return;

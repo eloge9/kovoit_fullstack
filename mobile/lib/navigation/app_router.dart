@@ -111,8 +111,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (isAuth && isPublic) {
         if (location == '/splash') return null; // SplashScreen gère la navigation
         final user = auth.user;
-        if (user?.role == 'admin')      return '/admin';
-        if (user?.role == 'conducteur') return '/conducteur';
+        // Ne pas rediriger si le profil n'est pas encore chargé (erreur réseau)
+        if (user == null) return null;
+        if (user.role == 'admin')      return '/admin';
+        if (user.role == 'conducteur') return '/conducteur';
         return '/passager';
       }
       return null;

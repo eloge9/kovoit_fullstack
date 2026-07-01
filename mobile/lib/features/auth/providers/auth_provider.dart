@@ -162,6 +162,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void clearError() => state = state.copyWith(error: null);
 
+  // Appelé par SplashScreen après timeout pour débloquer la navigation
+  void cancelLoading() {
+    if (state.isLoading) {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
   String _parseError(Object e) {
     final s = e.toString();
     if (s.contains('Exception:')) return s.split('Exception:').last.trim();
