@@ -33,6 +33,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
 }
 
 kotlin {
@@ -43,6 +44,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+base {
+    archivesName.set("KoVoit")
 }
 
 dependencies {
