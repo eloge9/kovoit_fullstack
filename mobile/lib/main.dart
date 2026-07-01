@@ -6,7 +6,11 @@ import 'app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('fr_FR', null);
-  await NotificationService.init();
+  try {
+    await initializeDateFormatting('fr_FR', null);
+  } catch (_) {}
+  try {
+    await NotificationService.init();
+  } catch (_) {}
   runApp(const ProviderScope(child: KoVoitApp()));
 }

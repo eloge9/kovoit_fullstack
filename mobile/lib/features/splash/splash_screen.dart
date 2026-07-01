@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -59,12 +61,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       return;
     }
 
-    // Si l'utilisateur avait des tokens mais que loadProfil() a échoué
-    // (serveur pas encore découvert), on relance maintenant que le serveur est trouvé
-    final auth = ref.read(authProvider);
-    if (auth.isAuthenticated && auth.user == null) {
-      setState(() => _statusMessage = 'Chargement du profil...');
-      await ref.read(authProvider.notifier).loadProfil();
+    // En dev uniquement : si loadProfil() avait échoué avant la découverte du
+    // serveur local, on relance maintenant que le serveur est trouvé.
+    // En prod (release) : _init() a déjà tenté, le while loop gère le timeout.
+    if (!kReleaseMode) {
+      final auth = ref.read(authProvider);
+      if (auth.isAuthenticated && auth.user == null) {
+        setState(() => _statusMessage = 'Chargement du profil...');
+        unawaited(ref.read(authProvider.notifier).loadProfil());
+      }
     }
 
     // Attendre la fin du chargement (15s max — cold start Render)
