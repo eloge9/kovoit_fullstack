@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import maplibregl from "maplibre-gl";
@@ -9,6 +9,7 @@ import { api } from "@/src/services/api";
 import trajetApi from "@/libs/trajet-api";
 import { useTrajetWebSocket, type PositionPayload } from "@/src/hooks/useTrajetWebSocket";
 import { mesReservations } from "@/src/services/reservation.service";
+import { useAuth } from "@/src/hooks/useAuth";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -228,9 +229,11 @@ function fmtH(iso?: string) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function SuiviPassagerPage() {
+function SuiviPassagerContent() {
     const { id } = useParams();
+    const searchParams = useSearchParams();
     const router = useRouter();
+    const { user } = useAuth();
     const trajetId = id as string;
 
     const [trajet,     setTrajet]     = useState<TrajetDetail | null>(null);
@@ -242,8 +245,15 @@ export default function SuiviPassagerPage() {
     const [error,      setError]      = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
 
+    // Partage de position du passager
+    const watchIdRef      = useRef<number | null>(null);
+    const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const lastPosRef      = useRef<GeolocationPosition | null>(null);
+    const autoStartDone   = useRef(false);
+    const [gpsActive, setGpsActive] = useState(false);
+
     // WebSocket temps réel
-    const { isConnected: wsOk } = useTrajetWebSocket({
+    const { isConnected: wsOk, sendPassengerPos } = useTrajetWebSocket({
         trajetId: trajet?.statut === "en_cours" ? trajetId : null,
         onPosition: useCallback((pos: PositionPayload) => {
             setPosition(pos);
@@ -251,6 +261,62 @@ export default function SuiviPassagerPage() {
             setError(null);
         }, []),
     });
+
+    const startGps = useCallback(() => {
+        if (!navigator.geolocation || gpsActive) return;
+        setGpsActive(true);
+        watchIdRef.current = navigator.geolocation.watchPosition(
+            (pos) => { lastPosRef.current = pos; },
+            () => setGpsActive(false),
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+        );
+        const nom = user ? `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() || (user.username ?? "") : "";
+        sendIntervalRef.current = setInterval(() => {
+            const pos = lastPosRef.current;
+            if (pos && wsOk) {
+                sendPassengerPos(nom, pos.coords.latitude, pos.coords.longitude);
+            }
+        }, 4000);
+    }, [gpsActive, wsOk, sendPassengerPos, user]);
+
+    const stopGps = useCallback(() => {
+        if (watchIdRef.current !== null) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+        }
+        if (sendIntervalRef.current) {
+            clearInterval(sendIntervalRef.current);
+            sendIntervalRef.current = null;
+        }
+        setGpsActive(false);
+    }, []);
+
+    const sendOnce = useCallback(() => {
+        if (!navigator.geolocation) return;
+        const nom = user ? `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim() || (user.username ?? "") : "";
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                sendPassengerPos(nom, pos.coords.latitude, pos.coords.longitude);
+            },
+            () => {},
+            { enableHighAccuracy: true, timeout: 10000 },
+        );
+    }, [sendPassengerPos, user]);
+
+    // Auto-démarrage GPS selon param URL (?gps=realtime|once)
+    useEffect(() => {
+        if (autoStartDone.current || !wsOk) return;
+        const mode = searchParams?.get("gps");
+        if (mode === "realtime") {
+            autoStartDone.current = true;
+            startGps();
+        } else if (mode === "once") {
+            autoStartDone.current = true;
+            sendOnce();
+        }
+    }, [wsOk, searchParams, startGps, sendOnce]);
+
+    useEffect(() => () => stopGps(), [stopGps]);
 
     const loadAll = useCallback(async () => {
         try {
@@ -386,11 +452,53 @@ export default function SuiviPassagerPage() {
                 </div>
             )}
 
-            {/* ── GPS en direct ── */}
-            {trajet?.statut === "en_cours" && position && (
-                <div className="grid grid-cols-2 gap-3">
-                    <GpsCard label="Vitesse" value={vitesse != null ? `${Math.round(vitesse)} km/h` : "—"} icon="🚗" />
-                    <GpsCard label="Position" value="Suivi actif" icon="📡" highlight />
+            {/* ── GPS en direct + partage position passager ── */}
+            {trajet?.statut === "en_cours" && (
+                <div className="space-y-3">
+                    {position && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <GpsCard label="Vitesse" value={vitesse != null ? `${Math.round(vitesse)} km/h` : "—"} icon="🚗" />
+                            <GpsCard label="Position conducteur" value="Suivi actif" icon="📡" highlight />
+                        </div>
+                    )}
+
+                    {/* Carte partage position passager */}
+                    <div className={`rounded-2xl border px-4 py-3.5 flex items-center justify-between gap-3 ${
+                        gpsActive
+                            ? "border-success/30 bg-success/5"
+                            : "border-base-200 bg-base-100"
+                    }`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${gpsActive ? "bg-success/15" : "bg-base-200"}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${gpsActive ? "text-success" : "text-base-content/50"}`} viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                                </svg>
+                            </div>
+                            <div className="min-w-0">
+                                <p className={`text-xs font-semibold ${gpsActive ? "text-success" : "text-base-content/70"}`}>
+                                    {gpsActive ? "Votre position partagée" : "Partager ma position"}
+                                </p>
+                                {gpsActive && (
+                                    <p className="text-xs text-success/70 flex items-center gap-1 mt-0.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse inline-block" />
+                                        GPS actif · mise à jour toutes les 4 s
+                                    </p>
+                                )}
+                                {!gpsActive && (
+                                    <p className="text-xs text-base-content/40 mt-0.5">Le conducteur verra votre position</p>
+                                )}
+                            </div>
+                        </div>
+                        {gpsActive ? (
+                            <button onClick={stopGps} className="btn btn-error btn-outline btn-xs rounded-xl shrink-0">
+                                Désactiver
+                            </button>
+                        ) : (
+                            <button onClick={startGps} disabled={!wsOk} className="btn btn-primary btn-xs rounded-xl shrink-0">
+                                Activer
+                            </button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -538,6 +646,20 @@ export default function SuiviPassagerPage() {
             )}
 
         </div>
+    );
+}
+
+export default function SuiviPassagerPage() {
+    return (
+        <Suspense fallback={
+            <div className="space-y-4 animate-pulse">
+                <div className="h-8 bg-base-300 rounded w-1/3" />
+                <div className="h-24 bg-base-300 rounded-2xl" />
+                <div className="h-96 bg-base-300 rounded-2xl" />
+            </div>
+        }>
+            <SuiviPassagerContent />
+        </Suspense>
     );
 }
 

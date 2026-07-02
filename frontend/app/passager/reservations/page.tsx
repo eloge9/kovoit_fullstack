@@ -5,6 +5,79 @@ import { useRouter } from "next/navigation";
 import { mesReservations } from "@/src/services/reservation.service";
 import { api } from "@/src/services/api";
 
+// ── Modal consentement GPS ────────────────────────────────────────────────────
+
+function GpsConsentModal({
+    onChoice,
+}: {
+    onChoice: (mode: "realtime" | "once" | "none") => void;
+}) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-base-100 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in slide-in-from-bottom duration-300">
+                <div className="pt-8 pb-4 px-6 text-center">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </div>
+                    <h2 className="text-lg font-bold text-base-content">Partager votre position ?</h2>
+                    <p className="text-sm text-base-content/50 mt-1.5 leading-relaxed">
+                        Le conducteur et les autres passagers pourront voir votre position sur la carte.
+                    </p>
+                </div>
+
+                <div className="px-4 pb-5 space-y-2.5">
+                    <button
+                        onClick={() => onChoice("realtime")}
+                        className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-primary/5 hover:bg-primary/10 border border-primary/20 transition-colors text-left"
+                    >
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                            </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-primary">Ma position en temps réel</p>
+                            <p className="text-xs text-base-content/50 mt-0.5">Partagée en continu pendant tout le trajet</p>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-primary/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                    </button>
+
+                    <button
+                        onClick={() => onChoice("once")}
+                        className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-base-200/60 hover:bg-base-200 border border-base-300 transition-colors text-left"
+                    >
+                        <div className="w-9 h-9 rounded-xl bg-base-300 flex items-center justify-center shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-base-content/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-base-content">Ma position actuelle</p>
+                            <p className="text-xs text-base-content/50 mt-0.5">Envoyée une seule fois, puis arrêtée</p>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-base-content/30 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                    </button>
+
+                    <button
+                        onClick={() => onChoice("none")}
+                        className="w-full px-4 py-3 rounded-2xl text-sm text-base-content/50 hover:text-base-content hover:bg-base-200 transition-colors font-medium"
+                    >
+                        Refuser, continuer sans partager
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 interface Reservation {
     id: number;
     trajet_id: number;
@@ -27,6 +100,19 @@ export default function MesReservationsPage() {
     const [error, setError] = useState<string | null>(null);
     const [filtre, setFiltre] = useState<"tous" | "en_attente" | "confirmee" | "declinee" | "terminee">("tous");
     const [annulation, setAnnulation] = useState<number | null>(null);
+    const [gpsConsent, setGpsConsent] = useState<number | null>(null);
+
+    const handleSuivre = (trajetId: number) => setGpsConsent(trajetId);
+
+    const handleGpsChoice = (mode: "realtime" | "once" | "none") => {
+        if (gpsConsent === null) return;
+        const id = gpsConsent;
+        setGpsConsent(null);
+        const url = mode === "none"
+            ? `/passager/suivi/${id}`
+            : `/passager/suivi/${id}?gps=${mode}`;
+        router.push(url);
+    };
 
     useEffect(() => { fetchReservations(); }, []);
 
@@ -97,6 +183,11 @@ export default function MesReservationsPage() {
 
     return (
         <div className="space-y-8">
+
+            {/* Modal consentement GPS */}
+            {gpsConsent !== null && (
+                <GpsConsentModal onChoice={handleGpsChoice} />
+            )}
 
             {/* EN-TÊTE */}
             <div className="pb-6 border-b border-base-300">
@@ -268,7 +359,7 @@ export default function MesReservationsPage() {
                                         {/* Suivre trajet — réservation confirmée */}
                                         {resa.statut === "confirmee" && (
                                             <button
-                                                onClick={() => router.push(`/passager/suivi/${resa.trajet_id}`)}
+                                                onClick={() => handleSuivre(resa.trajet_id)}
                                                 className="btn btn-outline btn-xs rounded-xl text-xs gap-1"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
