@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../constants/app_constants.dart';
+import '../../features/auth/models/saved_account.dart';
 
 class StorageService {
   static const _storage = FlutterSecureStorage(
@@ -84,4 +86,52 @@ class StorageService {
 
   static Future<String?> getActiveMode() =>
       _storage.read(key: _activeModeKey);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Comptes sauvegardés (multi-compte, max 3)
+  // ──────────────────────────────────────────────────────────────────────────
+  static const _savedAccountsKey = 'saved_accounts';
+  static const _maxSavedAccounts = 3;
+
+  static Future<List<SavedAccount>> getSavedAccounts() async {
+    final raw = await _storage.read(key: _savedAccountsKey);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list
+          .map((e) => SavedAccount.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<SavedAccount?> getLastAccount() async {
+    final accounts = await getSavedAccounts();
+    return accounts.isEmpty ? null : accounts.first;
+  }
+
+  /// Sauvegarde le compte en tête de liste (remplace l'existant par email/id).
+  static Future<void> saveAccount(SavedAccount account) async {
+    final accounts = await getSavedAccounts();
+    accounts.removeWhere((a) => a.id == account.id || a.email == account.email);
+    accounts.insert(0, account);
+    final limited = accounts.take(_maxSavedAccounts).toList();
+    await _storage.write(
+      key: _savedAccountsKey,
+      value: jsonEncode(limited.map((a) => a.toJson()).toList()),
+    );
+  }
+
+  static Future<void> removeAccount(String id) async {
+    final accounts = await getSavedAccounts();
+    accounts.removeWhere((a) => a.id == id);
+    await _storage.write(
+      key: _savedAccountsKey,
+      value: jsonEncode(accounts.map((a) => a.toJson()).toList()),
+    );
+  }
+
+  static Future<void> clearSavedAccounts() =>
+      _storage.delete(key: _savedAccountsKey);
 }

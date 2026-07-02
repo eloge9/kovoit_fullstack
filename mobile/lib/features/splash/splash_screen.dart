@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -42,6 +41,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _start() async {
+    // Attendre que _init() termine (lecture storage — quasi instantané)
+    while (mounted && ref.read(authProvider).isLoading) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    if (!mounted) return;
+
     // Animation minimum 1.5s
     await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted) return;
@@ -61,22 +66,22 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       return;
     }
 
-    // En dev uniquement : si loadProfil() avait échoué avant la découverte du
-    // serveur local, on relance maintenant que le serveur est trouvé.
-    // En prod (release) : _init() a déjà tenté, le while loop gère le timeout.
-    if (!kReleaseMode) {
-      final auth = ref.read(authProvider);
-      if (auth.isAuthenticated && auth.user == null) {
-        setState(() => _statusMessage = 'Chargement du profil...');
-        unawaited(ref.read(authProvider.notifier).loadProfil());
-      }
+    // Étape 1 : des tokens JWT existent → charger le profil maintenant que le serveur est accessible
+    if (ref.read(authProvider).hasTokens) {
+      setState(() => _statusMessage = 'Chargement du profil...');
+      await ref.read(authProvider.notifier).loadProfil();
+    }
+
+    // Étape 2 : si toujours non authentifié, tenter l'auto-reconnexion "Se souvenir de moi"
+    if (!ref.read(authProvider).isAuthenticated) {
+      setState(() => _statusMessage = 'Reconnexion...');
+      await ref.read(authProvider.notifier).tryAutoRelogin();
     }
 
     // Attendre la fin du chargement (15s max — cold start Render)
     final deadline = DateTime.now().add(const Duration(seconds: 15));
     while (mounted && ref.read(authProvider).isLoading) {
       if (DateTime.now().isAfter(deadline)) {
-        // Force isLoading=false pour débloquer le redirect GoRouter
         ref.read(authProvider.notifier).cancelLoading();
         break;
       }
@@ -96,7 +101,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final user = authState.user;
     if (user == null) {
-      context.go('/login');
+      // Serveur inaccessible : montrer la liste des comptes si disponible
+      if (authState.savedAccounts.isNotEmpty) {
+        context.go('/continue-as');
+      } else {
+        context.go('/login');
+      }
       return;
     }
 
@@ -129,9 +139,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final serverState = ref.read(serverProvider);
     if (serverState.isConnected) {
-      final auth = ref.read(authProvider);
-      if (auth.isAuthenticated && auth.user == null) {
+      if (ref.read(authProvider).hasTokens) {
         await ref.read(authProvider.notifier).loadProfil();
+      }
+      if (!ref.read(authProvider).isAuthenticated) {
+        await ref.read(authProvider.notifier).tryAutoRelogin();
       }
       while (mounted && ref.read(authProvider).isLoading) {
         await Future.delayed(const Duration(milliseconds: 100));

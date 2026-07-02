@@ -63,6 +63,7 @@ import '../features/reservations/models/reservation_model.dart';
 import '../features/settings/screens/server_settings_screen.dart';
 import '../features/verification/screens/driver_status_page.dart';
 import '../features/verification/screens/document_upload_page.dart';
+import '../features/auth/screens/continue_as_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -97,19 +98,21 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
 
     redirect: (context, state) {
-      final auth      = notifier.authState;
-      final isAuth    = auth.isAuthenticated;
-      final isLoading = auth.isLoading;
-      final location  = state.matchedLocation;
+      final auth     = notifier.authState;
+      final isAuth   = auth.isAuthenticated;
+      final location = state.matchedLocation;
 
-      if (isLoading) return '/splash';
+      // Ne jamais rediriger depuis /splash — SplashScreen gère sa propre navigation.
+      if (location == '/splash') return null;
 
-      const publicRoutes = ['/login', '/register', '/forgot-password', '/splash'];
+      const publicRoutes = ['/login', '/register', '/forgot-password', '/splash', '/continue-as', '/server-settings'];
       final isPublic = publicRoutes.contains(location);
 
-      if (!isAuth && !isPublic) return '/login';
+      if (!isAuth && !isPublic) {
+        if (auth.showContinueAs) return '/continue-as';
+        return '/login';
+      }
       if (isAuth && isPublic) {
-        if (location == '/splash') return null; // SplashScreen gère la navigation
         final user = auth.user;
         // Ne pas rediriger si le profil n'est pas encore chargé (erreur réseau)
         if (user == null) return null;
@@ -126,6 +129,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/server-settings',builder: (_, _) => const ServerSettingsScreen()),
 
       // ── Auth ─────────────────────────────────────────────────────────────
+      GoRoute(path: '/continue-as',     builder: (_, _) => const ContinueAsScreen()),
       GoRoute(path: '/login',           builder: (_, _) => const LoginPage()),
       GoRoute(path: '/register',        builder: (_, _) => const RegisterPage()),
       GoRoute(path: '/forgot-password', builder: (_, _) => const ForgotPasswordPage()),

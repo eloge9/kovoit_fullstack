@@ -171,8 +171,9 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'first_name', 'last_name',
             'email', 'role', 'mode_courant', 'numero_telephone',
-            'photo_profil', 'photo_url', 'auth_provider', 'note', 'is_active',
-            'date_joined', 'last_login',
+            'photo_profil', 'photo_url', 'photo_google', 'auth_provider',
+            'last_login_provider', 'passkey_enabled',
+            'note', 'is_active', 'date_joined', 'last_login',
             'photo_cni', 'photo_permis', 'statut_validation', 'peut_conduire', 'is_driver',
             'contact_urgence_nom', 'contact_urgence_telephone',
             'profil_conducteur', 'profil_passager', 'profil_admin',
@@ -180,11 +181,14 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'driver_status', 'is_driver_verified', 'driver_profile_id',
         ]
         extra_kwargs = {
-            'photo_profil': {'required': False, 'allow_null': True},
-            'photo_cni':    {'required': False, 'allow_null': True},
-            'photo_permis': {'required': False, 'allow_null': True},
-            'photo_url':    {'required': False, 'allow_null': True, 'read_only': True},
+            'photo_profil':       {'required': False, 'allow_null': True},
+            'photo_cni':          {'required': False, 'allow_null': True},
+            'photo_permis':       {'required': False, 'allow_null': True},
+            'photo_url':          {'required': False, 'allow_null': True, 'read_only': True},
+            'photo_google':       {'required': False, 'allow_null': True, 'read_only': True},
             'auth_provider':      {'read_only': True},
+            'last_login_provider':{'read_only': True},
+            'passkey_enabled':    {'read_only': True},
             'username':           {'required': False},
             'email':              {'required': False},
             # Champs administratifs : jamais modifiables via l'API profil utilisateur

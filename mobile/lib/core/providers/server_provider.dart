@@ -49,18 +49,13 @@ class ServerNotifier extends StateNotifier<ServerState> {
 
   // Appelé au démarrage depuis SplashScreen
   Future<void> initialize() async {
-    // En production (release), URL fixe — pas de scan réseau
-    if (kReleaseMode) {
-      _applyUrl(ApiConstants.productionUrl);
-      return;
-    }
-
     state = const ServerState(
       status: ServerStatus.checking,
       message: 'Vérification du serveur...',
     );
 
-    // 1. Essai de l'URL sauvegardée
+    // 1. Toujours essayer l'URL sauvegardée manuellement en premier
+    //    (permet de pointer vers un serveur local même en release)
     final saved = await StorageService.getServerUrl();
     if (saved != null) {
       final ok = await _discovery.ping(saved);
@@ -70,7 +65,22 @@ class ServerNotifier extends StateNotifier<ServerState> {
       }
     }
 
-    // 2. Découverte automatique
+    // 2. En production (release), essayer l'URL de production
+    if (kReleaseMode) {
+      state = state.copyWith(message: 'Connexion au serveur de production...');
+      final ok = await _discovery.ping(ApiConstants.productionUrl);
+      if (ok) {
+        _applyUrl(ApiConstants.productionUrl);
+      } else {
+        state = const ServerState(
+          status: ServerStatus.notFound,
+          message: 'Impossible de joindre le serveur. Vérifiez votre connexion.',
+        );
+      }
+      return;
+    }
+
+    // 3. Debug : découverte automatique sur le réseau local
     state = const ServerState(
       status: ServerStatus.discovering,
       message: 'Recherche du serveur...',

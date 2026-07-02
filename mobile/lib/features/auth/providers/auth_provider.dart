@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_model.dart';
+import '../models/saved_account.dart';
 import '../repositories/auth_repository.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/network/api_interceptor.dart';
@@ -16,12 +17,19 @@ class AuthState {
   final bool isLoading;
   final String? error;
   final bool isAuthenticated;
+  final List<SavedAccount> savedAccounts;
+  final bool showContinueAs;
+  /// True si des tokens JWT sont en storage (non encore vérifiés avec le serveur).
+  final bool hasTokens;
 
   const AuthState({
     this.user,
     this.isLoading = false,
     this.error,
     this.isAuthenticated = false,
+    this.savedAccounts = const [],
+    this.showContinueAs = false,
+    this.hasTokens = false,
   });
 
   AuthState copyWith({
@@ -29,14 +37,23 @@ class AuthState {
     bool? isLoading,
     String? error,
     bool? isAuthenticated,
+    List<SavedAccount>? savedAccounts,
+    bool? showContinueAs,
+    bool? hasTokens,
   }) =>
       AuthState(
         user:            user ?? this.user,
         isLoading:       isLoading ?? this.isLoading,
         error:           error,
         isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+        savedAccounts:   savedAccounts ?? this.savedAccounts,
+        showContinueAs:  showContinueAs ?? this.showContinueAs,
+        hasTokens:       hasTokens ?? this.hasTokens,
       );
 }
+
+/// Provider pour passer le compte sélectionné depuis ContinueAsScreen à LoginPage.
+final continueAsAccountProvider = StateProvider<SavedAccount?>((ref) => null);
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repo;
@@ -57,10 +74,51 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _init() async {
     final loggedIn = await StorageService.isLoggedIn();
-    if (loggedIn) {
-      await loadProfil();
-    } else {
-      state = state.copyWith(isLoading: false);
+    final accounts = await StorageService.getSavedAccounts();
+    // Lecture uniquement depuis le stockage — aucun appel réseau ici.
+    // Le SplashScreen lancera loadProfil() une fois le serveur découvert.
+    state = state.copyWith(
+      isLoading: false,
+      hasTokens: loggedIn,
+      savedAccounts: accounts,
+      showContinueAs: !loggedIn && accounts.isNotEmpty,
+    );
+  }
+
+  /// Tente une reconnexion automatique avec les identifiants sauvegardés (Remember Me).
+  /// Appelé par SplashScreen après que le serveur est trouvé.
+  Future<bool> tryAutoRelogin() async {
+    final saved = await StorageService.getSavedCredentials();
+    if (saved == null) return false;
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final data = await _repo.connexion(
+        email: saved.email,
+        password: saved.password,
+      );
+      final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
+      final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
+      if (user != null) {
+        final account = SavedAccount.fromUser(user);
+        await StorageService.saveAccount(account);
+        final accounts = await StorageService.getSavedAccounts();
+        state = state.copyWith(
+          isLoading: false, user: user, isAuthenticated: true,
+          savedAccounts: accounts, showContinueAs: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, isAuthenticated: false);
+      }
+      return user != null;
+    } catch (_) {
+      // Mot de passe changé ou compte supprimé : on efface les credentials
+      await StorageService.clearSavedCredentials();
+      final accounts = await StorageService.getSavedAccounts();
+      state = state.copyWith(
+        isLoading: false, isAuthenticated: false,
+        savedAccounts: accounts, showContinueAs: accounts.isNotEmpty,
+      );
+      return false;
     }
   }
 
@@ -68,10 +126,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final data = await _repo.connexion(email: email, password: password);
-      // Le backend retourne { "utilisateur": {...}, "tokens": {...} }
       final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
       final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
-      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
+      if (user != null) {
+        final account = SavedAccount.fromUser(user);
+        await StorageService.saveAccount(account);
+        final accounts = await StorageService.getSavedAccounts();
+        state = state.copyWith(
+          isLoading: false, user: user, isAuthenticated: true,
+          savedAccounts: accounts, showContinueAs: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, isAuthenticated: true, showContinueAs: false);
+      }
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false, error: _parseError(e));
@@ -103,7 +170,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final data = await _repo.googleSignIn(idToken);
       final utilisateurJson = data['utilisateur'] as Map<String, dynamic>?;
       final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
-      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
+      if (user != null) {
+        final account = SavedAccount.fromUser(user);
+        await StorageService.saveAccount(account);
+        final accounts = await StorageService.getSavedAccounts();
+        state = state.copyWith(
+          isLoading: false, user: user, isAuthenticated: true,
+          savedAccounts: accounts, showContinueAs: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, isAuthenticated: true, showContinueAs: false);
+      }
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false, error: _parseError(e));
@@ -115,14 +192,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final response = await _repo.inscription(data);
-      // Auto-login : le backend renvoie aussi l'utilisateur et les tokens
       final utilisateurJson = response['utilisateur'] as Map<String, dynamic>?;
       final user = utilisateurJson != null ? UserModel.fromJson(utilisateurJson) : null;
-      state = state.copyWith(
-        isLoading: false,
-        user: user,
-        isAuthenticated: user != null,
-      );
+      if (user != null) {
+        final account = SavedAccount.fromUser(user);
+        await StorageService.saveAccount(account);
+        final accounts = await StorageService.getSavedAccounts();
+        state = state.copyWith(
+          isLoading: false, user: user, isAuthenticated: true,
+          savedAccounts: accounts, showContinueAs: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, isAuthenticated: false);
+      }
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false, error: _parseError(e));
@@ -134,17 +216,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final user = await _repo.getProfil();
-      state = state.copyWith(isLoading: false, user: user, isAuthenticated: true);
+      // Mettre à jour le profil sauvegardé avec les données fraîches du serveur
+      final account = SavedAccount.fromUser(user);
+      await StorageService.saveAccount(account);
+      final accounts = await StorageService.getSavedAccounts();
+      state = state.copyWith(
+        isLoading: false, user: user, isAuthenticated: true,
+        savedAccounts: accounts, showContinueAs: false,
+      );
     } catch (e) {
-      // Supprimer les tokens UNIQUEMENT sur erreur d'authentification (401/403)
-      // Pas sur erreur réseau (serveur pas encore découvert, timeout, etc.)
       final isAuthFailure = e is ApiException &&
           (e.statusCode == 401 || e.statusCode == 403);
       if (isAuthFailure) {
         await StorageService.clearAll();
-        state = state.copyWith(isLoading: false, isAuthenticated: false, user: null);
+        final accounts = await StorageService.getSavedAccounts();
+        state = state.copyWith(
+          isLoading: false, isAuthenticated: false, user: null,
+          savedAccounts: accounts, showContinueAs: accounts.isNotEmpty,
+        );
       } else {
-        // Erreur réseau temporaire : garder les tokens, le profil sera rechargé
         state = state.copyWith(isLoading: false, isAuthenticated: true);
       }
     }
@@ -164,7 +254,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> deconnexion() async {
     await _repo.deconnexion();
-    state = const AuthState();
+    // Garder les comptes sauvegardés pour la reconnexion rapide, mais ne pas afficher
+    // l'écran "Continuer avec" — l'utilisateur a choisi de se déconnecter explicitement.
+    final accounts = state.savedAccounts;
+    state = AuthState(savedAccounts: accounts, showContinueAs: false);
   }
 
   Future<bool> changerMode(String mode) async {

@@ -19,6 +19,7 @@ class KTextField extends StatelessWidget {
   final TextInputAction? textInputAction;
   final FocusNode? focusNode;
   final void Function(String)? onSubmitted;
+  final Iterable<String>? autofillHints;
 
   const KTextField({
     super.key,
@@ -36,6 +37,7 @@ class KTextField extends StatelessWidget {
     this.textInputAction,
     this.focusNode,
     this.onSubmitted,
+    this.autofillHints,
   });
 
   @override
@@ -56,6 +58,7 @@ class KTextField extends StatelessWidget {
           textInputAction: textInputAction,
           focusNode: focusNode,
           onFieldSubmitted: onSubmitted,
+          autofillHints: autofillHints,
           style: KTextStyles.bodyLg.copyWith(color: KColors.baseContent),
           decoration: InputDecoration(
             hintText: hint,

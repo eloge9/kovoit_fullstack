@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
@@ -90,6 +91,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _loadSavedCredentials() async {
+    // Compte sélectionné depuis ContinueAsScreen (prioritaire)
+    final selectedAccount = ref.read(continueAsAccountProvider);
+    if (selectedAccount != null) {
+      ref.read(continueAsAccountProvider.notifier).state = null;
+      if (mounted) {
+        setState(() {
+          _emailCtrl.text = selectedAccount.email;
+          _rememberMe = true;
+        });
+      }
+      return;
+    }
+    // Sinon, identifiants sauvegardés classiques
     final saved = await StorageService.getSavedCredentials();
     if (saved != null && mounted) {
       setState(() {
@@ -114,9 +128,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _googleLoading = false);
     if (success) {
       final user = ref.read(authProvider).user;
-      if (user?.role == 'conducteur') context.go('/conducteur');
-      else if (user?.role == 'admin') context.go('/admin');
-      else context.go('/passager');
+      if (user?.role == 'conducteur') { context.go('/conducteur'); }
+      else if (user?.role == 'admin') { context.go('/admin'); }
+      else { context.go('/passager'); }
     } else {
       setState(() {
         _error = ref.read(authProvider).error ?? 'Connexion Google échouée.';
@@ -143,6 +157,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       } else {
         await StorageService.clearSavedCredentials();
       }
+
+      TextInput.finishAutofillContext();
 
       if (!mounted) return;
       final user = ref.read(authProvider).user;
@@ -175,6 +191,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
           child: Form(
             key: _formKey,
+            child: AutofillGroup(
             child: Column(
               children: [
                 const SizedBox(height: KSpacing.xxl),
@@ -231,6 +248,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         keyboardType: TextInputType.emailAddress,
                         textInputAction: TextInputAction.next,
                         prefixIcon: const Icon(Icons.email_outlined),
+                        autofillHints: const [AutofillHints.email],
                         validator: (v) {
                           if (v == null || v.isEmpty) return 'Email requis';
                           if (!v.contains('@')) return 'Email invalide';
@@ -269,6 +287,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             obscureText: _obscurePassword,
                             textInputAction: TextInputAction.done,
                             onFieldSubmitted: (_) => _submit(),
+                            autofillHints: const [AutofillHints.password],
                             validator: (v) {
                               if (v == null || v.isEmpty) {
                                 return 'Mot de passe requis';
@@ -393,6 +412,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 ),
               ],
             ),
+            ), // AutofillGroup
           ),
         ),
       ),

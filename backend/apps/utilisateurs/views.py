@@ -109,6 +109,9 @@ class AuthViewSet(viewsets.GenericViewSet):
         if not utilisateur:
             return Response({"error": "Identifiants invalides."}, status=status.HTTP_401_UNAUTHORIZED)
 
+        utilisateur.last_login_provider = 'email'
+        utilisateur.save(update_fields=['last_login_provider'])
+
         tokens = get_tokens(utilisateur)
         return Response({
             "message": "Connexion réussie.",
@@ -241,17 +244,24 @@ class AuthViewSet(viewsets.GenericViewSet):
         # 1) Lookup par google_id (compte déjà lié)
         try:
             utilisateur = Utilisateur.objects.get(google_id=google_sub)
+            # Mettre à jour la photo Google si elle a changé
+            if picture and utilisateur.photo_google != picture:
+                utilisateur.photo_google = picture
+                utilisateur.save(update_fields=['photo_google'])
         except Utilisateur.DoesNotExist:
             # 2) Lookup par email (compte email existant → on lie)
             try:
                 utilisateur = Utilisateur.objects.get(email=email)
                 if not utilisateur.google_id:
-                    fields_to_update = ['google_id', 'auth_provider']
+                    fields_to_update = ['google_id', 'auth_provider', 'last_login_provider']
                     utilisateur.google_id = google_sub
                     utilisateur.auth_provider = 'google'
-                    if picture and not utilisateur.photo_url:
-                        utilisateur.photo_url = picture
-                        fields_to_update.append('photo_url')
+                    if picture:
+                        utilisateur.photo_google = picture
+                        fields_to_update.append('photo_google')
+                        if not utilisateur.photo_url:
+                            utilisateur.photo_url = picture
+                            fields_to_update.append('photo_url')
                     utilisateur.save(update_fields=fields_to_update)
             except Utilisateur.DoesNotExist:
                 # 3) Nouveau compte passager via Google
@@ -270,12 +280,16 @@ class AuthViewSet(viewsets.GenericViewSet):
                     google_id=google_sub,
                     auth_provider='google',
                     photo_url=picture,
+                    photo_google=picture,
                     role=Utilisateur.Role.PASSAGER,
                 )
                 utilisateur.set_unusable_password()
                 utilisateur.save()
                 Passager.objects.create(utilisateur=utilisateur)
                 is_new = True
+
+        utilisateur.last_login_provider = 'google'
+        utilisateur.save(update_fields=['last_login_provider'])
 
         tokens = get_tokens(utilisateur)
         return Response({

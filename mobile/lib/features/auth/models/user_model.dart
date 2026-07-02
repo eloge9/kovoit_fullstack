@@ -20,6 +20,9 @@ class UserModel {
   final int? experienceAnnees;
   final String? driverStatus;
   final String authProvider;
+  final String? photoGoogle;
+  final String lastLoginProvider;
+  final bool passkeyEnabled;
 
   const UserModel({
     required this.id,
@@ -43,6 +46,9 @@ class UserModel {
     this.experienceAnnees,
     this.driverStatus,
     this.authProvider = 'email',
+    this.photoGoogle,
+    this.lastLoginProvider = 'email',
+    this.passkeyEnabled = false,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -56,7 +62,8 @@ class UserModel {
       firstName:              json['first_name'],
       lastName:               json['last_name'],
       phoneNumber:            json['numero_telephone'],
-      photoProfile:           json['photo_profil'] ?? json['photo_profile'] ?? json['photo_url'],
+      photoProfile:           json['photo_profil'] ?? json['photo_profile'],
+      photoGoogle:            json['photo_google'] ?? json['photo_url'],
       note:                   (json['note'] as num?)?.toDouble() ?? 0.0,
       photoCNI:               json['photo_cni'],
       photoPermis:            json['photo_permis'],
@@ -70,6 +77,8 @@ class UserModel {
       experienceAnnees:       json['experience_annees'],
       driverStatus:           json['driver_status'],
       authProvider:           json['auth_provider'] ?? 'email',
+      lastLoginProvider:      json['last_login_provider'] ?? 'email',
+      passkeyEnabled:         json['passkey_enabled'] ?? false,
     );
   }
 
@@ -98,6 +107,7 @@ class UserModel {
     String? contactUrgenceNom, String? contactUrgenceTelephone,
     String? modeCourant, String? numeroPermis, int? experienceAnnees,
     String? driverStatus, String? authProvider,
+    String? photoGoogle, String? lastLoginProvider, bool? passkeyEnabled,
   }) {
     return UserModel(
       id:                     id ?? this.id,
@@ -121,6 +131,9 @@ class UserModel {
       experienceAnnees:       experienceAnnees ?? this.experienceAnnees,
       driverStatus:           driverStatus ?? this.driverStatus,
       authProvider:           authProvider ?? this.authProvider,
+      photoGoogle:            photoGoogle ?? this.photoGoogle,
+      lastLoginProvider:      lastLoginProvider ?? this.lastLoginProvider,
+      passkeyEnabled:         passkeyEnabled ?? this.passkeyEnabled,
     );
   }
 

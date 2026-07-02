@@ -101,9 +101,17 @@ class Utilisateur(AbstractUser):
     google_id     = models.CharField(max_length=128, blank=True, null=True, unique=True)
     auth_provider = models.CharField(
         max_length=20, default='email',
-        choices=[('email', 'Email'), ('google', 'Google')],
+        choices=[('email', 'Email'), ('google', 'Google'), ('passkey', 'Passkey')],
     )
-    photo_url = models.URLField(max_length=500, blank=True, null=True)
+    photo_url    = models.URLField(max_length=500, blank=True, null=True)
+    photo_google = models.URLField(max_length=500, blank=True, null=True)
+
+    # --- Authentification avancée ---
+    last_login_provider = models.CharField(
+        max_length=20, default='email',
+        choices=[('email', 'Email'), ('google', 'Google'), ('passkey', 'Passkey')],
+    )
+    passkey_enabled = models.BooleanField(default=False)
 
     # --- Contact d'urgence (obligatoire pour le bouton SOS) ---
     contact_urgence_nom       = models.CharField(max_length=100, blank=True, default='')
