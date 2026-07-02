@@ -13,6 +13,8 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/widgets/k_button.dart';
 import '../../trajets/providers/trajet_provider.dart';
+import '../widgets/inline_ar_view.dart';
+import '../widgets/passengers_bottom_panel.dart';
 
 class ConducteurGpsPage extends ConsumerStatefulWidget {
   final int trajetId;
@@ -61,6 +63,10 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
   final Map<String, PassengerPositionData> _passengerPositions = {};
   StreamSubscription? _passengerSub;
   final Set<String> _announcedPassengers = {};
+
+  // Mode AR inline
+  bool _showArMode = false;
+  PassengerPositionData? _arTarget;
 
   // Heading pour rotation du marqueur
   double _currentHeading = 0;
@@ -237,6 +243,61 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     );
   }
 
+  void _openArToPassenger(PassengerPositionData p) {
+    setState(() {
+      _arTarget = p;
+      _showArMode = true;
+    });
+  }
+
+  void _toggleArMode() {
+    setState(() {
+      _showArMode = !_showArMode;
+      if (!_showArMode) _arTarget = null;
+    });
+  }
+
+  Future<void> _navigateToPassenger(PassengerPositionData p) async {
+    if (_currentPosition == null) return;
+    final route = await OsrmService.getRoute(
+      _currentPosition!.latitude, _currentPosition!.longitude,
+      p.latitude, p.longitude,
+    );
+    if (!mounted || route == null) return;
+    setState(() {
+      _routePoints = route.points;
+      _distanceRestanteKm = route.distanceKm;
+      _etaMinutes = route.durationMin;
+      _heureArrivee = _calcHeureArrivee(route.durationMin);
+    });
+    _mapController.move(LatLng(p.latitude, p.longitude), 15);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Navigation vers ${p.nom.split(' ').first}'),
+      backgroundColor: KColors.primary,
+      duration: const Duration(seconds: 3),
+    ));
+  }
+
+  void _openPassengerSheet(PassengerPositionData p) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PassengerActionSheet(
+        passenger: p,
+        driverLat: _currentPosition?.latitude,
+        driverLng: _currentPosition?.longitude,
+        onNavigate: () {
+          Navigator.pop(context);
+          _navigateToPassenger(p);
+        },
+        onArView: () {
+          Navigator.pop(context);
+          _openArToPassenger(p);
+        },
+      ),
+    );
+  }
+
   Future<void> _terminerTrajet() async {
     setState(() => _isEnding = true);
     final ok = await ref.read(trajetsProvider.notifier).terminerTrajet(widget.trajetId);
@@ -273,12 +334,33 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     final hasDepart = widget.departLat != null;
     final hasDest = widget.destinationLat != null;
 
+    // Cible AR : passager sélectionné → premier passager GPS → destination → rien
+    final arPassager = _arTarget ?? (_sortedPassengers.isNotEmpty ? _sortedPassengers.first : null);
+    final arLat  = arPassager?.latitude  ?? widget.destinationLat;
+    final arLng  = arPassager?.longitude ?? widget.destinationLng;
+    final arName = arPassager?.nom       ?? widget.destination;
+    final arType = arPassager != null    ? 'passager' : 'destination';
+    final arAvailable = arLat != null && arLng != null;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
+          // ── Vue AR inline (plein écran — toujours disponible) ────────────
+          if (_showArMode)
+            Positioned.fill(
+              child: InlineArView(
+                targetLat:       arLat ?? 0.0,
+                targetLng:       arLng ?? 0.0,
+                targetName:      arName,
+                targetType:      arType,
+                targetAvailable: arAvailable,
+                onBack:          _toggleArMode,
+              ),
+            ),
+
           // ── Carte plein écran ─────────────────────────────────────────────
-          FlutterMap(
+          if (!_showArMode) FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: center,
@@ -365,23 +447,26 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                       ),
                     ),
                   ),
-                // Passagers — marqueurs avec nom et distance
+                // Passagers — marqueurs tappables avec nom et distance
                 for (final p in _sortedPassengers)
                   Marker(
                     point: LatLng(p.latitude, p.longitude),
                     width: 80, height: 72,
-                    child: _PassengerMapMarker(
-                      data: p,
-                      driverLat: _currentPosition?.latitude,
-                      driverLng: _currentPosition?.longitude,
+                    child: GestureDetector(
+                      onTap: () => _openPassengerSheet(p),
+                      child: _PassengerMapMarker(
+                        data: p,
+                        driverLat: _currentPosition?.latitude,
+                        driverLng: _currentPosition?.longitude,
+                      ),
                     ),
                   ),
               ]),
             ],
           ),
 
-          // ── Bouton retour en navigation ───────────────────────────────────
-          SafeArea(
+          // ── Bouton retour en navigation (masqué en mode AR) ──────────────
+          if (!_showArMode) SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
@@ -442,13 +527,20 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                       }
                     },
                   ),
+                  const SizedBox(width: 8),
+                  // Toggle Carte ↔ AR
+                  _MapButton(
+                    icon: _showArMode ? Icons.map_rounded : Icons.view_in_ar_rounded,
+                    color: _showArMode ? KColors.primary : KColors.baseContent,
+                    onTap: _toggleArMode,
+                  ),
                 ],
               ),
             ),
           ),
 
-          // ── Panneau de navigation en haut ─────────────────────────────────
-          if (hasPosition)
+          // ── Panneau de navigation en haut (masqué en mode AR) ────────────
+          if (!_showArMode && hasPosition)
             Positioned(
               top: MediaQuery.of(context).padding.top + 60,
               left: 12,
@@ -462,16 +554,28 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
               ),
             ),
 
-          // ── Panneau infos + bouton terminer en bas ────────────────────────
-          Positioned(
+          // ── Panneau bas (masqué en mode AR) ──────────────────────────────
+          if (!_showArMode) Positioned(
             left: 0, right: 0, bottom: 0,
-            child: _BottomPanel(
-              speedKmh: _speedKmh,
-              distanceKm: _distanceRestanteKm,
-              etaMinutes: _etaMinutes,
-              isEnding: _isEnding,
-              onTerminer: _terminerTrajet,
-            ),
+            child: _passengerPositions.isNotEmpty
+                ? PassengersBottomPanel(
+                    passengers: _sortedPassengers,
+                    driverLat: _currentPosition?.latitude,
+                    driverLng: _currentPosition?.longitude,
+                    speedKmh: _speedKmh,
+                    isEnding: _isEnding,
+                    onTerminer: _terminerTrajet,
+                    onNavigate: _navigateToPassenger,
+                    onArView: _openArToPassenger,
+                    onMessage: _openPassengerSheet,
+                  )
+                : _BottomPanel(
+                    speedKmh: _speedKmh,
+                    distanceKm: _distanceRestanteKm,
+                    etaMinutes: _etaMinutes,
+                    isEnding: _isEnding,
+                    onTerminer: _terminerTrajet,
+                  ),
           ),
         ],
       ),
@@ -803,6 +907,177 @@ class _PassengerMapMarker extends StatelessWidget {
           child: const Icon(Icons.person_rounded, color: Colors.white, size: 17),
         ),
       ],
+    );
+  }
+}
+
+// ── Feuille d'actions passager ────────────────────────────────────────────────
+
+class _PassengerActionSheet extends StatelessWidget {
+  final PassengerPositionData passenger;
+  final double? driverLat;
+  final double? driverLng;
+  final VoidCallback onNavigate;
+  final VoidCallback onArView;
+
+  const _PassengerActionSheet({
+    required this.passenger,
+    required this.onNavigate,
+    required this.onArView,
+    this.driverLat,
+    this.driverLng,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String distLabel = '';
+    if (driverLat != null && driverLng != null) {
+      final dist = LocationService.distanceKm(
+        driverLat!, driverLng!, passenger.latitude, passenger.longitude,
+      );
+      distLabel = dist < 1
+          ? '${(dist * 1000).toInt()} m'
+          : '${dist.toStringAsFixed(1)} km';
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        24, 16, 24,
+        MediaQuery.of(context).padding.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: KColors.base300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // En-tête passager
+          Row(children: [
+            Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF8C00).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.person_rounded,
+                  color: Color(0xFFFF8C00), size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(passenger.nom,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      color: KColors.baseContent,
+                    )),
+                if (distLabel.isNotEmpty)
+                  Text('À $distLabel de vous',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: KColors.baseContentMid,
+                      )),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 20),
+          const Divider(color: KColors.border),
+          const SizedBox(height: 12),
+
+          // Action : naviguer
+          _SheetAction(
+            icon: Icons.alt_route_rounded,
+            iconColor: KColors.primary,
+            title: 'Naviguer vers ce passager',
+            subtitle: 'Recalculer l\'itinéraire jusqu\'à sa position',
+            onTap: onNavigate,
+          ),
+          const SizedBox(height: 10),
+
+          // Action : mode AR
+          _SheetAction(
+            icon: Icons.view_in_ar_rounded,
+            iconColor: const Color(0xFF7C3AED),
+            title: 'Mode AR',
+            subtitle: 'Voir la direction du passager en réalité augmentée',
+            onTap: onArView,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetAction extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SheetAction({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: KColors.base100,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: KColors.border),
+        ),
+        child: Row(children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: KColors.baseContent,
+                    )),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: KColors.baseContentMid,
+                    )),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded,
+              color: KColors.baseContentMid, size: 20),
+        ]),
+      ),
     );
   }
 }

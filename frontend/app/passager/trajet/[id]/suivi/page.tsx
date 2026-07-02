@@ -250,10 +250,7 @@ function PassagerSuiviContent() {
         setGpsActive(false);
     }, []);
 
-    // Démarrer GPS auto quand connecté au trajet
-    useEffect(() => {
-        if (isConnected && !gpsActive) startGps();
-    }, [isConnected, gpsActive, startGps]);
+    // GPS non démarré automatiquement — l'utilisateur choisit via le bouton
 
     useEffect(() => () => stopGps(), [stopGps]);
 
@@ -347,9 +344,75 @@ function PassagerSuiviContent() {
                 <div className="flex flex-wrap gap-x-5 gap-y-2">
                     <StatusDot ok={isConnected} label={isConnected ? "Connecté au trajet" : "Connexion…"} />
                     <StatusDot ok={lastPosition !== null} label={lastPosition ? "Position conducteur reçue" : "En attente de position…"} />
-                    <StatusDot ok={gpsActive} label={gpsActive ? "Votre position partagée" : "Position non partagée"} />
+                    <StatusDot ok={gpsActive} label={gpsActive ? "Votre position partagée ✓" : "Position non partagée"} />
                 </div>
             </div>
+
+            {/* ── Partage de position GPS ── */}
+            {trajetEnCours && (
+                <div className={`rounded-2xl border p-4 flex items-start gap-4 transition-all ${
+                    gpsActive
+                        ? "bg-primary/5 border-primary/25"
+                        : "bg-base-100 border-base-200"
+                }`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        gpsActive ? "bg-primary/15" : "bg-base-200"
+                    }`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${gpsActive ? "text-primary" : "text-base-content/40"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div>
+                                <p className="text-sm font-semibold text-base-content">
+                                    Partage de position
+                                </p>
+                                <p className="text-xs text-base-content/50 mt-0.5">
+                                    {gpsActive
+                                        ? "Votre position est visible par le conducteur en temps réel."
+                                        : "Activez le GPS pour que le conducteur puisse vous localiser."}
+                                </p>
+                            </div>
+                            <button
+                                onClick={gpsActive ? stopGps : startGps}
+                                disabled={!isConnected}
+                                className={`btn btn-sm rounded-full gap-2 shrink-0 ${
+                                    gpsActive
+                                        ? "btn-error btn-outline"
+                                        : "btn-primary"
+                                } disabled:opacity-50`}
+                            >
+                                {gpsActive ? (
+                                    <>
+                                        <span className="w-2 h-2 rounded-full bg-error animate-pulse" />
+                                        Désactiver
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        </svg>
+                                        Partager ma position
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                        {gpsActive && (
+                            <div className="mt-2 flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                <span className="text-xs text-primary font-medium">GPS actif · mise à jour toutes les 4 s</span>
+                            </div>
+                        )}
+                        {!isConnected && (
+                            <p className="mt-2 text-xs text-warning font-medium">
+                                ⚠ Connexion au trajet requise pour partager votre position.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ── Carte ── */}
             <div className="bg-base-100 rounded-2xl border border-base-200 overflow-hidden" style={{ height: 420 }}>

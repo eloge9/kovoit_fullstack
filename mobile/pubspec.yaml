@@ -75,6 +75,18 @@ dependencies:
   # Google Sign-In
   google_sign_in: ^6.2.1
 
+  # Découverte mDNS (Bonjour/Zeroconf) — trouve le serveur Django automatiquement
+  multicast_dns: ^0.3.2+4
+
+  # Boussole magnétique (heading précis pour AR)
+  flutter_compass: ^0.8.0
+
+  # Accéléromètre + gyroscope (orientation AR)
+  sensors_plus: ^6.0.1
+
+  # Caméra (flux vidéo pour Réalité Augmentée)
+  camera: ^0.11.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

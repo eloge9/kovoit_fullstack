@@ -55,27 +55,71 @@ const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 function AudioPlayer({ url, duration, isMine }: { url: string; duration: number | null; isMine: boolean }) {
   const [playing,  setPlaying]  = useState(false);
+  const [errored,  setErrored]  = useState(false);
   const [current,  setCurrent]  = useState(0);
   const [total,    setTotal]    = useState(duration ?? 0);
+  const [retryKey, setRetryKey] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    if (!url) return;
+    setErrored(false);
     const audio = new Audio(url);
     audioRef.current = audio;
     audio.onloadedmetadata = () => setTotal(Math.round(audio.duration));
-    audio.ontimeupdate = () => setCurrent(Math.round(audio.currentTime));
-    audio.onended = () => { setPlaying(false); setCurrent(0); };
+    audio.ontimeupdate    = () => setCurrent(Math.round(audio.currentTime));
+    audio.onended         = () => { setPlaying(false); setCurrent(0); };
+    audio.onerror         = () => {
+      setPlaying(false);
+      setErrored(true);
+      console.warn(
+        `[AudioPlayer] echec chargement — url=${url} code=${audio.error?.code ?? "n/a"} ` +
+        `message=${audio.error?.message || "n/a"} networkState=${audio.networkState} readyState=${audio.readyState}`,
+      );
+    };
     return () => { audio.pause(); audioRef.current = null; };
-  }, [url]);
+  }, [url, retryKey]);
 
   const toggle = () => {
-    if (!audioRef.current) return;
-    if (playing) { audioRef.current.pause(); setPlaying(false); }
-    else         { audioRef.current.play();  setPlaying(true);  }
+    if (!audioRef.current || errored) return;
+    if (playing) {
+      audioRef.current.pause();
+      setPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setPlaying(true)).catch(err => {
+        setPlaying(false);
+        setErrored(true);
+        console.warn(`[AudioPlayer] echec lecture — ${err?.name ?? "?"}: ${err?.message ?? err}`);
+      });
+    }
   };
 
   const ratio = total > 0 ? current / total : 0;
   const colorBtn = isMine ? "bg-white/20 hover:bg-white/30 text-white" : "bg-primary/10 hover:bg-primary/20 text-primary";
+  const linkCls  = isMine ? "text-white/70 hover:text-white" : "text-primary hover:text-primary-focus";
+
+  if (errored) {
+    return (
+      <div className="flex items-center gap-2 min-w-[220px]">
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${isMine ? "bg-white/20" : "bg-error/10"}`}>
+          <MicOff className={`w-4 h-4 ${isMine ? "text-white" : "text-error"}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs ${isMine ? "text-white/80" : "text-error"}`}>
+            Impossible de charger le message vocal.
+          </p>
+          <div className="flex gap-3 mt-0.5">
+            <button onClick={() => setRetryKey(k => k + 1)} className={`text-[11px] underline ${linkCls}`}>
+              Réessayer
+            </button>
+            <a href={url} download target="_blank" rel="noopener noreferrer" className={`text-[11px] underline ${linkCls}`}>
+              Télécharger
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-3 min-w-[180px]">
@@ -825,16 +869,7 @@ function MessagesContent() {
                   />
                 ) : (
                   <div className="flex items-end gap-2">
-                    <textarea
-                      ref={inputRef}
-                      className="flex-1 textarea textarea-bordered resize-none text-sm min-h-10 max-h-32 leading-relaxed"
-                      placeholder={editingMsg ? "Modifier le message…" : "Écrivez un message…"}
-                      value={input}
-                      rows={1}
-                      onChange={e => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                    />
-                    {/* Bouton micro (si pas en édition) */}
+                    {/* Bouton micro (si pas en édition) — à gauche pour éviter le chatbot flottant à droite */}
                     {!editingMsg && !input.trim() && (
                       <button
                         onClick={() => setRecordingAudio(true)}
@@ -854,6 +889,15 @@ function MessagesContent() {
                     >
                       <Send className="w-4 h-4" />
                     </button>
+                    <textarea
+                      ref={inputRef}
+                      className="flex-1 textarea textarea-bordered resize-none text-sm min-h-10 max-h-32 leading-relaxed"
+                      placeholder={editingMsg ? "Modifier le message…" : "Écrivez un message…"}
+                      value={input}
+                      rows={1}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                    />
                   </div>
                 )
               ) : (

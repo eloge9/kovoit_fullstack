@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../constants/api_constants.dart';
 import '../network/dio_client.dart';
+import '../services/mdns_discovery_service.dart';
 import '../services/server_discovery_service.dart';
 import '../services/storage_service.dart';
 
@@ -43,6 +44,7 @@ class ServerState {
 
 class ServerNotifier extends StateNotifier<ServerState> {
   final ServerDiscoveryService _discovery = ServerDiscoveryService();
+  final MdnsDiscoveryService _mdns = MdnsDiscoveryService();
 
   ServerNotifier()
       : super(const ServerState(status: ServerStatus.idle));
@@ -51,11 +53,24 @@ class ServerNotifier extends StateNotifier<ServerState> {
   Future<void> initialize() async {
     state = const ServerState(
       status: ServerStatus.checking,
-      message: 'Vérification du serveur...',
+      message: 'Connexion au serveur...',
     );
 
-    // 1. Toujours essayer l'URL sauvegardée manuellement en premier
-    //    (permet de pointer vers un serveur local même en release)
+    // En production (release) : URL fixe connue, on vérifie juste la connectivité
+    if (kReleaseMode) {
+      final ok = await _discovery.ping(ApiConstants.productionUrl);
+      if (ok) {
+        _applyUrl(ApiConstants.productionUrl);
+      } else {
+        state = const ServerState(
+          status: ServerStatus.notFound,
+          message: 'Impossible de joindre le serveur. Vérifiez votre connexion internet.',
+        );
+      }
+      return;
+    }
+
+    // 1. URL sauvegardée (la plus rapide)
     final saved = await StorageService.getServerUrl();
     if (saved != null) {
       final ok = await _discovery.ping(saved);
@@ -65,35 +80,30 @@ class ServerNotifier extends StateNotifier<ServerState> {
       }
     }
 
-    // 2. En production (release), essayer l'URL de production
-    if (kReleaseMode) {
-      state = state.copyWith(message: 'Connexion au serveur de production...');
-      final ok = await _discovery.ping(ApiConstants.productionUrl);
-      if (ok) {
-        _applyUrl(ApiConstants.productionUrl);
-      } else {
-        state = const ServerState(
-          status: ServerStatus.notFound,
-          message: 'Impossible de joindre le serveur. Vérifiez votre connexion.',
-        );
-      }
+    // 2. mDNS — découverte automatique Bonjour/Zeroconf (< 5 s)
+    if (mounted) {
+      state = const ServerState(
+        status: ServerStatus.discovering,
+        message: 'Recherche automatique (mDNS)...',
+      );
+    }
+    final mdnsUrl = await _mdns.discoverBackend();
+    if (mdnsUrl != null) {
+      await StorageService.saveServerUrl(mdnsUrl);
+      _applyUrl(mdnsUrl);
       return;
     }
 
-    // 3. Debug : découverte automatique sur le réseau local
-    state = const ServerState(
-      status: ServerStatus.discovering,
-      message: 'Recherche du serveur...',
-    );
-
+    // 3. Scan réseau complet (dernier recours)
+    if (mounted) {
+      state = const ServerState(
+        status: ServerStatus.discovering,
+        message: 'Scan du réseau local...',
+      );
+    }
     final found = await _discovery.discover(
       onProgress: (msg) {
-        if (mounted) {
-          state = state.copyWith(
-            status: ServerStatus.discovering,
-            message: msg,
-          );
-        }
+        if (mounted) state = state.copyWith(status: ServerStatus.discovering, message: msg);
       },
     );
 
@@ -103,7 +113,7 @@ class ServerNotifier extends StateNotifier<ServerState> {
     } else {
       state = const ServerState(
         status: ServerStatus.notFound,
-        message: 'Serveur introuvable sur le réseau local.',
+        message: 'Serveur introuvable. Vérifiez que Django tourne (0.0.0.0:8000) et que le téléphone est sur le même réseau.',
       );
     }
   }
@@ -153,29 +163,8 @@ class ServerNotifier extends StateNotifier<ServerState> {
     return ok;
   }
 
-  // Relancer la découverte automatique
-  Future<void> rediscover() async {
-    state = const ServerState(
-      status: ServerStatus.discovering,
-      message: 'Scan du réseau...',
-    );
-
-    final found = await _discovery.discover(
-      onProgress: (msg) {
-        if (mounted) state = state.copyWith(message: msg);
-      },
-    );
-
-    if (found != null) {
-      await StorageService.saveServerUrl(found);
-      _applyUrl(found);
-    } else {
-      state = const ServerState(
-        status: ServerStatus.notFound,
-        message: 'Serveur introuvable.',
-      );
-    }
-  }
+  // Relancer la vérification (utilisé par le bouton "Réessayer" du Splash)
+  Future<void> rediscover() async => initialize();
 
   // Réinitialiser la configuration
   Future<void> reset() async {

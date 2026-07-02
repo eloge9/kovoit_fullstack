@@ -21,6 +21,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' https://accounts.google.com",
       "style-src 'self' 'unsafe-inline' https://accounts.google.com",
       "img-src 'self' data: blob: http: https:",
+      `media-src 'self' blob: ${backendOrigin}`,
       "font-src 'self' data:",
       `connect-src 'self' ${backendOrigin} ${backendOrigin.replace(/^http/, "ws")} https://accounts.google.com https: wss:`,
       "frame-src https://accounts.google.com",

@@ -19,4 +19,16 @@ def main():
 
 
 if __name__ == '__main__':
+    # Démarre mDNS uniquement dans le processus enfant du reloader Django
+    # (RUN_MAIN='true') pour éviter un double enregistrement.
+    if 'runserver' in sys.argv and os.environ.get('RUN_MAIN') == 'true':
+        try:
+            from mdns_service import start_mdns
+            port = 8000
+            for arg in sys.argv:
+                if ':' in arg and arg.split(':')[-1].isdigit():
+                    port = int(arg.split(':')[-1])
+            start_mdns(port=port)
+        except Exception as exc:
+            print(f"[mDNS] Démarrage ignoré : {exc}")
     main()

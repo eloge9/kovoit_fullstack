@@ -512,6 +512,22 @@ class ReservationViewSet(viewsets.GenericViewSet):
         reservation.heure_embarquement = timezone.now()
         reservation.save(update_fields=['statut_embarquement', 'heure_embarquement'])
 
+        # Notifier le passager via WS GPS → stop sharing position
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                room = f"trajet_{reservation.trajet.pk}"
+                async_to_sync(channel_layer.group_send)(room, {
+                    "type": "passenger_boarded",
+                    "user_id": str(reservation.passager.pk),
+                    "nom": reservation.passager.get_full_name()
+                           or reservation.passager.username,
+                })
+        except Exception as e:
+            logger.warning(f"[GPS WS] broadcast passenger_boarded failed: {e}")
+
         return Response({
             "message": "Embarquement validé.",
             "passager": reservation.passager.get_full_name() or reservation.passager.username,

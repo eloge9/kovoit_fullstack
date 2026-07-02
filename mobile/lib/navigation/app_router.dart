@@ -64,6 +64,7 @@ import '../features/settings/screens/server_settings_screen.dart';
 import '../features/verification/screens/driver_status_page.dart';
 import '../features/verification/screens/document_upload_page.dart';
 import '../features/auth/screens/continue_as_screen.dart';
+import '../features/gps/screens/ar_view_page.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -321,7 +322,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           destinationLng: double.tryParse(state.uri.queryParameters['destinationLng'] ?? ''),
         ),
       ),
-      GoRoute(path: '/chatbot',                      builder: (_, _) => const ChatbotScreen()),
+      GoRoute(path: '/chatbot', builder: (_, _) => const ChatbotScreen()),
+      GoRoute(
+        path: '/ar',
+        builder: (_, state) => ArViewPage(
+          targetLat:  double.tryParse(state.uri.queryParameters['lat'] ?? '') ?? 0,
+          targetLng:  double.tryParse(state.uri.queryParameters['lng'] ?? '') ?? 0,
+          targetName: state.uri.queryParameters['name'] ?? 'Cible',
+          targetType: state.uri.queryParameters['type'] ?? 'conducteur',
+        ),
+      ),
       GoRoute(path: '/conducteur/create-trajet',   builder: (_, _) => const CreateTrajetPage()),
       GoRoute(path: '/conducteur/vehicules',        builder: (_, _) => const VehiculesPage()),
       GoRoute(

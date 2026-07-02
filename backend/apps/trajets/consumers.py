@@ -217,3 +217,11 @@ class GpsConsumer(AsyncWebsocketConsumer):
 
     async def driver_arrived(self, event):
         await self.send(text_data=json.dumps(event))
+
+    async def passenger_boarded(self, event):
+        """Notifie le passager que son embarquement a été validé par le conducteur."""
+        await self.send(text_data=json.dumps(event))
+        # Nettoyage du cache pour ce passager
+        uid = event.get("user_id", "")
+        if self.trajet_id in _positions_passagers:
+            _positions_passagers[self.trajet_id].pop(uid, None)

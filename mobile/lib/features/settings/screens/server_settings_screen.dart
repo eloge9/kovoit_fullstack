@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/providers/server_provider.dart';
 import '../../../core/theme/colors.dart';
 
@@ -43,12 +44,14 @@ class _ServerSettingsScreenState extends ConsumerState<ServerSettingsScreen> {
       _showFeedback('Entrez une URL valide.', error: true);
       return;
     }
-    final ok =
-        await ref.read(serverProvider.notifier).setManualUrl(url);
-    _showFeedback(
-      ok ? 'Connexion réussie !' : 'Impossible de joindre le serveur.',
-      error: !ok,
-    );
+    final ok = await ref.read(serverProvider.notifier).setManualUrl(url);
+    if (!mounted) return;
+    if (ok) {
+      // Retour vers splash pour relancer le flux d'authentification
+      context.go('/splash');
+    } else {
+      _showFeedback('Impossible de joindre le serveur.', error: true);
+    }
   }
 
   Future<void> _rediscover() async {

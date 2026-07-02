@@ -98,24 +98,45 @@ class DriverArrivedEvent {
       );
 }
 
+/// Événement reçu côté passager quand le conducteur valide son embarquement.
+class PassengerBoardedEvent {
+  final String userId;
+  final String nom;
+
+  const PassengerBoardedEvent({required this.userId, required this.nom});
+
+  factory PassengerBoardedEvent.fromJson(Map<String, dynamic> json) =>
+      PassengerBoardedEvent(
+        userId: json['user_id']?.toString() ?? '',
+        nom: (json['nom'] as String?) ?? '',
+      );
+}
+
 // ── Service principal ─────────────────────────────────────────────────────────
 
 class LocationService {
   WebSocketChannel? _channel;
-  StreamSubscription<Position>? _positionSub;
+  StreamSubscription<Position>? _positionSub;      // conducteur → envoi continu
+  StreamSubscription<Position>? _sharePositionSub; // passager → partage opt-in
   Timer? _reconnectTimer;
   Timer? _passengerSendTimer;
   bool _disposed = false;
   String _userNom = '';
+  Position? _lastSharedPosition;
 
   // Streams exposés
-  StreamController<LocationData>? _locationController;         // position conducteur → passager
-  StreamController<PassengerPositionData>? _passengersController; // positions passagers → conducteur
-  StreamController<DriverArrivedEvent>? _driverArrivedController; // alerte arrivée
+  StreamController<LocationData>? _locationController;
+  StreamController<PassengerPositionData>? _passengersController;
+  StreamController<DriverArrivedEvent>? _driverArrivedController;
+  StreamController<PassengerBoardedEvent>? _boardedController;
 
   Stream<LocationData>? get locationStream => _locationController?.stream;
   Stream<PassengerPositionData>? get passengersStream => _passengersController?.stream;
   Stream<DriverArrivedEvent>? get driverArrivedStream => _driverArrivedController?.stream;
+  Stream<PassengerBoardedEvent>? get boardedStream => _boardedController?.stream;
+
+  bool get isSharingPosition =>
+      _sharePositionSub != null || _passengerSendTimer != null;
 
   // ── Permissions ───────────────────────────────────────────────────────────
 
@@ -210,14 +231,15 @@ class LocationService {
     }
   }
 
-  // ── Passager : réception position conducteur + envoi sa position ───────────
+  // ── Passager : réception position conducteur (SANS envoi auto) ────────────
 
   Future<void> startReceivingLocation(int trajetId, {String nom = ''}) async {
     _userNom = nom;
     _locationController = StreamController<LocationData>.broadcast();
     _driverArrivedController = StreamController<DriverArrivedEvent>.broadcast();
+    _boardedController = StreamController<PassengerBoardedEvent>.broadcast();
     await _connectWsPassager(trajetId);
-    _startPassengerPositionSending();
+    // L'envoi de position est opt-in via startSharingPosition()
   }
 
   Future<void> _connectWsPassager(int trajetId) async {
@@ -235,10 +257,17 @@ class LocationService {
           try {
             final json = jsonDecode(rawData as String) as Map<String, dynamic>;
             final type = json['type'] as String?;
-            if (type == 'position_update' || json['latitude'] != null && type != 'passenger_position' && type != 'driver_arrived') {
+            if (type == 'position_update' ||
+                (json['latitude'] != null &&
+                    type != 'passenger_position' &&
+                    type != 'driver_arrived' &&
+                    type != 'passenger_boarded')) {
               _locationController?.add(LocationData.fromJson(json));
             } else if (type == 'driver_arrived') {
               _driverArrivedController?.add(DriverArrivedEvent.fromJson(json));
+            } else if (type == 'passenger_boarded') {
+              stopSharingPosition();
+              _boardedController?.add(PassengerBoardedEvent.fromJson(json));
             }
           } catch (e) {
             debugPrint('[LocationService] passager parse error: $e');
@@ -258,18 +287,71 @@ class LocationService {
     }
   }
 
-  void _startPassengerPositionSending() async {
+  // ── Passager : partage de position opt-in (économie batterie) ────────────
+
+  /// Démarre l'envoi de la position du passager vers le conducteur.
+  /// Économie batterie : stream déclenché si déplacement > 20m OU timer 5s max.
+  /// Appeler uniquement après consentement explicite.
+  Future<void> startSharingPosition({String nom = ''}) async {
+    if (nom.isNotEmpty) _userNom = nom;
     final hasPermission = await requestPermission();
     if (!hasPermission || _disposed) return;
 
-    // Envoyer immédiatement puis toutes les 5 secondes
-    _sendPassengerPosition();
-    _passengerSendTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_disposed) _sendPassengerPosition();
+    // Envoi immédiat
+    await _sendSharePosition();
+
+    // Stream GPS déclenché à chaque 20m de déplacement (économie batterie)
+    _sharePositionSub?.cancel();
+    _sharePositionSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 20,
+      ),
+    ).listen((pos) {
+      if (_disposed) return;
+      _lastSharedPosition = pos;
+      _sendSharePositionFromPos(pos);
     });
+
+    // Fallback : envoyer au moins toutes les 5s même si immobile
+    _passengerSendTimer?.cancel();
+    _passengerSendTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (_disposed) return;
+      if (_lastSharedPosition != null) {
+        _sendSharePositionFromPos(_lastSharedPosition!);
+      } else {
+        await _sendSharePosition();
+      }
+    });
+
+    debugPrint('[LocationService] partage position passager démarré');
   }
 
-  Future<void> _sendPassengerPosition() async {
+  /// Arrête l'envoi de position du passager (garde le WS ouvert pour recevoir).
+  void stopSharingPosition() {
+    _sharePositionSub?.cancel();
+    _sharePositionSub = null;
+    _passengerSendTimer?.cancel();
+    _passengerSendTimer = null;
+    _lastSharedPosition = null;
+    debugPrint('[LocationService] partage position passager arrêté');
+  }
+
+  void _sendSharePositionFromPos(Position pos) {
+    try {
+      _channel?.sink.add(jsonEncode({
+        'type': 'passenger_position',
+        'latitude': pos.latitude,
+        'longitude': pos.longitude,
+        'nom': _userNom,
+        'timestamp': DateTime.now().toIso8601String(),
+      }));
+    } catch (e) {
+      debugPrint('[LocationService] sendSharePosition error: $e');
+    }
+  }
+
+  Future<void> _sendSharePosition() async {
     if (_disposed) return;
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -279,15 +361,10 @@ class LocationService {
         ),
       );
       if (_disposed) return;
-      _channel?.sink.add(jsonEncode({
-        'type': 'passenger_position',
-        'latitude': pos.latitude,
-        'longitude': pos.longitude,
-        'nom': _userNom,
-        'timestamp': DateTime.now().toIso8601String(),
-      }));
+      _lastSharedPosition = pos;
+      _sendSharePositionFromPos(pos);
     } catch (e) {
-      debugPrint('[LocationService] sendPassengerPosition error: $e');
+      debugPrint('[LocationService] _sendSharePosition error: $e');
     }
   }
 
@@ -332,6 +409,19 @@ class LocationService {
     return r * 2 * atan2(sqrt(a), sqrt(1 - a));
   }
 
+  /// Azimut (bearing) en degrés de (lat1,lng1) vers (lat2,lng2). 0=N, 90=E.
+  static double bearingTo(
+    double lat1, double lng1,
+    double lat2, double lng2,
+  ) {
+    final dLng = _rad(lng2 - lng1);
+    final lat1r = _rad(lat1);
+    final lat2r = _rad(lat2);
+    final y = sin(dLng) * cos(lat2r);
+    final x = cos(lat1r) * sin(lat2r) - sin(lat1r) * cos(lat2r) * cos(dLng);
+    return (atan2(y, x) * 180 / pi + 360) % 360;
+  }
+
   static double _rad(double deg) => deg * pi / 180;
 
   static int etaMinutes(double distanceKm, double speedKmh) {
@@ -346,16 +436,21 @@ class LocationService {
     _reconnectTimer?.cancel();
     _passengerSendTimer?.cancel();
     _positionSub?.cancel();
+    _sharePositionSub?.cancel();
     _channel?.sink.close();
     _locationController?.close();
     _passengersController?.close();
     _driverArrivedController?.close();
+    _boardedController?.close();
+    _boardedController = null;
     _reconnectTimer = null;
     _passengerSendTimer = null;
     _positionSub = null;
+    _sharePositionSub = null;
     _channel = null;
     _locationController = null;
     _passengersController = null;
     _driverArrivedController = null;
+    _lastSharedPosition = null;
   }
 }

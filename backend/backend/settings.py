@@ -1,9 +1,14 @@
 from pathlib import Path
 import os
+import mimetypes
 from dotenv import load_dotenv
 from datetime import timedelta
 
 load_dotenv()
+
+# Python ne connaît pas audio/webm par défaut (il retourne video/webm),
+# ce qui fait échouer la lecture des messages vocaux enregistrés depuis le navigateur.
+mimetypes.add_type('audio/webm', '.webm')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

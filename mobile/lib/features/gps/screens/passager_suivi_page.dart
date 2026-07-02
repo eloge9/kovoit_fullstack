@@ -12,6 +12,7 @@ import '../../../core/services/navigation_tts_service.dart';
 import '../../../core/services/osrm_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
+import '../widgets/inline_ar_view.dart';
 
 class PassagerSuiviPage extends ConsumerStatefulWidget {
   final int trajetId;
@@ -51,7 +52,10 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
   List<EscaleModel> _escales = [];
   bool _showPanel = true;
   bool _conducteurEstArrive = false;
+  bool _sharingPosition = false;
+  bool _showArMode = false;
   StreamSubscription? _driverArrivedSub;
+  StreamSubscription? _boardedSub;
 
   // Métriques
   double _distanceRestanteKm = 0;
@@ -98,6 +102,11 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
     if (!mounted) return;
     setState(() => _statusText = 'Connecté');
 
+    // Demander le consentement après connexion WS établie
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showConsentDialog();
+    });
+
     // Écouter la position du conducteur
     _locationService.locationStream?.listen(
       (data) {
@@ -125,6 +134,52 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
       setState(() => _conducteurEstArrive = true);
       _tts.speak('Votre conducteur est arrivé. Préparez-vous à monter.');
     });
+
+    // Arrêt partage automatique quand le conducteur valide l'embarquement
+    _boardedSub = _locationService.boardedStream?.listen((event) {
+      if (!mounted) return;
+      setState(() => _sharingPosition = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Embarquement validé. Partage de position arrêté.'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 4),
+      ));
+    });
+  }
+
+  Future<void> _showConsentDialog() async {
+    if (!mounted) return;
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _LocationConsentSheet(),
+    );
+    if (!mounted) return;
+    if (result == 'realtime') {
+      final user = ref.read(currentUserProvider);
+      final nom = user != null
+          ? '${user.firstName ?? ''} ${user.lastName ?? ''}'.trim()
+          : '';
+      await _locationService.startSharingPosition(nom: nom);
+      if (mounted) setState(() => _sharingPosition = true);
+    } else if (result == 'once') {
+      // Envoie une seule fois puis arrête
+      final user = ref.read(currentUserProvider);
+      final nom = user != null
+          ? '${user.firstName ?? ''} ${user.lastName ?? ''}'.trim()
+          : '';
+      await _locationService.startSharingPosition(nom: nom);
+      await Future.delayed(const Duration(seconds: 2));
+      _locationService.stopSharingPosition();
+      if (mounted) setState(() => _sharingPosition = false);
+    }
+    // 'refuse' → ne rien faire
+  }
+
+  void _toggleArMode() {
+    setState(() => _showArMode = !_showArMode);
   }
 
   void _onMoveUpdate() {
@@ -200,6 +255,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
     _pulseCtrl.dispose();
     _moveCtrl.dispose();
     _driverArrivedSub?.cancel();
+    _boardedSub?.cancel();
+    _locationService.stopSharingPosition();
     _locationService.dispose();
     _tts.dispose();
     super.dispose();
@@ -216,8 +273,21 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
+          // ── Vue AR inline (plein écran, toujours disponible) ─────────────
+          if (_showArMode)
+            Positioned.fill(
+              child: InlineArView(
+                targetLat: _conducteurPosition?.latitude ?? 0.0,
+                targetLng: _conducteurPosition?.longitude ?? 0.0,
+                targetName: widget.conducteurNom,
+                targetType: 'conducteur',
+                targetAvailable: _conducteurPosition != null,
+                onBack: _toggleArMode,
+              ),
+            ),
+
           // ── Carte plein écran ─────────────────────────────────────────────
-          FlutterMap(
+          if (!_showArMode) FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: center,
@@ -329,8 +399,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
             ],
           ),
 
-          // ── Barre supérieure ──────────────────────────────────────────────
-          SafeArea(
+          // ── Barre supérieure (masquée en mode AR) ────────────────────────
+          if (!_showArMode) SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(children: [
@@ -381,15 +451,51 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
                           ],
                         ),
                       ),
+                      if (_sharingPosition)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: KColors.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Container(
+                              width: 6, height: 6,
+                              decoration: const BoxDecoration(
+                                color: KColors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text('GPS',
+                                style: KTextStyles.caption.copyWith(
+                                  color: KColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 9,
+                                )),
+                          ]),
+                        ),
                     ]),
                   ),
+                ),
+                const SizedBox(width: 8),
+                // Bouton toggle Carte ↔ AR
+                _MapButton(
+                  icon: _showArMode
+                      ? Icons.map_rounded
+                      : Icons.view_in_ar_rounded,
+                  color: _showArMode
+                      ? KColors.primary
+                      : (hasDriver ? KColors.baseContent : KColors.baseContentMid),
+                  onTap: _toggleArMode,
                 ),
               ]),
             ),
           ),
 
-          // ── ETA banner si conducteur positionné ───────────────────────────
-          if (hasDriver && _etaMinutes > 0)
+          // ── ETA banner si conducteur positionné (masqué en mode AR) ─────
+          if (!_showArMode && hasDriver && _etaMinutes > 0)
             Positioned(
               top: MediaQuery.of(context).padding.top + 70,
               left: 12, right: 12,
@@ -400,8 +506,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               ),
             ),
 
-          // ── Notification conducteur arrivé ───────────────────────────────
-          if (_conducteurEstArrive)
+          // ── Notification conducteur arrivé (masquée en mode AR) ─────────
+          if (!_showArMode && _conducteurEstArrive)
             Positioned(
               top: MediaQuery.of(context).padding.top + 80,
               left: 16, right: 16,
@@ -433,8 +539,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               ),
             ),
 
-          // ── Attente de la position du conducteur ──────────────────────────
-          if (!hasDriver)
+          // ── Attente de la position du conducteur (masqué en mode AR) ────
+          if (!_showArMode && !hasDriver)
             Center(
               child: Container(
                 margin: const EdgeInsets.all(32),
@@ -466,8 +572,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               ),
             ),
 
-          // ── Panneau bas ───────────────────────────────────────────────────
-          if (_showPanel)
+          // ── Panneau bas (masqué en mode AR) ──────────────────────────────
+          if (!_showArMode && _showPanel)
             Positioned(
               left: 0, right: 0, bottom: 0,
               child: _BottomInfoPanel(
@@ -477,7 +583,7 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
                 onClose: () => setState(() => _showPanel = false),
               ),
             )
-          else
+          else if (!_showArMode)
             Positioned(
               bottom: MediaQuery.of(context).padding.bottom + 16,
               right: 16,
@@ -487,8 +593,8 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
               ),
             ),
 
-          // ── Overlay "Conducteur arrivé" ───────────────────────────────────
-          if (_conducteurEstArrive)
+          // ── Overlay "Conducteur arrivé" (masqué en mode AR) ─────────────
+          if (!_showArMode && _conducteurEstArrive)
             Positioned(
               left: 16, right: 16,
               bottom: MediaQuery.of(context).padding.bottom + 100,
@@ -530,7 +636,8 @@ class LatLngTween extends Tween<LatLng> {
 class _MapButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
-  const _MapButton({required this.icon, required this.onTap});
+  final Color? color;
+  const _MapButton({required this.icon, required this.onTap, this.color});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -545,7 +652,7 @@ class _MapButton extends StatelessWidget {
               blurRadius: 8,
             )],
           ),
-          child: Icon(icon, size: 22, color: KColors.baseContent),
+          child: Icon(icon, size: 22, color: color ?? KColors.baseContent),
         ),
       );
 }
@@ -815,6 +922,167 @@ class _DriverArrivedCard extends StatelessWidget {
             ),
           ]),
         ],
+      ),
+    );
+  }
+}
+
+// ── Feuille de consentement localisation passager ─────────────────────────────
+
+class _LocationConsentSheet extends StatelessWidget {
+  const _LocationConsentSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        24, 16, 24,
+        MediaQuery.of(context).padding.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: KColors.base300,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Icône
+          Container(
+            width: 60, height: 60,
+            decoration: BoxDecoration(
+              color: KColors.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.my_location_rounded,
+              color: KColors.primary,
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          const Text(
+            'Partager votre position ?',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: KColors.baseContent,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Permettez au conducteur de vous localiser pour faciliter la prise en charge.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: KColors.baseContentMid,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Option 1 : temps réel
+          _ConsentOption(
+            icon: Icons.gps_fixed_rounded,
+            iconColor: KColors.primary,
+            title: 'Partager en temps réel',
+            subtitle: 'Le conducteur voit votre position en continu',
+            onTap: () => Navigator.of(context).pop('realtime'),
+          ),
+          const SizedBox(height: 10),
+
+          // Option 2 : une seule fois
+          _ConsentOption(
+            icon: Icons.gps_not_fixed_rounded,
+            iconColor: KColors.warning,
+            title: 'Position unique',
+            subtitle: 'Envoyer ma position une seule fois',
+            onTap: () => Navigator.of(context).pop('once'),
+          ),
+          const SizedBox(height: 10),
+
+          // Option 3 : refuser
+          _ConsentOption(
+            icon: Icons.location_off_rounded,
+            iconColor: KColors.baseContentMid,
+            title: 'Refuser',
+            subtitle: 'Ne pas partager ma position',
+            onTap: () => Navigator.of(context).pop('refuse'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsentOption extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ConsentOption({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: KColors.base100,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: KColors.border),
+        ),
+        child: Row(children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: KColors.baseContent,
+                    )),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: KColors.baseContentMid,
+                    )),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right_rounded,
+              color: KColors.baseContentMid, size: 20),
+        ]),
       ),
     );
   }
