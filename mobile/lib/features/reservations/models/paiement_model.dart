@@ -108,6 +108,7 @@ class PaiementModel {
   bool get isEspece              => moyenPaiement == 'ESPECE';
   bool get isMobileMoney         => moyenPaiement == 'FLOOZ' || moyenPaiement == 'YAS';
   bool get isTermine             => isConfirme || isPayee;
+  bool get isAnnule              => statut.toUpperCase() == 'ANNULE';
 
   String get moyenLabel => switch (moyenPaiement) {
     'FLOOZ'  => 'Moov Flooz',

@@ -83,7 +83,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
         except Reservation.DoesNotExist:
             return Response({'error': 'Réservation introuvable.'}, status=404)
 
-        if reservation.statut != 'confirmee':
+        if reservation.statut not in ('confirmee', 'terminee'):
             return Response({'error': 'La réservation doit être confirmée avant le paiement.'}, status=400)
 
         with transaction.atomic():
@@ -229,7 +229,7 @@ class PaiementViewSet(viewsets.GenericViewSet):
         except Reservation.DoesNotExist:
             return Response({'error': 'Réservation introuvable.'}, status=404)
 
-        if reservation.statut != 'confirmee':
+        if reservation.statut not in ('confirmee', 'terminee'):
             return Response({'error': 'La réservation doit être confirmée avant le paiement.'}, status=400)
 
         with transaction.atomic():
@@ -632,7 +632,9 @@ class PaiementViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'])
     def annuler_paiement(self, request):
         """
-        Le passager annule son paiement Mobile Money en attente.
+        Le passager annule son paiement en attente (mobile money EN_ATTENTE
+        ou espèces EN_ATTENTE_CONFIRMATION), pour pouvoir en réinitier un
+        autre (espèces ou mobile money).
         Body: { reservation_id }
         """
         reservation_id = request.data.get('reservation_id')

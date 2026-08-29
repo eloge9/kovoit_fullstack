@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { mesReservations } from "@/src/services/reservation.service";
+import { annulerPaiement } from "@/src/services/paiement.service";
 import { api } from "@/src/services/api";
 
 // ── Modal consentement GPS ────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ export default function MesReservationsPage() {
     const [error, setError] = useState<string | null>(null);
     const [filtre, setFiltre] = useState<"tous" | "en_attente" | "confirmee" | "declinee" | "terminee">("tous");
     const [annulation, setAnnulation] = useState<number | null>(null);
+    const [annulationPaiement, setAnnulationPaiement] = useState<number | null>(null);
     const [gpsConsent, setGpsConsent] = useState<number | null>(null);
 
     const handleSuivre = (trajetId: number) => setGpsConsent(trajetId);
@@ -140,6 +142,22 @@ export default function MesReservationsPage() {
             setError(err.response?.data?.error || "Erreur lors de l'annulation.");
         } finally {
             setAnnulation(null);
+        }
+    };
+
+    const handleAnnulerPaiement = async (id: number) => {
+        if (!confirm("Annuler ce paiement en espèces en attente et choisir un autre mode de paiement ?")) return;
+        setAnnulationPaiement(id);
+        setError(null);
+        try {
+            await annulerPaiement(id);
+            setReservations((prev) =>
+                prev.map((r) => r.id === id ? { ...r, paiement_statut: null, paiement_moyen: null } : r)
+            );
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de l'annulation du paiement.");
+        } finally {
+            setAnnulationPaiement(null);
         }
     };
 
@@ -326,8 +344,8 @@ export default function MesReservationsPage() {
                                         >
                                             Voir
                                         </button>
-                                        {/* Payer — seulement si confirmée et pas encore payée */}
-                                        {resa.statut === "confirmee" && (() => {
+                                        {/* Payer — confirmée ou terminée, tant que pas encore payée */}
+                                        {(resa.statut === "confirmee" || resa.statut === "terminee") && (() => {
                                             const ps = resa.paiement_statut;
                                             if (ps === "PAYEE" || ps === "CONFIRME") {
                                                 return (
@@ -341,8 +359,18 @@ export default function MesReservationsPage() {
                                             }
                                             if (ps === "EN_ATTENTE_CONFIRMATION") {
                                                 return (
-                                                    <span className="badge badge-warning badge-sm rounded-full">
+                                                    <span className="badge badge-warning badge-sm rounded-full gap-1">
                                                         Espèces en attente
+                                                        <button
+                                                            onClick={() => handleAnnulerPaiement(resa.id)}
+                                                            disabled={annulationPaiement === resa.id}
+                                                            className="text-error/70 hover:text-error font-semibold ml-1"
+                                                        >
+                                                            {annulationPaiement === resa.id
+                                                                ? <span className="loading loading-spinner loading-xs" />
+                                                                : "✕"
+                                                            }
+                                                        </button>
                                                     </span>
                                                 );
                                             }

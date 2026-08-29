@@ -209,6 +209,18 @@ class ReservationRepository {
     }
   }
 
+  /// Annule un paiement en attente (mobile money ou espèces non confirmées).
+  Future<void> annulerPaiement(int reservationId) async {
+    try {
+      await DioClient.post(
+        ApiConstants.annulerPaiement,
+        data: {'reservation_id': reservationId},
+      );
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
   Future<Map<String, dynamic>> getCodeEmbarquement(int reservationId) async {
     try {
       final response = await DioClient.get('/reservations/$reservationId/code-embarquement/');

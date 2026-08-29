@@ -42,6 +42,7 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
   String? _error;
   bool _annulerLoading = false;
   bool _especeLoading = false;
+  bool _annulerPaiementLoading = false;
   bool _ajouterPlacesLoading = false;
   bool _groupeChatLoading = false;
 
@@ -234,6 +235,9 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
                   .push('$prefix/reservation/${r.id}/code-embarquement'),
             ),
             const SizedBox(height: KSpacing.md),
+          ],
+          // Paiement possible tant que non réglé, même après la fin du trajet
+          if (r.isConfirmee || r.isTerminee) ...[
             _buildPaiementButton(context, r, prefix),
             const SizedBox(height: KSpacing.md),
           ],
@@ -411,7 +415,7 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
   Widget _buildPaiementButton(
       BuildContext context, ReservationModel r, String prefix) {
     final p = r.paiement;
-    if (p == null) {
+    if (p == null || p.isAnnule) {
       return KButton(
         label: 'Payer ma place',
         icon: Icons.payments_rounded,
@@ -427,13 +431,28 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
         borderColor: KColors.success.withValues(alpha: 0.3),
       );
     }
-    if (p.isEspece) {
-      return _StateBadge(
-        icon: Icons.handshake_outlined,
-        label: 'Paiement en espèces au conducteur',
-        color: KColors.primary,
-        bgColor: KColors.primary.withValues(alpha: 0.07),
-        borderColor: KColors.primary.withValues(alpha: 0.2),
+    if (p.isEspece && p.isEnAttenteConfirm) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StateBadge(
+            icon: Icons.handshake_outlined,
+            label: 'Paiement en espèces au conducteur',
+            color: KColors.primary,
+            bgColor: KColors.primary.withValues(alpha: 0.07),
+            borderColor: KColors.primary.withValues(alpha: 0.2),
+          ),
+          const SizedBox(height: KSpacing.sm),
+          KButton(
+            label: 'Annuler et choisir un autre mode',
+            icon: Icons.cancel_outlined,
+            variant: KButtonVariant.outline,
+            isLoading: _annulerPaiementLoading,
+            onPressed: _annulerPaiementLoading
+                ? null
+                : () => _annulerPaiement(context, r),
+          ),
+        ],
       );
     }
     return KButton(
@@ -493,6 +512,57 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage>
       ));
     } finally {
       if (mounted) setState(() => _especeLoading = false);
+    }
+  }
+
+  Future<void> _annulerPaiement(BuildContext context, ReservationModel r) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Annuler ce paiement ?'),
+        content: const Text(
+          'Vous pourrez ensuite choisir un autre mode de paiement (espèces ou mobile money).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Non'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Oui, annuler',
+              style: TextStyle(color: KColors.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _annulerPaiementLoading = true);
+    try {
+      await ReservationRepository().annulerPaiement(r.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Paiement annulé. Choisissez un nouveau mode de paiement.'),
+        backgroundColor: KColors.warning,
+      ));
+      if (_reservation?.paiement != null) {
+        setState(() {
+          _reservation = _reservation!.copyWith(
+            paiement: _reservation!.paiement!.copyWith(statut: 'ANNULE'),
+          );
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur : $e'),
+        backgroundColor: KColors.error,
+      ));
+    } finally {
+      if (mounted) setState(() => _annulerPaiementLoading = false);
     }
   }
 

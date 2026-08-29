@@ -29,7 +29,7 @@ interface Reservation {
     statut_embarquement?: "en_attente" | "embarque" | "depose";
     heure_embarquement?: string;
     heure_depose?: string;
-    statut: "en_attente" | "confirmee" | "declinee";
+    statut: "en_attente" | "confirmee" | "declinee" | "terminee";
     date_reservation: string;
     conversation_id?: number | null;
     paiement_statut: string | null;
@@ -296,8 +296,8 @@ export default function ReservationsRecuesPage() {
                                     </div>
                                 )}
 
-                                {/* Bloc paiement — visible si confirmée */}
-                                {resa.statut === "confirmee" && resa.paiement_statut && (
+                                {/* Bloc paiement — visible si confirmée ou terminée */}
+                                {(resa.statut === "confirmee" || resa.statut === "terminee") && resa.paiement_statut && (
                                     <div className={`mt-3 rounded-xl px-4 py-3 border ${
                                         resa.paiement_statut === "CONFIRME"
                                             ? "bg-success/5 border-success/20"

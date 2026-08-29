@@ -709,6 +709,45 @@ class _StatutChip extends StatelessWidget {
   }
 }
 
+// ── Action paiement (réutilisée par _ReservationCard et _HistoriqueCard) ──────
+
+Widget _paiementActionWidget(
+    BuildContext context, ReservationModel r, String prefix) {
+  final p = r.paiement;
+  if (p == null) {
+    return KButton(
+      label: 'Payer ma place',
+      icon: Icons.payments_rounded,
+      variant: KButtonVariant.outline,
+      onPressed: () => context.push('$prefix/paiement/${r.id}'),
+    );
+  }
+  if (p.isTermine) {
+    return _PaiementStateBadge(
+      icon: Icons.check_circle_rounded,
+      label: 'Paiement confirmé',
+      color: KColors.successContent,
+      bgColor: KColors.success.withValues(alpha: 0.1),
+      borderColor: KColors.success.withValues(alpha: 0.3),
+    );
+  }
+  if (p.isEspece) {
+    return _PaiementStateBadge(
+      icon: Icons.handshake_outlined,
+      label: 'Paiement en espèces au conducteur',
+      color: KColors.primary,
+      bgColor: KColors.primary.withValues(alpha: 0.07),
+      borderColor: KColors.primary.withValues(alpha: 0.2),
+    );
+  }
+  return KButton(
+    label: 'Terminer le paiement',
+    icon: Icons.payments_rounded,
+    variant: KButtonVariant.warning,
+    onPressed: () => context.push('$prefix/paiement/${r.id}'),
+  );
+}
+
 // ── Carte réservation active ──────────────────────────────────────────────────
 
 class _ReservationCard extends StatelessWidget {
@@ -833,41 +872,8 @@ class _ReservationCard extends StatelessWidget {
     return false;
   }
 
-  Widget _buildPaiementAction(BuildContext context) {
-    final p = r.paiement;
-    if (p == null) {
-      return KButton(
-        label: 'Payer ma place',
-        icon: Icons.payments_rounded,
-        variant: KButtonVariant.outline,
-        onPressed: () => context.push('$prefix/paiement/${r.id}'),
-      );
-    }
-    if (p.isTermine) {
-      return _PaiementStateBadge(
-        icon: Icons.check_circle_rounded,
-        label: 'Paiement confirmé',
-        color: KColors.successContent,
-        bgColor: KColors.success.withValues(alpha: 0.1),
-        borderColor: KColors.success.withValues(alpha: 0.3),
-      );
-    }
-    if (p.isEspece) {
-      return _PaiementStateBadge(
-        icon: Icons.handshake_outlined,
-        label: 'Paiement en espèces au conducteur',
-        color: KColors.primary,
-        bgColor: KColors.primary.withValues(alpha: 0.07),
-        borderColor: KColors.primary.withValues(alpha: 0.2),
-      );
-    }
-    return KButton(
-      label: 'Terminer le paiement',
-      icon: Icons.payments_rounded,
-      variant: KButtonVariant.warning,
-      onPressed: () => context.push('$prefix/paiement/${r.id}'),
-    );
-  }
+  Widget _buildPaiementAction(BuildContext context) =>
+      _paiementActionWidget(context, r, prefix);
 
   Widget _buildActions(BuildContext context) {
     if (isConducteur && r.isEnAttente) {
@@ -932,15 +938,22 @@ class _ReservationCard extends StatelessWidget {
       );
     }
 
-    if (!isConducteur && r.isTerminee && (r.trajet?.conducteurId ?? '').isNotEmpty) {
-      return KButton(
-        label: 'Évaluer le conducteur',
-        icon: Icons.star_rounded,
-        variant: KButtonVariant.outline,
-        onPressed: () => context.push(
-          '$prefix/evaluation/${r.trajetId}/${r.trajet!.conducteurId}',
-        ),
-      );
+    if (!isConducteur && r.isTerminee) {
+      return Column(children: [
+        // Paiement possible tant que non réglé, même après la fin du trajet
+        _buildPaiementAction(context),
+        if ((r.trajet?.conducteurId ?? '').isNotEmpty) ...[
+          const SizedBox(height: KSpacing.md),
+          KButton(
+            label: 'Évaluer le conducteur',
+            icon: Icons.star_rounded,
+            variant: KButtonVariant.outline,
+            onPressed: () => context.push(
+              '$prefix/evaluation/${r.trajetId}/${r.trajet!.conducteurId}',
+            ),
+          ),
+        ],
+      ]);
     }
 
     if (!isConducteur && r.trajet?.statut == 'en_cours') {
@@ -1112,11 +1125,16 @@ class _HistoriqueCard extends StatelessWidget {
               ),
             ]),
 
-            // ── Bouton évaluation ────────────────────────────────────
+            // ── Paiement / évaluation ─────────────────────────────────
             if (r.isTerminee) ...[
               const SizedBox(height: KSpacing.md),
               const Divider(color: KColors.border, height: 1),
               const SizedBox(height: KSpacing.md),
+              // Paiement possible tant que non réglé, même trajet terminé
+              if (!isConducteur) ...[
+                _paiementActionWidget(context, r, prefix),
+                const SizedBox(height: KSpacing.md),
+              ],
               if (isConducteur && r.passagerId.isNotEmpty)
                 KButton(
                   label: 'Évaluer ${r.passagerNom}',

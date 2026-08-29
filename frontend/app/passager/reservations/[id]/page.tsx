@@ -8,6 +8,7 @@ import { getTrajet, type Trajet } from "@/src/services/trajet.service";
 import { getQrCode } from "@/src/services/messagerie.service";
 import { ajouterPlaces } from "@/src/services/reservation.service";
 import { getOrCreateGroupeTrajet } from "@/src/services/messagerie.service";
+import { annulerPaiement } from "@/src/services/paiement.service";
 import { QRCodeSVG } from "qrcode.react";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -52,6 +53,7 @@ export default function DetailReservationPage() {
     const [ajoutPlaces, setAjoutPlaces] = useState(1);
     const [ajoutLoading, setAjoutLoading] = useState(false);
     const [groupeChatLoading, setGroupeChatLoading] = useState(false);
+    const [annulationPaiement, setAnnulationPaiement] = useState(false);
 
     useEffect(() => {
         const fetchReservation = async () => {
@@ -137,6 +139,37 @@ export default function DetailReservationPage() {
             setAnnulation(false);
         }
     };
+
+    const handleAnnulerPaiement = async () => {
+        if (!reservation) return;
+        if (!confirm("Annuler ce paiement en espèces en attente et choisir un autre mode de paiement ?")) return;
+        setAnnulationPaiement(true);
+        setError(null);
+        try {
+            await annulerPaiement(reservation.id);
+            setReservation(prev => prev ? { ...prev, paiement_statut: null, paiement_moyen: null } : prev);
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Erreur lors de l'annulation du paiement.");
+        } finally {
+            setAnnulationPaiement(false);
+        }
+    };
+
+    const renderPaiementEspecesEnAttente = () => (
+        <div className="flex items-center gap-2 flex-1 justify-center flex-wrap bg-warning/10 border border-warning/20 rounded-full px-4 py-2">
+            <span className="text-sm font-semibold text-warning">Paiement espèces en attente</span>
+            <button
+                onClick={handleAnnulerPaiement}
+                disabled={annulationPaiement}
+                className="btn btn-ghost btn-xs rounded-full text-error"
+            >
+                {annulationPaiement
+                    ? <span className="loading loading-spinner loading-xs" />
+                    : "Annuler"
+                }
+            </button>
+        </div>
+    );
 
     const formatDate = (iso: string) =>
         new Date(iso).toLocaleDateString("fr-FR", {
@@ -576,11 +609,7 @@ export default function DetailReservationPage() {
                                 );
                             }
                             if (ps === "EN_ATTENTE_CONFIRMATION") {
-                                return (
-                                    <div className="flex items-center gap-2 flex-1 justify-center bg-warning/10 border border-warning/20 rounded-full px-4 py-2">
-                                        <span className="text-sm font-semibold text-warning">Paiement espèces en attente</span>
-                                    </div>
-                                );
+                                return renderPaiementEspecesEnAttente();
                             }
                             return (
                                 <button
@@ -619,9 +648,24 @@ export default function DetailReservationPage() {
 
                 {reservation.statut === "terminee" && (
                     <>
+                        {(() => {
+                            const ps = reservation.paiement_statut;
+                            if (ps === "PAYEE" || ps === "CONFIRME") return null;
+                            if (ps === "EN_ATTENTE_CONFIRMATION") {
+                                return renderPaiementEspecesEnAttente();
+                            }
+                            return (
+                                <button
+                                    onClick={() => router.push(`/passager/reservations/paiement/${reservation.id}`)}
+                                    className="btn btn-primary rounded-full flex-1"
+                                >
+                                    Payer la réservation
+                                </button>
+                            );
+                        })()}
                         <button
                             onClick={() => router.push("/passager/trajets")}
-                            className="btn btn-primary rounded-full flex-1"
+                            className="btn btn-ghost rounded-full flex-1 border border-base-300"
                         >
                             Réserver un autre trajet
                         </button>
