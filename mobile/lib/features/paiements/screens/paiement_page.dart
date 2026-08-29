@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../reservations/models/paiement_model.dart';
 import '../../reservations/models/reservation_model.dart';
@@ -170,11 +171,21 @@ class _PaiementPageState extends ConsumerState<PaiementPage>
         _isLoading = false;
       });
       _startPolling(paiement);
+      await _ouvrirPagePaiement(paiement.paymentUrl);
     } catch (e) {
       setState(() {
         _error = _parseError(e);
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _ouvrirPagePaiement(String? url) async {
+    if (url == null || url.isEmpty) return;
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.inAppBrowserView);
+    } catch (e) {
+      debugPrint('[PaiementPage] échec ouverture page de paiement: $e');
     }
   }
 
@@ -393,7 +404,7 @@ class _PaiementPageState extends ConsumerState<PaiementPage>
           ),
           const SizedBox(height: 4),
           Text(
-            'Une demande ${_currentOp.label} a été envoyée sur\n${_phoneCtrl.text}',
+            'Ouvrez la page de paiement ${_currentOp.label} pour confirmer avec ${_phoneCtrl.text}',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.grey, fontSize: 13),
           ),
@@ -413,6 +424,18 @@ class _PaiementPageState extends ConsumerState<PaiementPage>
             _buildRow('Référence', _paiementEnCours!.transref!),
         ]),
       ),
+      const SizedBox(height: 12),
+      if (_paiementEnCours?.paymentUrl != null)
+        OutlinedButton.icon(
+          onPressed: () => _ouvrirPagePaiement(_paiementEnCours?.paymentUrl),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _currentOp.color,
+            side: BorderSide(color: _currentOp.color),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: const Text('Ouvrir la page de paiement'),
+        ),
       const SizedBox(height: 16),
       const Text(
         'Vérification automatique toutes les 5 secondes…',

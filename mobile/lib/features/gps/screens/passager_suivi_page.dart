@@ -277,12 +277,16 @@ class _PassagerSuiviPageState extends ConsumerState<PassagerSuiviPage>
           if (_showArMode)
             Positioned.fill(
               child: InlineArView(
-                targetLat: _conducteurPosition?.latitude ?? 0.0,
-                targetLng: _conducteurPosition?.longitude ?? 0.0,
-                targetName: widget.conducteurNom,
-                targetType: 'conducteur',
+                targetLat:       _conducteurPosition?.latitude ?? 0.0,
+                targetLng:       _conducteurPosition?.longitude ?? 0.0,
+                targetName:      widget.conducteurNom,
+                targetType:      'conducteur',
                 targetAvailable: _conducteurPosition != null,
-                onBack: _toggleArMode,
+                // Mode direct pour le passager : le conducteur est une cible mobile
+                // → pas de route, bearing direct vers sa position GPS
+                routePoints:     const [],
+                routeSteps:      const [],
+                onBack:          _toggleArMode,
               ),
             ),
 

@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/theme/colors.dart';
-import '../../../core/theme/text_styles.dart';
 import '../../../core/widgets/k_button.dart';
 
-/// Panneau bas conducteur — liste complète des passagers avec actions.
-/// Distance, ETA, bouton "Aller récupérer", bouton AR, bouton message.
+/// Panneau bas conducteur — liste de tous les passagers (GPS ou non) avec statut d'embarquement.
 class PassengersBottomPanel extends StatefulWidget {
-  final List<PassengerPositionData> passengers;
+  final List<PassagerReservation> passengers;
   final double? driverLat;
   final double? driverLng;
   final double speedKmh;
   final bool isEnding;
   final VoidCallback onTerminer;
-  final void Function(PassengerPositionData) onNavigate;
-  final void Function(PassengerPositionData) onArView;
-  final void Function(PassengerPositionData) onMessage;
+  final void Function(PassagerReservation) onNavigate;
+  final void Function(PassagerReservation) onArView;
+  final void Function(PassagerReservation) onTap;
+  final void Function(PassagerReservation) onScan;
 
   const PassengersBottomPanel({
     super.key,
@@ -25,7 +24,8 @@ class PassengersBottomPanel extends StatefulWidget {
     required this.onTerminer,
     required this.onNavigate,
     required this.onArView,
-    required this.onMessage,
+    required this.onTap,
+    required this.onScan,
     this.driverLat,
     this.driverLng,
   });
@@ -36,6 +36,13 @@ class PassengersBottomPanel extends StatefulWidget {
 
 class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
   bool _expanded = true;
+
+  int get _boardedCount =>
+      widget.passengers.where((p) => p.statutEmbarquement == 'embarque').length;
+
+  bool get _allAboard =>
+      widget.passengers.isNotEmpty &&
+      widget.passengers.every((p) => p.statutEmbarquement == 'embarque');
 
   @override
   Widget build(BuildContext context) {
@@ -52,11 +59,11 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Handle ────────────────────────────────────────────────────────
+          // ── Handle + résumé ───────────────────────────────────────────────
           GestureDetector(
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 children: [
                   Container(
@@ -66,24 +73,41 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.people_rounded, size: 15,
-                          color: KColors.baseContentMid),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${widget.passengers.length} passager'
-                        '${widget.passengers.length > 1 ? 's' : ''} en attente',
-                        style: KTextStyles.label,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _allAboard
+                              ? KColors.success.withValues(alpha: 0.12)
+                              : KColors.primary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _allAboard ? Icons.check_circle_rounded : Icons.people_rounded,
+                              size: 14,
+                              color: _allAboard ? KColors.success : KColors.primary,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '$_boardedCount/${widget.passengers.length} à bord',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: _allAboard ? KColors.success : KColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 6),
+                      const Spacer(),
                       Icon(
-                        _expanded
-                            ? Icons.keyboard_arrow_down
-                            : Icons.keyboard_arrow_up,
-                        size: 16,
+                        _expanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                        size: 20,
                         color: KColors.baseContentMid,
                       ),
                     ],
@@ -92,6 +116,37 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
               ),
             ),
           ),
+
+          // ── Tous à bord — bannière ────────────────────────────────────────
+          if (_allAboard && _expanded)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: KColors.success.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: KColors.success.withValues(alpha: 0.3)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.emoji_people_rounded, color: KColors.success, size: 28),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Tous les passagers sont à bord !',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: KColors.success,
+                            fontSize: 14,
+                          )),
+                      Text('Vous pouvez démarrer le trajet.',
+                          style: TextStyle(fontSize: 12, color: KColors.baseContentMid)),
+                    ],
+                  ),
+                ),
+              ]),
+            ),
 
           // ── Liste passagers ───────────────────────────────────────────────
           if (_expanded) ...[
@@ -109,9 +164,10 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
                   driverLat: widget.driverLat,
                   driverLng: widget.driverLng,
                   speedKmh: widget.speedKmh,
+                  onTap:      () => widget.onTap(widget.passengers[i]),
                   onNavigate: () => widget.onNavigate(widget.passengers[i]),
                   onArView:   () => widget.onArView(widget.passengers[i]),
-                  onMessage:  () => widget.onMessage(widget.passengers[i]),
+                  onScan:     () => widget.onScan(widget.passengers[i]),
                 ),
               ),
             ),
@@ -136,20 +192,17 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
                         borderRadius: BorderRadius.circular(16)),
                     title: const Text('Terminer le trajet ?'),
                     content: const Text(
-                      'Confirmez-vous la fin du trajet ?\nLes passagers seront notifiés.',
-                    ),
+                        'Confirmez-vous la fin du trajet ?\nLes passagers seront notifiés.'),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Annuler'),
-                      ),
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Annuler')),
                       ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: KColors.success),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Terminer',
-                            style: TextStyle(color: Colors.white)),
-                      ),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: KColors.success),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Terminer',
+                              style: TextStyle(color: Colors.white))),
                     ],
                   ),
                 );
@@ -163,34 +216,43 @@ class _PassengersBottomPanelState extends State<PassengersBottomPanel> {
   }
 }
 
-// ── Carte passager ────────────────────────────────────────────────────────────
+// ── Carte passager ─────────────────────────────────────────────────────────────
 
 class _PassengerCard extends StatelessWidget {
-  final PassengerPositionData passenger;
+  final PassagerReservation passenger;
   final double? driverLat;
   final double? driverLng;
   final double speedKmh;
+  final VoidCallback onTap;
   final VoidCallback onNavigate;
   final VoidCallback onArView;
-  final VoidCallback onMessage;
+  final VoidCallback onScan;
 
   const _PassengerCard({
     required this.passenger,
     required this.speedKmh,
+    required this.onTap,
     required this.onNavigate,
     required this.onArView,
-    required this.onMessage,
+    required this.onScan,
     this.driverLat,
     this.driverLng,
   });
+
+  Color get _statusColor => switch (passenger.statutEmbarquement) {
+        'embarque' => KColors.success,
+        'absent'   => KColors.error,
+        _          => const Color(0xFFFF8C00),
+      };
 
   @override
   Widget build(BuildContext context) {
     double? distKm;
     int? etaMin;
-    if (driverLat != null && driverLng != null) {
+    if (driverLat != null && passenger.hasGps) {
       distKm = LocationService.distanceKm(
-        driverLat!, driverLng!, passenger.latitude, passenger.longitude,
+        driverLat!, driverLng!,
+        passenger.latitude!, passenger.longitude!,
       );
       if (speedKmh > 2) {
         etaMin = LocationService.etaMinutes(distKm, speedKmh);
@@ -203,135 +265,176 @@ class _PassengerCard extends StatelessWidget {
             ? '${(distKm * 1000).toInt()} m'
             : '${distKm.toStringAsFixed(1)} km';
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: KColors.base100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: KColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── En-tête ──────────────────────────────────────────────────────
-          Row(children: [
-            Container(
-              width: 40, height: 40,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFF8C00),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.person_rounded,
-                  color: Colors.white, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: KColors.base100,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: passenger.estEmbarque
+                ? KColors.success.withValues(alpha: 0.3)
+                : KColors.border,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              // Avatar
+              Stack(
                 children: [
-                  Text(
-                    passenger.nom,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: KColors.baseContent,
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: _statusColor.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
                     ),
+                    child: passenger.photoUrl != null
+                        ? ClipOval(child: Image.network(passenger.photoUrl!, fit: BoxFit.cover))
+                        : Icon(Icons.person_rounded, color: _statusColor, size: 22),
                   ),
-                  if (distLabel != null)
-                    Row(children: [
-                      Text(distLabel,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: KColors.baseContentMid,
-                          )),
-                      if (etaMin != null && etaMin > 0) ...[
-                        const Text(' · ',
-                            style: TextStyle(
-                                color: KColors.baseContentMid, fontSize: 12)),
-                        Text('$etaMin min',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: KColors.primary,
-                              fontWeight: FontWeight.w600,
-                            )),
-                      ],
-                    ]),
+                  // Point GPS
+                  if (passenger.hasGps)
+                    Positioned(
+                      right: 0, bottom: 0,
+                      child: Container(
+                        width: 10, height: 10,
+                        decoration: BoxDecoration(
+                          color: KColors.success,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                      ),
+                    ),
                 ],
               ),
-            ),
-            // GPS dot (position en direct)
-            Container(
-              width: 8, height: 8,
-              decoration: const BoxDecoration(
-                color: KColors.success,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ]),
-
-          const SizedBox(height: 12),
-
-          // ── Actions ──────────────────────────────────────────────────────
-          Row(children: [
-            // Aller récupérer (action principale)
-            Expanded(
-              flex: 3,
-              child: FilledButton.icon(
-                onPressed: onNavigate,
-                icon: const Icon(Icons.alt_route_rounded, size: 16),
-                label: const Text('Aller récupérer',
-                    style: TextStyle(fontSize: 12)),
-                style: FilledButton.styleFrom(
-                  backgroundColor: KColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(passenger.nom,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: KColors.baseContent,
+                        )),
+                    Row(children: [
+                      _MiniStatusBadge(statut: passenger.statutEmbarquement),
+                      if (distLabel != null) ...[
+                        const SizedBox(width: 6),
+                        Text(distLabel,
+                            style: const TextStyle(fontSize: 11, color: KColors.baseContentMid)),
+                        if (etaMin != null && etaMin > 0) ...[
+                          const Text(' · ',
+                              style: TextStyle(color: KColors.baseContentMid, fontSize: 11)),
+                          Text('$etaMin min',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: KColors.primary,
+                                fontWeight: FontWeight.w600,
+                              )),
+                        ],
+                      ],
+                    ]),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            // Mode AR
-            _ActionBtn(
-              icon: Icons.view_in_ar_rounded,
-              color: const Color(0xFF7C3AED),
-              tooltip: 'Mode AR',
-              onTap: onArView,
-            ),
-            const SizedBox(width: 8),
-            // Message
-            _ActionBtn(
-              icon: Icons.chat_bubble_outline_rounded,
-              color: KColors.primary,
-              tooltip: 'Message',
-              onTap: onMessage,
-            ),
-          ]),
-        ],
+              // Actions rapides
+              if (!passenger.estEmbarque && !passenger.estAbsent)
+                _SmallBtn(
+                  icon: Icons.qr_code_scanner_rounded,
+                  color: KColors.primary,
+                  onTap: onScan,
+                ),
+              if (passenger.estEmbarque)
+                const Icon(Icons.check_circle_rounded, color: KColors.success, size: 22),
+              if (passenger.estAbsent)
+                const Icon(Icons.person_off_rounded, color: KColors.error, size: 22),
+            ]),
+
+            if (!passenger.estEmbarque) ...[
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  flex: 3,
+                  child: FilledButton.icon(
+                    onPressed: onNavigate,
+                    icon: const Icon(Icons.alt_route_rounded, size: 15),
+                    label: const Text('Aller récupérer', style: TextStyle(fontSize: 12)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: KColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _SmallBtn(
+                  icon: Icons.view_in_ar_rounded,
+                  color: const Color(0xFF7C3AED),
+                  onTap: onArView,
+                ),
+                const SizedBox(width: 8),
+                _SmallBtn(
+                  icon: Icons.touch_app_rounded,
+                  color: KColors.baseContentMid,
+                  onTap: onTap,
+                  tooltip: 'Détails',
+                ),
+              ]),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ActionBtn extends StatelessWidget {
+class _MiniStatusBadge extends StatelessWidget {
+  final String statut;
+  const _MiniStatusBadge({required this.statut});
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color c, String label) = switch (statut) {
+      'embarque' => (KColors.success, '✓ À bord'),
+      'absent'   => (KColors.error,   '✗ Absent'),
+      _          => (const Color(0xFFE65100), '⏳ En attente'),
+    };
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: c,
+      ),
+    );
+  }
+}
+
+class _SmallBtn extends StatelessWidget {
   final IconData icon;
   final Color color;
-  final String tooltip;
   final VoidCallback onTap;
+  final String? tooltip;
 
-  const _ActionBtn({
+  const _SmallBtn({
     required this.icon,
     required this.color,
-    required this.tooltip,
     required this.onTap,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: tooltip,
+        message: tooltip ?? '',
         child: GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 40, height: 40,
+            width: 38, height: 38,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),

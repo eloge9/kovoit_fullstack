@@ -159,6 +159,44 @@ const kDocTypeLabels = <String, String>{
   'OWNER_AUTHORIZATION':    'Autorisation propriétaire',
 };
 
+// ── Regroupement des documents par étape du wizard ────────────────────────────
+// Le statut backend (DriverStatus) reste la seule source de vérité ; ce
+// regroupement ne sert qu'à structurer l'UI de soumission en étapes.
+class DocStep {
+  final String title;
+  final IconIndex icon;
+  final List<String> docTypes;
+  const DocStep({required this.title, required this.icon, required this.docTypes});
+}
+
+enum IconIndex { identite, permis, vehiculePapiers, vehiculePhotos }
+
+const kDocSteps = <DocStep>[
+  DocStep(
+    title: "Pièce d'identité",
+    icon: IconIndex.identite,
+    docTypes: ['CNI', 'SELFIE_ID', 'PORTRAIT'],
+  ),
+  DocStep(
+    title: 'Permis de conduire',
+    icon: IconIndex.permis,
+    docTypes: ['DRIVING_LICENSE'],
+  ),
+  DocStep(
+    title: 'Documents du véhicule',
+    icon: IconIndex.vehiculePapiers,
+    docTypes: ['VEHICLE_REGISTRATION', 'INSURANCE', 'TECHNICAL_INSPECTION'],
+  ),
+  DocStep(
+    title: 'Photos du véhicule',
+    icon: IconIndex.vehiculePhotos,
+    docTypes: [
+      'VEHICLE_FRONT', 'VEHICLE_REAR', 'VEHICLE_LEFT', 'VEHICLE_RIGHT',
+      'VEHICLE_INTERIOR_FRONT', 'VEHICLE_INTERIOR_REAR',
+    ],
+  ),
+];
+
 const kDriverStatusLabels = <String, String>{
   'DRAFT':                'Brouillon',
   'DOCUMENTS_MISSING':    'Documents manquants',

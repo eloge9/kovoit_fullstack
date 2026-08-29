@@ -32,6 +32,7 @@ class PaiementModel {
   final String? referenceMobile;
   final String? token;       // token PayPlus Africa (remplace paygateTxRef)
   final String? transref;    // référence KOVOIT-{id}-{hash}
+  final String? paymentUrl;  // URL de la page de paiement PayPlus à ouvrir
   final DateTime? datePaiement;
 
   const PaiementModel({
@@ -45,6 +46,7 @@ class PaiementModel {
     this.referenceMobile,
     this.token,
     this.transref,
+    this.paymentUrl,
     this.datePaiement,
   });
 
@@ -53,13 +55,14 @@ class PaiementModel {
       id: json['id'] as int? ?? 0,
       reservationId: json['reservation_id'] as int? ?? json['reservation'] as int? ?? 0,
       montant: (json['montant'] as num?)?.toDouble() ?? 0.0,
-      commission: (json['commission'] as num?)?.toDouble() ?? 0.0,
+      commission: (json['commission'] as num? ?? json['commission_kovoit'] as num?)?.toDouble() ?? 0.0,
       montantConducteur: (json['montant_conducteur'] as num?)?.toDouble() ?? 0.0,
-      moyenPaiement: json['moyen_paiement'] as String? ?? 'ESPECE',
+      moyenPaiement: json['moyen_paiement'] as String? ?? json['network'] as String? ?? 'ESPECE',
       statut: json['statut'] as String? ?? 'EN_ATTENTE_CONFIRMATION',
       referenceMobile: json['reference_mobile'] as String?,
       token: json['token'] as String?,
       transref: json['transref'] as String?,
+      paymentUrl: json['payment_url'] as String?,
       datePaiement: json['date_paiement'] != null
           ? DateTime.tryParse(json['date_paiement'] as String)
           : null,
@@ -77,6 +80,7 @@ class PaiementModel {
     String? referenceMobile,
     String? token,
     String? transref,
+    String? paymentUrl,
     DateTime? datePaiement,
   }) =>
       PaiementModel(
@@ -90,12 +94,16 @@ class PaiementModel {
         referenceMobile: referenceMobile ?? this.referenceMobile,
         token: token ?? this.token,
         transref: transref ?? this.transref,
+        paymentUrl: paymentUrl ?? this.paymentUrl,
         datePaiement: datePaiement ?? this.datePaiement,
       );
 
-  bool get isConfirme            => statut == 'CONFIRME';
-  bool get isPayee               => statut == 'PAYEE';
-  bool get isEnAttente           => statut == 'EN_ATTENTE';
+  // Insensible à la casse : l'endpoint verifier renvoie 'payee'/'en_attente'
+  // (minuscules) tandis que les autres endpoints renvoient le statut brut
+  // Paiement.Statut Django ('PAYEE', 'CONFIRME', ...).
+  bool get isConfirme            => statut.toUpperCase() == 'CONFIRME';
+  bool get isPayee               => statut.toUpperCase() == 'PAYEE';
+  bool get isEnAttente           => statut.toUpperCase() == 'EN_ATTENTE';
   bool get isEnAttenteConfirm    => statut == 'EN_ATTENTE_CONFIRMATION';
   bool get isEspece              => moyenPaiement == 'ESPECE';
   bool get isMobileMoney         => moyenPaiement == 'FLOOZ' || moyenPaiement == 'YAS';

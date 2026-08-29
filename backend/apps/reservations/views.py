@@ -16,7 +16,10 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.conf import settings
 from django.utils import timezone
-from ..modeles.models import Reservation, Trajet, BlocagePassager
+from decimal import Decimal
+
+from ..modeles.models import Reservation, Trajet, BlocagePassager, Paiement
+from ..paiements import wallet_service
 from .serializers import ReservationSerializer, ReservationConducteurSerializer, ReservationCreateSerializer
 
 PENALITE_ANNULATION_TARDIVE = 0.20  # 20% du prix si annulation < 2h avant départ
@@ -309,34 +312,62 @@ class ReservationViewSet(viewsets.GenericViewSet):
     
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):
-        try:
-            reservation = Reservation.objects.select_related('trajet').get(pk=pk, passager=request.user)
-        except Reservation.DoesNotExist:
-            raise PermissionDenied("Réservation introuvable ou accès non autorisé.")
+        with transaction.atomic():
+            try:
+                reservation = Reservation.objects.select_for_update().select_related('trajet').get(
+                    pk=pk, passager=request.user
+                )
+            except Reservation.DoesNotExist:
+                raise PermissionDenied("Réservation introuvable ou accès non autorisé.")
 
-        if reservation.statut not in ('en_attente', 'confirmee'):
-            return Response(
-                {"error": "Cette réservation ne peut plus être annulée."},
-                status=400,
+            if reservation.statut not in ('en_attente', 'confirmee'):
+                return Response(
+                    {"error": "Cette réservation ne peut plus être annulée."},
+                    status=400,
+                )
+
+            penalite = 0
+            message = "Réservation annulée avec succès."
+
+            # Pénalité si annulation < 2h avant le départ
+            depart = reservation.trajet.date_heure_depart
+            if depart and timezone.now() >= depart - timedelta(hours=2):
+                prix_unitaire = float(reservation.prix_passager or reservation.trajet.prix_par_place or 0)
+                prix = prix_unitaire * reservation.places_reservees
+                penalite = math.ceil(prix * PENALITE_ANNULATION_TARDIVE / 25) * 25
+                message = f"Réservation annulée avec une pénalité de {penalite} FCFA (annulation tardive)."
+
+            Reservation.objects.filter(pk=reservation.pk).update(
+                statut='annulee',
+                penalite_annulation=penalite,
             )
 
-        penalite = 0
-        message = "Réservation annulée avec succès."
+            # Si un paiement électronique était déjà confirmé, reprendre le crédit
+            # conducteur + la commission plateforme (la pénalité reste acquise au
+            # conducteur). Le solde restant doit être remboursé au passager par un
+            # administrateur — voir wallet_service.annuler_paiement_electronique.
+            remboursement = None
+            try:
+                paiement = Paiement.objects.select_for_update().get(reservation=reservation)
+            except Paiement.DoesNotExist:
+                paiement = None
 
-        # Pénalité si annulation < 2h avant le départ
-        depart = reservation.trajet.date_heure_depart
-        if depart and timezone.now() >= depart - timedelta(hours=2):
-            prix_unitaire = float(reservation.prix_passager or reservation.trajet.prix_par_place or 0)
-            prix = prix_unitaire * reservation.places_reservees
-            penalite = math.ceil(prix * PENALITE_ANNULATION_TARDIVE / 25) * 25
-            message = f"Réservation annulée avec une pénalité de {penalite} FCFA (annulation tardive)."
+            if paiement is not None:
+                try:
+                    remboursement = wallet_service.annuler_paiement_electronique(
+                        paiement, penalite=Decimal(penalite)
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "[Reservation] échec reprise wallet à l'annulation réservation=%s paiement=%s: %s",
+                        reservation.pk, paiement.pk, exc, exc_info=True,
+                    )
 
-        Reservation.objects.filter(pk=reservation.pk).update(
-            statut='annulee',
-            penalite_annulation=penalite,
-        )
-
-        return Response({"message": message, "penalite_fcfa": penalite})
+        response = {"message": message, "penalite_fcfa": penalite}
+        if remboursement is not None:
+            response["a_rembourser_passager_fcfa"] = float(remboursement['a_rembourser_passager'])
+            response["remboursement_manuel_requis"] = True
+        return Response(response)
     
     @action(detail=False, methods=['get'])
     def historique(self, request):
@@ -452,11 +483,40 @@ class ReservationViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if reservation.statut_embarquement == 'embarque':
+            return Response({
+                "valide":   True,
+                "deja_embarque": True,
+                "passager": reservation.passager.get_full_name() or reservation.passager.username,
+                "places":   reservation.places_reservees,
+                "trajet":   f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            })
+
+        reservation.statut_embarquement = 'embarque'
+        reservation.heure_embarquement = timezone.now()
+        reservation.save(update_fields=['statut_embarquement', 'heure_embarquement'])
+
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                room = f"trajet_{reservation.trajet.pk}"
+                async_to_sync(channel_layer.group_send)(room, {
+                    "type":    "passenger_boarded",
+                    "user_id": str(reservation.passager.pk),
+                    "nom":     reservation.passager.get_full_name() or reservation.passager.username,
+                })
+        except Exception as e:
+            logger.warning(f"[GPS WS] scanner_qr broadcast passenger_boarded failed: {e}")
+
         return Response({
-            "valide":   True,
-            "passager": reservation.passager.get_full_name() or reservation.passager.username,
-            "places":   reservation.places_reservees,
-            "trajet":   f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            "valide":             True,
+            "deja_embarque":      False,
+            "passager":           reservation.passager.get_full_name() or reservation.passager.username,
+            "places":             reservation.places_reservees,
+            "trajet":             f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            "heure_embarquement": reservation.heure_embarquement,
         })
 
     # ── Code PIN embarquement (passager) ─────────────────────────────────────
@@ -506,7 +566,12 @@ class ReservationViewSet(viewsets.GenericViewSet):
             return Response({"error": "Code invalide ou réservation introuvable."}, status=404)
 
         if reservation.statut_embarquement == 'embarque':
-            return Response({"error": "Ce passager est déjà enregistré comme embarqué."}, status=400)
+            return Response({
+                "message":       "Ce passager est déjà à bord.",
+                "deja_embarque": True,
+                "passager":      reservation.passager.get_full_name() or reservation.passager.username,
+                "trajet":        f"{reservation.trajet.depart} → {reservation.trajet.destination}",
+            })
 
         reservation.statut_embarquement = 'embarque'
         reservation.heure_embarquement = timezone.now()

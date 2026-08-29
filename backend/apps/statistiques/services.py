@@ -7,12 +7,12 @@ from datetime import date, timedelta
 from calendar import monthrange
 from decimal import Decimal
 
+from apps.modeles.commission import taux_commission
 from apps.modeles.models import (
     StatistiqueEconomie, Paiement, Trajet, Reservation, Utilisateur
 )
 
 
-COMMISSION_KOVOIT = Decimal('0.10')  # 10%
 COUT_CARBURANT_PAR_KM = {
     'moto': 30,
     'voiture': 65,
@@ -41,7 +41,10 @@ def calculer_stats_economie_conducteur(utilisateur, periode_debut, periode_fin):
         date_confirmation__lte=periode_fin
     )
     
-    total_revenus = paiements.aggregate(total=Sum('montant'))['total'] or Decimal('0')
+    total_revenus_brut = paiements.aggregate(total=Sum('montant'))['total'] or Decimal('0')
+    # Revenu NET du conducteur (commission KoVoit déjà déduite) — doit rester cohérent
+    # avec PaiementViewSet.paiements_conducteur qui affiche le même montant net.
+    total_revenus = total_revenus_brut * (Decimal('1') - taux_commission())
     total_paiements = paiements.count()
     
     # Calculer les trajets terminés

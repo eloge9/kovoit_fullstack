@@ -100,7 +100,7 @@ class AuthRepository {
 
   Future<UserModel> updateProfil(Map<String, dynamic> data) async {
     try {
-      final response = await DioClient.patch(ApiConstants.profil, data: data);
+      final response = await DioClient.patch(ApiConstants.profilUpdate, data: data);
       return UserModel.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);

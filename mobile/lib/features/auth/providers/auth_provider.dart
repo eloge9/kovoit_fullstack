@@ -212,10 +212,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> loadProfil() async {
+  /// Charge le profil avec un plafond de temps strict (indépendant des timeouts
+  /// Dio internes) et un nombre limité de tentatives — l'app ne doit jamais
+  /// rester bloquée sur "Chargement du profil..." indéfiniment.
+  Future<void> loadProfil({int maxAttempts = 2}) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final user = await _repo.getProfil();
+      UserModel? user;
+      Object? lastError;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          user = await _repo.getProfil().timeout(const Duration(seconds: 10));
+          break;
+        } catch (e) {
+          lastError = e;
+          // Un échec d'authentification ne se résoudra jamais en réessayant.
+          if (e is ApiException && (e.statusCode == 401 || e.statusCode == 403)) rethrow;
+          if (attempt == maxAttempts) rethrow;
+        }
+      }
+      if (user == null) throw lastError ?? Exception('Profil introuvable');
+
       // Mettre à jour le profil sauvegardé avec les données fraîches du serveur
       final account = SavedAccount.fromUser(user);
       await StorageService.saveAccount(account);
@@ -235,6 +252,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           savedAccounts: accounts, showContinueAs: accounts.isNotEmpty,
         );
       } else {
+        // Timeout / erreur réseau : ne jamais bloquer l'UI, on retentera plus
+        // tard (pull-to-refresh, navigation) plutôt que de figer le splash.
         state = state.copyWith(isLoading: false, isAuthenticated: true);
       }
     }

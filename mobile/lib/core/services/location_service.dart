@@ -98,7 +98,7 @@ class DriverArrivedEvent {
       );
 }
 
-/// Événement reçu côté passager quand le conducteur valide son embarquement.
+/// Événement reçu côté passager (et conducteur) quand l'embarquement est validé.
 class PassengerBoardedEvent {
   final String userId;
   final String nom;
@@ -109,6 +109,80 @@ class PassengerBoardedEvent {
       PassengerBoardedEvent(
         userId: json['user_id']?.toString() ?? '',
         nom: (json['nom'] as String?) ?? '',
+      );
+}
+
+/// Passager d'un trajet avec statut d'embarquement — source : API REST.
+/// Enrichi progressivement avec la position GPS quand disponible via WS.
+class PassagerReservation {
+  final int reservationId;
+  final String userId;
+  final String nom;
+  final String? photoUrl;
+  final int placesReservees;
+  final String? phone;
+  final int? conversationId;
+  String statutEmbarquement;
+  double? latitude;
+  double? longitude;
+  DateTime? lastGps;
+
+  PassagerReservation({
+    required this.reservationId,
+    required this.userId,
+    required this.nom,
+    required this.placesReservees,
+    required this.statutEmbarquement,
+    this.photoUrl,
+    this.phone,
+    this.conversationId,
+    this.latitude,
+    this.longitude,
+    this.lastGps,
+  });
+
+  bool get hasGps => latitude != null && longitude != null;
+  bool get estEmbarque => statutEmbarquement == 'embarque';
+  bool get estAbsent => statutEmbarquement == 'absent';
+
+  factory PassagerReservation.fromJson(Map<String, dynamic> json) =>
+      PassagerReservation(
+        reservationId:      (json['reservation_id'] as num).toInt(),
+        userId:             json['user_id']?.toString() ?? '',
+        nom:                (json['nom'] as String?)?.isNotEmpty == true ? json['nom'] as String : 'Passager',
+        photoUrl:           json['photo_url'] as String?,
+        placesReservees:    (json['places_reservees'] as num?)?.toInt() ?? 1,
+        statutEmbarquement: (json['statut_embarquement'] as String?) ?? 'en_attente',
+        phone:              json['phone'] as String?,
+        conversationId:     (json['conversation_id'] as num?)?.toInt(),
+      );
+
+  PassagerReservation copyWithGps(double lat, double lng) => PassagerReservation(
+        reservationId:      reservationId,
+        userId:             userId,
+        nom:                nom,
+        photoUrl:           photoUrl,
+        placesReservees:    placesReservees,
+        statutEmbarquement: statutEmbarquement,
+        phone:              phone,
+        conversationId:     conversationId,
+        latitude:           lat,
+        longitude:          lng,
+        lastGps:            DateTime.now(),
+      );
+
+  PassagerReservation copyWithStatut(String statut) => PassagerReservation(
+        reservationId:      reservationId,
+        userId:             userId,
+        nom:                nom,
+        photoUrl:           photoUrl,
+        placesReservees:    placesReservees,
+        statutEmbarquement: statut,
+        phone:              phone,
+        conversationId:     conversationId,
+        latitude:           latitude,
+        longitude:          longitude,
+        lastGps:            lastGps,
       );
 }
 
@@ -154,6 +228,7 @@ class LocationService {
   Future<void> startSendingLocation(int trajetId) async {
     _passengersController = StreamController<PassengerPositionData>.broadcast();
     _driverArrivedController = StreamController<DriverArrivedEvent>.broadcast();
+    _boardedController = StreamController<PassengerBoardedEvent>.broadcast();
 
     final hasPermission = await requestPermission();
     if (!hasPermission) {
@@ -183,6 +258,8 @@ class LocationService {
               _passengersController?.add(PassengerPositionData.fromJson(json));
             } else if (type == 'driver_arrived') {
               _driverArrivedController?.add(DriverArrivedEvent.fromJson(json));
+            } else if (type == 'passenger_boarded') {
+              _boardedController?.add(PassengerBoardedEvent.fromJson(json));
             }
           } catch (e) {
             debugPrint('[LocationService] parse error: $e');

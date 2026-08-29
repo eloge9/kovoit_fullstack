@@ -221,6 +221,7 @@ else:
 # ── CORS & Security ───────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 ADMIN_FRONTEND_URL = os.getenv("ADMIN_FRONTEND_URL", "http://localhost:3000/admin/dashboard")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 CORS_ALLOW_HEADERS = [
     "accept", "authorization", "content-type", "x-csrftoken",

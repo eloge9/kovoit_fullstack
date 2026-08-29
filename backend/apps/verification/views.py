@@ -15,6 +15,7 @@ from .models import (
     DriverStatus, DocumentStatus, REQUIRED_DOCUMENTS,
 )
 from .permissions import IsAdmin, IsAdminOrDriverOwner
+from apps.modeles.notifs import envoyer_notification
 from .serializers import (
     DriverProfileSerializer, DriverProfileUpdateSerializer,
     DriverProfileAdminListSerializer, DocumentUploadSerializer,
@@ -146,6 +147,20 @@ class DriverVerificationViewSet(viewsets.GenericViewSet):
         # Marquer immédiatement PENDING_AI_REVIEW pour que le frontend voit le changement
         profile.status = DriverStatus.PENDING_AI_REVIEW
         profile.save(update_fields=["status"])
+
+        # Notification immédiate (DB + push WS temps réel) — le conducteur n'a
+        # rien d'autre à faire, l'analyse démarre automatiquement.
+        try:
+            from apps.modeles.models import Notification
+            Notification.objects.create(
+                utilisateur=request.user,
+                contenu="🔎 Analyse de vos documents en cours… Vous serez notifié du résultat.",
+            )
+        except Exception as e:
+            logger.warning("Notification (start) failed: %s", e)
+        envoyer_notification(request.user, "verification_started", {
+            "status": DriverStatus.PENDING_AI_REVIEW,
+        })
 
         # 1. Essai Celery (production)
         celery_launched = False

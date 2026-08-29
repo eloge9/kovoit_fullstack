@@ -17,6 +17,7 @@ export interface PaiementResponse {
   message: string;
   token: string;
   transref: string;
+  payment_url: string;
   montant: number;
   commission_kovoit: number;
   montant_conducteur: number;
@@ -33,15 +34,14 @@ export interface PaiementEspecesResponse {
   statut: string;
 }
 
+// "payee" | "en_attente" | "echouee" viennent de /paiements/verifier/ (vocabulaire
+// checkout-invoice PayPlus) ; les autres valeurs viennent de statut_reservation/
+// mes_paiements qui renvoient le statut brut Paiement.Statut Django.
 export interface PaiementStatut {
-  statut: "en_attente" | "echouee" | "EN_ATTENTE_CONFIRMATION" | "CONFIRME" | "ANNULE" | "AUCUN";
+  statut: "payee" | "en_attente" | "echouee" | "EN_ATTENTE_CONFIRMATION" | "CONFIRME" | "ANNULE" | "AUCUN";
   message?: string;
-  pp_status?: string;
+  pp_statut?: string;
   token?: string;
-  phone?: string;
-  amount?: number;
-  payment_method?: string;
-  datetime?: string;
   paiement_id?: number;
   moyen_paiement?: string;
   montant?: number;

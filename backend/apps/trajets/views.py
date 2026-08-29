@@ -649,3 +649,43 @@ out geom;
             match['prix_passager'] = prix
 
         return Response(match)
+
+    @action(detail=True, methods=['get'], url_path='passagers-embarquement')
+    def passagers_embarquement(self, request, pk=None):
+        """
+        Conducteur : liste complète des passagers confirmés avec leur statut d'embarquement.
+        Utilisé par l'app conducteur pour pré-charger les passagers avant qu'ils partagent leur GPS.
+        """
+        trajet = get_object_or_404(Trajet, pk=pk)
+        if trajet.conducteur_id != request.user.pk:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Vous n'êtes pas le conducteur de ce trajet.")
+
+        reservations = (
+            Reservation.objects
+            .filter(trajet=trajet, statut='confirmee')
+            .select_related('passager')
+        )
+
+        data = []
+        for r in reservations:
+            u = r.passager
+            # La photo est sur Utilisateur.photo_profil (upload local) ou photo_url (Google OAuth)
+            photo = None
+            if u.photo_profil:
+                photo = request.build_absolute_uri(u.photo_profil.url)
+            elif u.photo_url:
+                photo = u.photo_url
+
+            data.append({
+                'reservation_id':       r.pk,
+                'user_id':              str(u.pk),
+                'nom':                  u.get_full_name() or u.username,
+                'photo_url':            photo,
+                'places_reservees':     r.places_reservees,
+                'statut_embarquement':  r.statut_embarquement,
+                'phone':                getattr(u, 'numero_telephone', None),
+                'conversation_id':      r.conversation_id if hasattr(r, 'conversation_id') else None,
+            })
+
+        return Response({'passagers': data})

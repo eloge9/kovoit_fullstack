@@ -492,6 +492,11 @@ class _AccountMenuSheet extends StatelessWidget {
           ),
           _MenuItem(
             icon: Icons.account_balance_wallet_outlined,
+            label: 'Mon portefeuille',
+            onTap: () => onNavigate('/conducteur/portefeuille'),
+          ),
+          _MenuItem(
+            icon: Icons.bar_chart_rounded,
             label: 'Économie / Revenus',
             onTap: () => onNavigate('/conducteur/economie'),
           ),

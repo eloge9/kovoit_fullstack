@@ -138,6 +138,47 @@ class PaiementAdmin(admin.ModelAdmin):
 
 
 # =====================================================
+# WALLET / PORTEFEUILLE
+# =====================================================
+
+class WalletAdmin(admin.ModelAdmin):
+    list_display = ['id', 'proprietaire', 'type', 'solde_disponible', 'solde_du', 'date_maj']
+    list_filter = ['type']
+    search_fields = ['proprietaire__username']
+    readonly_fields = ['date_creation', 'date_maj']
+
+
+class WalletTransactionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'wallet', 'type', 'sens', 'montant', 'statut', 'reference', 'created_at']
+    list_filter = ['type', 'sens', 'statut', 'created_at']
+    search_fields = ['reference', 'wallet__proprietaire__username', 'description']
+    readonly_fields = [f.name for f in WalletTransaction._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class WithdrawalAdmin(admin.ModelAdmin):
+    list_display = ['id', 'wallet', 'montant', 'moyen', 'numero_destination', 'statut', 'date_demande']
+    list_filter = ['statut', 'moyen']
+    search_fields = ['wallet__proprietaire__username', 'numero_destination', 'reference_agregateur']
+    readonly_fields = ['date_demande']
+
+
+class DepotWalletAdmin(admin.ModelAdmin):
+    list_display = ['id', 'wallet', 'montant', 'statut', 'token', 'date_creation']
+    list_filter = ['statut']
+    search_fields = ['wallet__proprietaire__username', 'token', 'transref']
+    readonly_fields = ['date_creation']
+
+
+# =====================================================
 # ÉVALUATIONS & MESSAGES
 # =====================================================
 
@@ -204,6 +245,11 @@ admin.site.register(Trajet, TrajetAdmin)
 admin.site.register(Reservation, ReservationAdmin)
 
 admin.site.register(Paiement, PaiementAdmin)
+
+admin.site.register(Wallet, WalletAdmin)
+admin.site.register(WalletTransaction, WalletTransactionAdmin)
+admin.site.register(Withdrawal, WithdrawalAdmin)
+admin.site.register(DepotWallet, DepotWalletAdmin)
 
 admin.site.register(Evaluation, EvaluationAdmin)
 admin.site.register(Message, MessageAdmin)

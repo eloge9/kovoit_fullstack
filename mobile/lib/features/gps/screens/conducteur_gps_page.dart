@@ -1,19 +1,24 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import '../../../core/services/boarding_service.dart';
+import '../../../core/services/gps_filter.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/navigation_tts_service.dart';
 import '../../../core/services/osrm_service.dart';
+import '../../../core/services/route_step.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/widgets/k_button.dart';
 import '../../trajets/providers/trajet_provider.dart';
-import '../widgets/inline_ar_view.dart';
+import '../widgets/ar_world_view.dart';
+import '../widgets/passenger_boarding_sheet.dart';
 import '../widgets/passengers_bottom_panel.dart';
 
 class ConducteurGpsPage extends ConsumerStatefulWidget {
@@ -45,36 +50,33 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
   final _locationService = LocationService();
   final _tts = NavigationTtsService();
   final _mapController = MapController();
+  final _gpsFilter = GpsFilter();
   StreamSubscription<Position>? _posSub;
 
   Position? _currentPosition;
   List<LatLng> _routePoints = [];
+  List<RouteStep> _routeSteps = [];
   bool _isTracking = false;
   bool _isEnding = false;
   bool _navigationMode = true;
 
-  // Navigation metrics
   double _distanceRestanteKm = 0;
   int _etaMinutes = 0;
   double _speedKmh = 0;
   String _heureArrivee = '';
 
-  // Passagers
-  final Map<String, PassengerPositionData> _passengerPositions = {};
-  StreamSubscription? _passengerSub;
+  // Tous les passagers (source : API REST + enrichissement WS)
+  final Map<String, PassagerReservation> _allPassengers = {};
+  StreamSubscription? _passengerPosSub;
+  StreamSubscription? _boardedSub;
   final Set<String> _announcedPassengers = {};
 
-  // Mode AR inline
   bool _showArMode = false;
-  PassengerPositionData? _arTarget;
 
-  // Heading pour rotation du marqueur
   double _currentHeading = 0;
-
-  // Recalcul route périodique depuis position actuelle
+  StreamSubscription<CompassEvent>? _compassSub;
   Timer? _routeRecalcTimer;
 
-  // Animation marqueur
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
 
@@ -88,22 +90,55 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     _pulseAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
-
     _startTracking();
     _tts.init();
-    // Recalcul route toutes les 45s depuis GPS actuel
+    _loadPassengers();
+    _initEtaEstimate();   // ETA immédiat avant qu'OSRM réponde
     _routeRecalcTimer = Timer.periodic(const Duration(seconds: 45), (_) {
-      if (_currentPosition != null) _recalcRouteFromCurrentPos();
+      if (_currentPosition != null) { _recalcRouteFromCurrentPos(); }
+    });
+  }
+
+  /// Calcule un ETA approximatif dès l'ouverture de la page, avant la réponse OSRM.
+  /// Formule : haversine × 1.35 (facteur routier Afrique de l'Ouest) / 65 km/h moy.
+  /// OSRM écrase cette valeur dès qu'il répond avec une durée précise.
+  void _initEtaEstimate() {
+    if (widget.departLat == null || widget.destinationLat == null) return;
+    final distStraight = LocationService.distanceKm(
+      widget.departLat!, widget.departLng!,
+      widget.destinationLat!, widget.destinationLng!,
+    );
+    if (distStraight <= 0) return;
+    const routeFactor = 1.35; // route sinueuse vs vol d'oiseau
+    const avgSpeedKmh = 65.0; // vitesse moy intercité Togo/Bénin
+    final estDist  = distStraight * routeFactor;
+    final estMin   = (estDist / avgSpeedKmh * 60).round();
+    setState(() {
+      _distanceRestanteKm = estDist;
+      _etaMinutes         = estMin;
+      _heureArrivee       = _calcHeureArrivee(estMin);
+    });
+  }
+
+  Future<void> _loadPassengers() async {
+    final list = await BoardingService.getPassagers(widget.trajetId);
+    if (!mounted) return;
+    setState(() {
+      for (final p in list) {
+        // Préserver la position GPS déjà reçue par WS pour ce passager.
+        final existing = _allPassengers[p.userId];
+        _allPassengers[p.userId] = (existing != null && existing.hasGps)
+            ? p.copyWithGps(existing.latitude!, existing.longitude!)
+            : p;
+      }
     });
   }
 
   Future<void> _chargerRoute() async {
     if (widget.destinationLat == null) return;
-    // Partir de la position GPS actuelle si disponible, sinon du départ du trajet
     final fromLat = _currentPosition?.latitude ?? widget.departLat;
     final fromLng = _currentPosition?.longitude ?? widget.departLng;
     if (fromLat == null || fromLng == null) return;
-
     final route = await OsrmService.getRoute(
       fromLat, fromLng,
       widget.destinationLat!, widget.destinationLng!,
@@ -111,6 +146,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     if (!mounted || route == null) return;
     setState(() {
       _routePoints = route.points;
+      _routeSteps  = route.steps;
       _distanceRestanteKm = route.distanceKm;
       _etaMinutes = route.durationMin;
       _heureArrivee = _calcHeureArrivee(route.durationMin);
@@ -129,6 +165,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     if (!mounted || route == null) return;
     setState(() {
       _routePoints = route.points;
+      _routeSteps  = route.steps;
       _distanceRestanteKm = route.distanceKm;
       if (route.durationMin > 0) {
         _etaMinutes = route.durationMin;
@@ -152,50 +189,94 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
 
     await _locationService.startSendingLocation(widget.trajetId);
 
-    // Calcul initial de la route depuis la position GPS actuelle
-    _chargerRoute();
-
-    // Écoute des positions des passagers
-    _passengerSub = _locationService.passengersStream?.listen(_onPassengerPosition);
+    _passengerPosSub = _locationService.passengersStream?.listen(_onPassengerPosition);
+    _boardedSub = _locationService.boardedStream?.listen(_onPassengerBoarded);
 
     _posSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
       ),
-    ).listen((position) {
+    ).listen((rawPosition) {
       if (!mounted) return;
+      // Filtre Kalman + rejet des sauts GPS aberrants (> 250 km/h implicite)
+      final position = _gpsFilter.update(rawPosition) ?? rawPosition;
+      final speedKmh = position.speed * 3.6;
       setState(() {
         _currentPosition = position;
-        _speedKmh = position.speed * 3.6;
-        _currentHeading = position.heading;
+        _speedKmh = speedKmh;
+        // GPS heading fiable uniquement au-dessus de 5 km/h
+        if (speedKmh >= 5 && position.heading > 0) {
+          _currentHeading = _smoothHeading(_currentHeading, position.heading);
+        }
         _isTracking = true;
       });
       _updateNavMetrics(position);
       _checkPassengerProximity(position);
-      if (_navigationMode) _moveCameraToPosition(position);
+      if (_navigationMode) { _moveCameraToPosition(position); }
     });
+
+    // Boussole magnétique : mise à jour temps réel quand stationnaire ou lent
+    _compassSub = FlutterCompass.events?.listen((event) {
+      if (!mounted || event.heading == null) return;
+      if (_speedKmh < 5) {
+        setState(() {
+          _currentHeading = _smoothHeading(_currentHeading, event.heading!);
+        });
+      }
+    });
+
+    _chargerRoute();
   }
 
   void _onPassengerPosition(PassengerPositionData p) {
     if (!mounted) return;
-    setState(() => _passengerPositions[p.userId] = p);
+    setState(() {
+      final existing = _allPassengers[p.userId];
+      if (existing != null) {
+        _allPassengers[p.userId] = existing.copyWithGps(p.latitude, p.longitude);
+      } else {
+        // Passager sans réservation connue (ajout dynamique)
+        _allPassengers[p.userId] = PassagerReservation(
+          reservationId: 0,
+          userId: p.userId,
+          nom: p.nom,
+          placesReservees: 1,
+          statutEmbarquement: 'en_attente',
+          latitude: p.latitude,
+          longitude: p.longitude,
+          lastGps: DateTime.now(),
+        );
+      }
+    });
+  }
+
+  void _onPassengerBoarded(PassengerBoardedEvent e) {
+    if (!mounted) return;
+    setState(() {
+      final existing = _allPassengers[e.userId];
+      if (existing != null) {
+        _allPassengers[e.userId] = existing.copyWithStatut('embarque');
+      }
+    });
+    if (_allPassengers.isNotEmpty &&
+        _allPassengers.values.every((p) => p.estEmbarque)) {
+      _tts.speak('Tous les passagers sont à bord. Vous pouvez démarrer le trajet.');
+    }
   }
 
   void _checkPassengerProximity(Position pos) {
-    for (final p in _passengerPositions.values) {
+    for (final p in _allPassengers.values) {
+      if (!p.hasGps || p.estEmbarque) continue;
       final dist = LocationService.distanceKm(
-        pos.latitude, pos.longitude, p.latitude, p.longitude,
+        pos.latitude, pos.longitude, p.latitude!, p.longitude!,
       );
       if (dist < 0.15 && !_announcedPassengers.contains(p.userId)) {
         _announcedPassengers.add(p.userId);
-        final label = dist < 0.1
-            ? '${(dist * 1000).toInt()} mètres'
-            : '${(dist * 1000).toInt()} mètres';
-        _tts.speak('Vous approchez de ${p.nom}, à $label');
+        _tts.speak('Vous approchez de ${p.nom.split(' ').first}, à ${(dist * 1000).toInt()} mètres');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Vous approchez de ${p.nom} (${(dist * 1000).toInt()} m)'),
+            content: Text('Vous approchez de ${p.nom.split(' ').first} (${(dist * 1000).toInt()} m)'),
             backgroundColor: KColors.success,
             duration: const Duration(seconds: 6),
           ));
@@ -210,25 +291,39 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
 
   void _updateNavMetrics(Position position) {
     if (widget.destinationLat == null) return;
-    final dist = LocationService.distanceKm(
+    // Distance haversine × facteur routier 1.35 (route sinueuse vs vol d'oiseau).
+    // Donne une meilleure approximation de la distance routière restante.
+    final distStraight = LocationService.distanceKm(
       position.latitude, position.longitude,
       widget.destinationLat!, widget.destinationLng!,
     );
+    final distRoute = distStraight * 1.35;
     final speed = position.speed * 3.6;
-    final eta = speed > 2 ? LocationService.etaMinutes(dist, speed) : _etaMinutes;
+
+    // Seuil 10 km/h : en dessous, le GPS est trop bruité pour calculer un ETA fiable.
+    // On conserve la dernière valeur connue (OSRM ou estimation précédente).
+    final eta = speed > 10 ? LocationService.etaMinutes(distRoute, speed) : _etaMinutes;
     if (!mounted) return;
     setState(() {
-      _distanceRestanteKm = dist;
+      // On affiche la distance routière estimée (plus réaliste que la ligne droite)
+      _distanceRestanteKm = distRoute;
       if (eta > 0) {
         _etaMinutes = eta;
         _heureArrivee = _calcHeureArrivee(eta);
       }
     });
     _tts.announceIfNeeded(
-      distanceKm: dist,
+      distanceKm: distRoute,
       etaMinutes: eta > 0 ? eta : _etaMinutes,
       destination: widget.destination,
     );
+  }
+
+  // Filtre passe-bas pour lisser les variations brusques du cap (gère le passage 359°→1°)
+  double _smoothHeading(double current, double next) {
+    const alpha = 0.15;
+    final diff = ((next - current + 540) % 360) - 180;
+    return (current + alpha * diff + 360) % 360;
   }
 
   String _calcHeureArrivee(int minutes) {
@@ -243,25 +338,19 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     );
   }
 
-  void _openArToPassenger(PassengerPositionData p) {
-    setState(() {
-      _arTarget = p;
-      _showArMode = true;
-    });
+  void _openArToPassenger(PassagerReservation p) {
+    setState(() => _showArMode = true);
   }
 
   void _toggleArMode() {
-    setState(() {
-      _showArMode = !_showArMode;
-      if (!_showArMode) _arTarget = null;
-    });
+    setState(() => _showArMode = !_showArMode);
   }
 
-  Future<void> _navigateToPassenger(PassengerPositionData p) async {
-    if (_currentPosition == null) return;
+  Future<void> _navigateToPassenger(PassagerReservation p) async {
+    if (_currentPosition == null || !p.hasGps) return;
     final route = await OsrmService.getRoute(
       _currentPosition!.latitude, _currentPosition!.longitude,
-      p.latitude, p.longitude,
+      p.latitude!, p.longitude!,
     );
     if (!mounted || route == null) return;
     setState(() {
@@ -270,32 +359,49 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
       _etaMinutes = route.durationMin;
       _heureArrivee = _calcHeureArrivee(route.durationMin);
     });
-    _mapController.move(LatLng(p.latitude, p.longitude), 15);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Navigation vers ${p.nom.split(' ').first}'),
-      backgroundColor: KColors.primary,
-      duration: const Duration(seconds: 3),
-    ));
+    _mapController.move(LatLng(p.latitude!, p.longitude!), 15);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Navigation vers ${p.nom.split(' ').first}'),
+        backgroundColor: KColors.primary,
+        duration: const Duration(seconds: 3),
+      ));
+    }
   }
 
-  void _openPassengerSheet(PassengerPositionData p) {
+  void _centerOnPassenger(PassagerReservation p) {
+    if (!p.hasGps) return;
+    _mapController.move(LatLng(p.latitude!, p.longitude!), 16);
+  }
+
+  void _openPassengerSheet(PassagerReservation p) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _PassengerActionSheet(
+      isScrollControlled: true,
+      builder: (_) => PassengerBoardingSheet(
         passenger: p,
         driverLat: _currentPosition?.latitude,
         driverLng: _currentPosition?.longitude,
-        onNavigate: () {
-          Navigator.pop(context);
-          _navigateToPassenger(p);
+        speedKmh: _speedKmh,
+        trajetId: widget.trajetId,
+        onNavigate: () => _navigateToPassenger(p),
+        onCenter: () => _centerOnPassenger(p),
+        onArView: () => _openArToPassenger(p),
+        onBoarded: (updated) {
+          setState(() => _allPassengers[updated.userId] = updated);
         },
-        onArView: () {
-          Navigator.pop(context);
-          _openArToPassenger(p);
+        onMarquerAbsent: () {
+          setState(() {
+            _allPassengers[p.userId] = p.copyWithStatut('absent');
+          });
         },
       ),
     );
+  }
+
+  void _openScanForPassenger(PassagerReservation p) {
+    _openPassengerSheet(p);
   }
 
   Future<void> _terminerTrajet() async {
@@ -305,7 +411,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     setState(() => _isEnding = false);
     if (ok) {
       _locationService.dispose();
-      if (context.mounted) context.pop();
+      if (context.mounted) { context.pop(); }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Erreur lors de la fin du trajet'),
@@ -318,12 +424,44 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
   void dispose() {
     _pulseCtrl.dispose();
     _posSub?.cancel();
-    _passengerSub?.cancel();
+    _compassSub?.cancel();
+    _passengerPosSub?.cancel();
+    _boardedSub?.cancel();
     _routeRecalcTimer?.cancel();
     _locationService.dispose();
     _tts.dispose();
     super.dispose();
   }
+
+  List<PassagerReservation> get _sortedPassengers {
+    final list = _allPassengers.values.toList();
+    if (_currentPosition == null) return list;
+    list.sort((a, b) {
+      // Embarqués à la fin
+      if (a.estEmbarque != b.estEmbarque) {
+        return a.estEmbarque ? 1 : -1;
+      }
+      // Avec GPS d'abord
+      if (a.hasGps != b.hasGps) {
+        return a.hasGps ? -1 : 1;
+      }
+      if (!a.hasGps || !b.hasGps) return 0;
+      final da = LocationService.distanceKm(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        a.latitude!, a.longitude!,
+      );
+      final db = LocationService.distanceKm(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        b.latitude!, b.longitude!,
+      );
+      return da.compareTo(db);
+    });
+    return list;
+  }
+
+  bool get _allAboard =>
+      _allPassengers.isNotEmpty &&
+      _allPassengers.values.every((p) => p.estEmbarque);
 
   @override
   Widget build(BuildContext context) {
@@ -334,32 +472,24 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
     final hasDepart = widget.departLat != null;
     final hasDest = widget.destinationLat != null;
 
-    // Cible AR : passager sélectionné → premier passager GPS → destination → rien
-    final arPassager = _arTarget ?? (_sortedPassengers.isNotEmpty ? _sortedPassengers.first : null);
-    final arLat  = arPassager?.latitude  ?? widget.destinationLat;
-    final arLng  = arPassager?.longitude ?? widget.destinationLng;
-    final arName = arPassager?.nom       ?? widget.destination;
-    final arType = arPassager != null    ? 'passager' : 'destination';
-    final arAvailable = arLat != null && arLng != null;
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // ── Vue AR inline (plein écran — toujours disponible) ────────────
+          // ── Vue AR monde réel ─────────────────────────────────────────────
           if (_showArMode)
             Positioned.fill(
-              child: InlineArView(
-                targetLat:       arLat ?? 0.0,
-                targetLng:       arLng ?? 0.0,
-                targetName:      arName,
-                targetType:      arType,
-                targetAvailable: arAvailable,
-                onBack:          _toggleArMode,
+              child: ArWorldView(
+                routePoints:       _routePoints,
+                routeSteps:        _routeSteps,
+                destination:       widget.destination,
+                passengers:        _sortedPassengers,
+                onBack:            _toggleArMode,
+                onBoardingConfirm: _openPassengerSheet,
               ),
             ),
 
-          // ── Carte plein écran ─────────────────────────────────────────────
+          // ── Carte ─────────────────────────────────────────────────────────
           if (!_showArMode) FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -373,7 +503,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                 userAgentPackageName: 'com.kovoit.mobile',
                 retinaMode: true,
               ),
-              // Route OSRM
               if (_routePoints.isNotEmpty)
                 PolylineLayer(polylines: [
                   Polyline(
@@ -388,21 +517,18 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                   ),
                 ]),
               MarkerLayer(markers: [
-                // Départ
                 if (hasDepart)
                   Marker(
                     point: LatLng(widget.departLat!, widget.departLng!),
                     width: 40, height: 40,
                     child: _buildMarker(KColors.primary, Icons.trip_origin),
                   ),
-                // Destination
                 if (hasDest)
                   Marker(
                     point: LatLng(widget.destinationLat!, widget.destinationLng!),
                     width: 40, height: 40,
                     child: _buildMarker(KColors.error, Icons.location_on),
                   ),
-                // Conducteur — marqueur animé avec rotation bearing
                 if (hasPosition)
                   Marker(
                     point: center,
@@ -412,7 +538,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                       builder: (_, child) => Stack(
                         alignment: Alignment.center,
                         children: [
-                          // Halo pulsant
                           Container(
                             width: 60 * _pulseAnim.value,
                             height: 60 * _pulseAnim.value,
@@ -422,7 +547,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                                   alpha: 0.3 * (1 - _pulseAnim.value + 0.5)),
                             ),
                           ),
-                          // Marqueur voiture
                           Container(
                             width: 40, height: 40,
                             decoration: BoxDecoration(
@@ -447,15 +571,15 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                       ),
                     ),
                   ),
-                // Passagers — marqueurs tappables avec nom et distance
-                for (final p in _sortedPassengers)
+                // Passagers — seulement ceux avec GPS
+                for (final p in _sortedPassengers.where((p) => p.hasGps))
                   Marker(
-                    point: LatLng(p.latitude, p.longitude),
+                    point: LatLng(p.latitude!, p.longitude!),
                     width: 80, height: 72,
                     child: GestureDetector(
                       onTap: () => _openPassengerSheet(p),
                       child: _PassengerMapMarker(
-                        data: p,
+                        passenger: p,
                         driverLat: _currentPosition?.latitude,
                         driverLng: _currentPosition?.longitude,
                       ),
@@ -465,7 +589,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
             ],
           ),
 
-          // ── Bouton retour en navigation (masqué en mode AR) ──────────────
+          // ── Bouton retour + contrôles (masqués en mode AR) ────────────────
           if (!_showArMode) SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -478,8 +602,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                   const Spacer(),
                   if (_isTracking)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: KColors.success,
                         borderRadius: BorderRadius.circular(99),
@@ -509,9 +632,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                     color: _tts.isEnabled ? KColors.primary : Colors.grey,
                     onTap: () {
                       setState(() => _tts.toggle());
-                      if (_tts.isEnabled) {
-                        _tts.speak('Guidage vocal activé');
-                      }
+                      if (_tts.isEnabled) { _tts.speak('Guidage vocal activé'); }
                     },
                   ),
                   const SizedBox(width: 8),
@@ -528,7 +649,6 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                     },
                   ),
                   const SizedBox(width: 8),
-                  // Toggle Carte ↔ AR
                   _MapButton(
                     icon: _showArMode ? Icons.map_rounded : Icons.view_in_ar_rounded,
                     color: _showArMode ? KColors.primary : KColors.baseContent,
@@ -539,7 +659,7 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
             ),
           ),
 
-          // ── Panneau de navigation en haut (masqué en mode AR) ────────────
+          // ── Panneau navigation haut ───────────────────────────────────────
           if (!_showArMode && hasPosition)
             Positioned(
               top: MediaQuery.of(context).padding.top + 60,
@@ -554,10 +674,18 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
               ),
             ),
 
-          // ── Panneau bas (masqué en mode AR) ──────────────────────────────
+          // ── Bannière "Tous à bord" (au-dessus du panneau bas) ────────────
+          if (!_showArMode && _allAboard && _allPassengers.isNotEmpty)
+            Positioned(
+              bottom: 140,
+              left: 16, right: 16,
+              child: _AllAboardBanner(onTerminer: _terminerTrajet, isEnding: _isEnding),
+            ),
+
+          // ── Panneau bas passagers ─────────────────────────────────────────
           if (!_showArMode) Positioned(
             left: 0, right: 0, bottom: 0,
-            child: _passengerPositions.isNotEmpty
+            child: _allPassengers.isNotEmpty
                 ? PassengersBottomPanel(
                     passengers: _sortedPassengers,
                     driverLat: _currentPosition?.latitude,
@@ -567,7 +695,8 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
                     onTerminer: _terminerTrajet,
                     onNavigate: _navigateToPassenger,
                     onArView: _openArToPassenger,
-                    onMessage: _openPassengerSheet,
+                    onTap: _openPassengerSheet,
+                    onScan: _openScanForPassenger,
                   )
                 : _BottomPanel(
                     speedKmh: _speedKmh,
@@ -587,31 +716,160 @@ class _ConducteurGpsPageState extends ConsumerState<ConducteurGpsPage>
           color: color,
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white, width: 2),
-          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4),
-              blurRadius: 8)],
+          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8)],
         ),
         child: Icon(icon, color: Colors.white, size: 18),
       );
+}
 
-  List<PassengerPositionData> get _sortedPassengers {
-    final list = _passengerPositions.values.toList();
-    if (_currentPosition == null) return list;
-    list.sort((a, b) {
-      final da = LocationService.distanceKm(
-        _currentPosition!.latitude, _currentPosition!.longitude,
-        a.latitude, a.longitude,
-      );
-      final db = LocationService.distanceKm(
-        _currentPosition!.latitude, _currentPosition!.longitude,
-        b.latitude, b.longitude,
-      );
-      return da.compareTo(db);
-    });
-    return list;
+// ── Bannière "Tous à bord" ─────────────────────────────────────────────────────
+
+class _AllAboardBanner extends StatelessWidget {
+  final VoidCallback onTerminer;
+  final bool isEnding;
+
+  const _AllAboardBanner({required this.onTerminer, required this.isEnding});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: KColors.success.withValues(alpha: 0.4)),
+        boxShadow: [
+          BoxShadow(
+            color: KColors.success.withValues(alpha: 0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(children: [
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: KColors.success.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.check_circle_rounded, color: KColors.success, size: 26),
+        ),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tous à bord !',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: KColors.baseContent,
+                  )),
+              Text('Vous pouvez démarrer le trajet',
+                  style: TextStyle(fontSize: 12, color: KColors.baseContentMid)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: isEnding ? null : onTerminer,
+          style: FilledButton.styleFrom(
+            backgroundColor: KColors.success,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: isEnding
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              : const Text('Démarrer', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+        ),
+      ]),
+    );
   }
 }
 
-// ── Widgets locaux ────────────────────────────────────────────────────────────
+// ── Marqueur passager sur carte ────────────────────────────────────────────────
+
+class _PassengerMapMarker extends StatelessWidget {
+  final PassagerReservation passenger;
+  final double? driverLat;
+  final double? driverLng;
+
+  const _PassengerMapMarker({
+    required this.passenger,
+    this.driverLat,
+    this.driverLng,
+  });
+
+  Color get _markerColor => switch (passenger.statutEmbarquement) {
+        'embarque' => KColors.success,
+        'absent'   => KColors.error,
+        _          => const Color(0xFFFF8C00),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    String distLabel = '';
+    if (driverLat != null && passenger.hasGps) {
+      final dist = LocationService.distanceKm(
+        driverLat!, driverLng!,
+        passenger.latitude!, passenger.longitude!,
+      );
+      distLabel = dist < 1
+          ? ' · ${(dist * 1000).toInt()}m'
+          : ' · ${dist.toStringAsFixed(1)}km';
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(99),
+            boxShadow: const [
+              BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+            ],
+          ),
+          child: Text(
+            '${passenger.nom.split(' ').first}$distLabel',
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF333333),
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: _markerColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: _markerColor.withValues(alpha: 0.5),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: passenger.estEmbarque
+              ? const Icon(Icons.check_rounded, color: Colors.white, size: 17)
+              : passenger.estAbsent
+                  ? const Icon(Icons.person_off_rounded, color: Colors.white, size: 17)
+                  : const Icon(Icons.person_rounded, color: Colors.white, size: 17),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Widgets locaux ─────────────────────────────────────────────────────────────
 
 class _MapButton extends StatelessWidget {
   final IconData icon;
@@ -743,12 +1001,9 @@ class _BottomPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(2),
           ),
         ),
-        // Métriques
         Row(children: [
           _Metric(
-            value: speedKmh > 0
-                ? speedKmh.toStringAsFixed(0)
-                : '0',
+            value: speedKmh > 0 ? speedKmh.toStringAsFixed(0) : '0',
             unit: 'km/h',
             icon: Icons.speed_rounded,
             color: speedKmh > 90 ? KColors.error : KColors.primary,
@@ -783,24 +1038,21 @@ class _BottomPanel extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16)),
                 title: const Text('Terminer le trajet ?'),
                 content: const Text(
-                  'Confirmez-vous la fin du trajet ?\nLes passagers seront notifiés.',
-                ),
+                    'Confirmez-vous la fin du trajet ?\nLes passagers seront notifiés.'),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Annuler'),
-                  ),
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Annuler')),
                   ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: KColors.success),
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Terminer',
-                        style: TextStyle(color: Colors.white)),
-                  ),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: KColors.success),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Terminer',
+                          style: TextStyle(color: Colors.white))),
                 ],
               ),
             );
-            if (confirm == true) onTerminer();
+            if (confirm == true) { onTerminer(); }
           },
         ),
       ]),
@@ -844,240 +1096,3 @@ class _MetricDivider extends StatelessWidget {
       Container(width: 1, height: 40, color: KColors.border);
 }
 
-class _PassengerMapMarker extends StatelessWidget {
-  final PassengerPositionData data;
-  final double? driverLat;
-  final double? driverLng;
-
-  const _PassengerMapMarker({
-    required this.data,
-    this.driverLat,
-    this.driverLng,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String distLabel = '';
-    if (driverLat != null && driverLng != null) {
-      final dist = LocationService.distanceKm(
-        driverLat!, driverLng!, data.latitude, data.longitude,
-      );
-      distLabel = dist < 1
-          ? ' · ${(dist * 1000).toInt()}m'
-          : ' · ${dist.toStringAsFixed(1)}km';
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(99),
-            boxShadow: [
-              BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2)),
-            ],
-          ),
-          child: Text(
-            '${data.nom.split(' ').first}$distLabel',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF333333),
-            ),
-          ),
-        ),
-        const SizedBox(height: 3),
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: const Color(0xFFFF8C00),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.orange.withValues(alpha: 0.5),
-                blurRadius: 8,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: const Icon(Icons.person_rounded, color: Colors.white, size: 17),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Feuille d'actions passager ────────────────────────────────────────────────
-
-class _PassengerActionSheet extends StatelessWidget {
-  final PassengerPositionData passenger;
-  final double? driverLat;
-  final double? driverLng;
-  final VoidCallback onNavigate;
-  final VoidCallback onArView;
-
-  const _PassengerActionSheet({
-    required this.passenger,
-    required this.onNavigate,
-    required this.onArView,
-    this.driverLat,
-    this.driverLng,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String distLabel = '';
-    if (driverLat != null && driverLng != null) {
-      final dist = LocationService.distanceKm(
-        driverLat!, driverLng!, passenger.latitude, passenger.longitude,
-      );
-      distLabel = dist < 1
-          ? '${(dist * 1000).toInt()} m'
-          : '${dist.toStringAsFixed(1)} km';
-    }
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        24, 16, 24,
-        MediaQuery.of(context).padding.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Handle
-          Container(
-            width: 36, height: 4,
-            decoration: BoxDecoration(
-              color: KColors.base300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // En-tête passager
-          Row(children: [
-            Container(
-              width: 48, height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF8C00).withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.person_rounded,
-                  color: Color(0xFFFF8C00), size: 26),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(passenger.nom,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: KColors.baseContent,
-                    )),
-                if (distLabel.isNotEmpty)
-                  Text('À $distLabel de vous',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: KColors.baseContentMid,
-                      )),
-              ]),
-            ),
-          ]),
-          const SizedBox(height: 20),
-          const Divider(color: KColors.border),
-          const SizedBox(height: 12),
-
-          // Action : naviguer
-          _SheetAction(
-            icon: Icons.alt_route_rounded,
-            iconColor: KColors.primary,
-            title: 'Naviguer vers ce passager',
-            subtitle: 'Recalculer l\'itinéraire jusqu\'à sa position',
-            onTap: onNavigate,
-          ),
-          const SizedBox(height: 10),
-
-          // Action : mode AR
-          _SheetAction(
-            icon: Icons.view_in_ar_rounded,
-            iconColor: const Color(0xFF7C3AED),
-            title: 'Mode AR',
-            subtitle: 'Voir la direction du passager en réalité augmentée',
-            onTap: onArView,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SheetAction extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _SheetAction({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: KColors.base100,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: KColors.border),
-        ),
-        child: Row(children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: KColors.baseContent,
-                    )),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: KColors.baseContentMid,
-                    )),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right_rounded,
-              color: KColors.baseContentMid, size: 20),
-        ]),
-      ),
-    );
-  }
-}

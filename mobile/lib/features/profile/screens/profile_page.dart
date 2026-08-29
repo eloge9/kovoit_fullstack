@@ -16,6 +16,11 @@ class ProfilePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
     final prefix = (user?.role == 'conducteur') ? '/conducteur' : '/passager';
+    // Route "documents" incohérente entre rôles : le conducteur n'a pas de
+    // '/conducteur/profile/documents', seulement '/conducteur/documents'.
+    final documentsRoute = (user?.role == 'conducteur')
+        ? '/conducteur/documents'
+        : '/passager/profile/documents';
 
     if (user == null) {
       return const Scaffold(
@@ -45,7 +50,7 @@ class ProfilePage extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => context.go('$prefix/profile/edit'),
+            onPressed: () => context.push('$prefix/profile/edit'),
             child: Text(
               'Modifier',
               style: KTextStyles.caption.copyWith(color: KColors.primary),
@@ -151,7 +156,7 @@ class ProfilePage extends ConsumerWidget {
                     size: 20,
                   ),
                   titleColor: KColors.baseContent,
-                  onTap: () => context.go('$prefix/profile/documents'),
+                  onTap: () => context.push(documentsRoute),
                 ),
               ],
             ),
@@ -165,24 +170,24 @@ class ProfilePage extends ConsumerWidget {
                 const KCardHeader(title: 'Menu'),
                 KListTile(
                   title: 'Mes documents',
-                  onTap: () => context.go('$prefix/profile/documents'),
+                  onTap: () => context.push(documentsRoute),
                 ),
                 const Divider(color: KColors.border, height: 0),
                 if (user.role == 'conducteur') ...[
                   KListTile(
                     title: 'Mes véhicules',
-                    onTap: () => context.go('/conducteur/vehicules'),
+                    onTap: () => context.push('/conducteur/vehicules'),
                   ),
                   const Divider(color: KColors.border, height: 0),
                   KListTile(
                     title: 'Vérification du compte',
-                    onTap: () => context.go('/conducteur/verification'),
+                    onTap: () => context.push('/conducteur/verification'),
                   ),
                   const Divider(color: KColors.border, height: 0),
                 ],
                 KListTile(
                   title: 'Modifier le profil',
-                  onTap: () => context.go('$prefix/profile/edit'),
+                  onTap: () => context.push('$prefix/profile/edit'),
                 ),
                 const Divider(color: KColors.border, height: 0),
                 KListTile(

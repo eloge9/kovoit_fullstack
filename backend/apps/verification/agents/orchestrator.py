@@ -230,6 +230,7 @@ def run_verification(driver_profile_id: str) -> dict:
     # ── Notifications au conducteur ───────────────────────────────────────────
     try:
         from apps.modeles.models import Notification
+        from apps.modeles.notifs import envoyer_notification
 
         # 1. Notification principale selon le tier
         msg_principal = {
@@ -239,6 +240,14 @@ def run_verification(driver_profile_id: str) -> dict:
         }.get(activation_tier, "Votre vérification est terminée.")
 
         Notification.objects.create(utilisateur=user, contenu=msg_principal)
+
+        # Push temps réel — permet à l'écran "Analyse en cours" du mobile de
+        # réagir instantanément sans attendre le prochain polling.
+        envoyer_notification(user, "verification_completed", {
+            "status":         new_status,
+            "decision":       decision,
+            "activation_tier": activation_tier,
+        })
 
         # 2. Notification séparée si des documents sont problématiques
         #    → on demande au conducteur de les corriger / re-uploader

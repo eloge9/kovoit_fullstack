@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../trajets/providers/trajet_provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/formatters.dart';
@@ -14,7 +15,13 @@ class VehiculesPage extends ConsumerWidget {
     final vehiculesState = ref.watch(vehiculesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes véhicules')),
+      appBar: AppBar(
+        title: const Text('Mes véhicules'),
+        leading: IconButton(
+          icon: Icon(context.canPop() ? Icons.arrow_back : Icons.home_rounded),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/conducteur'),
+        ),
+      ),
       body: vehiculesState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Erreur: $e')),

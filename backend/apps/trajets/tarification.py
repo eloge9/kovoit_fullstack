@@ -7,6 +7,7 @@ Formule BlaBlaCar :
   cout_total     = cout_carburant + commission
   prix_par_place = cout_total ÷ capacite_reelle_vehicule   (places_max, PAS places_disponibles)
 """
+from apps.modeles.commission import taux_commission
 
 TARIF_PAR_KM: dict = {
     'moto':    30.0,
@@ -15,7 +16,6 @@ TARIF_PAR_KM: dict = {
     'camion':  200.0,
 }
 TARIF_DEFAUT    = 65.0
-TAUX_COMMISSION = 0.10
 
 # Capacité réelle par défaut selon le type (utilisée si vehicule.places_max absent)
 CAPACITE_PAR_TYPE: dict = {
@@ -54,7 +54,7 @@ def calculer_prix(distance_km: float, type_veh: str, cap: int) -> dict:
     cap    = max(1, int(cap))
 
     cout_carburant = round(float(distance_km) * tarif, 2)
-    commission     = round(cout_carburant * TAUX_COMMISSION, 2)
+    commission     = round(cout_carburant * float(taux_commission()), 2)
     cout_total     = round(cout_carburant + commission, 2)
     prix_par_place = max(1, round(cout_total / cap))
 

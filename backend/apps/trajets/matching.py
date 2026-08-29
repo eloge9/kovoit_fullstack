@@ -16,6 +16,8 @@ import math
 import logging
 import requests
 
+from apps.modeles.commission import taux_commission
+
 logger = logging.getLogger(__name__)
 
 OSRM_BASE       = "https://router.project-osrm.org"
@@ -443,7 +445,7 @@ def calculer_prix_par_km(
     """
     tarif           = TARIF_PAR_VEHICULE.get(str(type_vehicule).lower().strip(), _TARIF_DEFAUT)
     cout_carburant  = distance_km * tarif
-    avec_commission = cout_carburant * (1 + COMMISSION_KOVOIT)
+    avec_commission = cout_carburant * (1 + float(taux_commission()))
     places          = max(1, int(places))
     # round(..., 4) élimine les artefacts flottants avant l'arrondi final
     prix_unitaire   = round(avec_commission / places, 4)
@@ -452,16 +454,15 @@ def calculer_prix_par_km(
 
 # ── Tarification proportionnelle (legacy — garde pour rétrocompatibilité) ─────
 
-COMMISSION_KOVOIT = 0.10
-
-
 def calculer_prix_passager(
     distance_passager_km: float,
     distance_totale_km: float,
     prix_total: float,
-    commission: float = COMMISSION_KOVOIT,
+    commission: float = None,
 ) -> int:
     """Legacy — utilise calculer_prix_par_km() de préférence."""
+    if commission is None:
+        commission = float(taux_commission())
     if distance_totale_km <= 0:
         return int(prix_total)
     ratio      = min(1.0, distance_passager_km / distance_totale_km)

@@ -48,6 +48,7 @@ import '../features/profile/screens/documents_page.dart';
 import '../features/profile/screens/vehicules_page.dart';
 import '../features/economie/screens/conducteur_economie_page.dart';
 import '../features/economie/screens/passager_economie_page.dart';
+import '../features/paiements/screens/portefeuille_page.dart';
 import '../features/gps/screens/conducteur_gps_page.dart';
 import '../features/gps/screens/passager_suivi_page.dart';
 import '../features/evaluations/screens/evaluation_list_page.dart';
@@ -63,8 +64,10 @@ import '../features/reservations/models/reservation_model.dart';
 import '../features/settings/screens/server_settings_screen.dart';
 import '../features/verification/screens/driver_status_page.dart';
 import '../features/verification/screens/document_upload_page.dart';
+import '../features/verification/screens/verification_processing_page.dart';
 import '../features/auth/screens/continue_as_screen.dart';
 import '../features/gps/screens/ar_view_page.dart';
+import '../core/widgets/k_error_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -91,7 +94,12 @@ final _routerNotifierProvider =
 // ── GoRouter créé une seule fois ──────────────────────────────────────────────
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final notifier = ref.watch(_routerNotifierProvider);
+  // `ref.read` (et non `ref.watch`) : le GoRouter ne doit être construit
+  // qu'une seule fois. `refreshListenable` se charge déjà de faire réévaluer
+  // `redirect()` à chaque changement d'auth — un `ref.watch` ici recréerait
+  // tout le routeur (donc repartirait sur `initialLocation: '/splash'`) à
+  // chaque connexion/chargement de profil, provoquant une boucle infinie.
+  final notifier = ref.read(_routerNotifierProvider);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
@@ -349,6 +357,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/conducteur/documents',        builder: (_, _) => const DocumentsPage()),
       GoRoute(path: '/conducteur/verification',     builder: (_, _) => const VerificationPage()),
       GoRoute(path: '/conducteur/economie',         builder: (_, _) => const ConducteurEconomiePage()),
+      GoRoute(path: '/conducteur/portefeuille',     builder: (_, _) => const PortefeuillePage()),
       GoRoute(path: '/conducteur/evaluations',      builder: (_, _) => const EvaluationListPage()),
       GoRoute(
         path: '/conducteur/evaluation/:trajetId/:cibleId',
@@ -361,6 +370,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/conducteur/notifications',   builder: (_, _) => const NotificationsPage()),
       GoRoute(path: '/conducteur/embarquement',    builder: (_, _) => const EmbarquementConducteurPage()),
       GoRoute(path: '/conducteur/dossier',         builder: (_, _) => const DocumentUploadPage()),
+      GoRoute(path: '/conducteur/verification-en-cours',
+          builder: (_, _) => const VerificationProcessingPage()),
       GoRoute(
         path: '/conducteur/reservation/:id/detail',
         builder: (_, state) => ReservationDetailPage(
@@ -373,22 +384,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
 
-    errorBuilder: (context, state) => Scaffold(
-      backgroundColor: const Color(0xFFE7F0F8),
-      body: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.error_outline, size: 48, color: Color(0xFF8EA4BC)),
-          const SizedBox(height: 16),
-          const Text('Page introuvable',
-              style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF394E6A),
-              )),
-          TextButton(
-            onPressed: () => context.go('/passager'),
-            child: const Text('Retour à l\'accueil'),
-          ),
-        ]),
-      ),
-    ),
+    errorBuilder: (context, state) {
+      final role = notifier.authState.user?.role;
+      final homeRoute = role == 'admin'
+          ? '/admin'
+          : role == 'conducteur'
+              ? '/conducteur'
+              : '/passager';
+      return KErrorScreen(kind: KErrorKind.notFound, homeRoute: homeRoute);
+    },
   );
 });

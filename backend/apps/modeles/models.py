@@ -390,7 +390,8 @@ class Paiement(models.Model):
         PAYEE      = "PAYEE"                                 # Mobile Money : confirmé par PayPlus
         CONFIRME   = "CONFIRME"                              # Espèces : confirmé par conducteur
         ECHOUEE    = "ECHOUEE"                               # Mobile Money : échec/timeout
-        ANNULE     = "ANNULE"                                # Annulé par le passager
+        ANNULE     = "ANNULE"                                # Annulé par le passager avant confirmation
+        REMBOURSE  = "REMBOURSE"                             # Réservation annulée après paiement électronique confirmé
     
     reservation = models.OneToOneField(Reservation, on_delete=models.CASCADE, related_name='paiement')
     passager = models.ForeignKey(Utilisateur, on_delete=models.CASCADE, related_name="paiements", null=True, blank=True)
@@ -398,7 +399,7 @@ class Paiement(models.Model):
     
     montant          = models.DecimalField(max_digits=10, decimal_places=2, validators=[validate_positive_number])
     moyen_paiement   = models.CharField(max_length=20, default="ESPECE")
-    reference_mobile = models.CharField(max_length=100, blank=True, null=True)
+    reference_mobile = models.CharField(max_length=512, blank=True, null=True)  # token PayPlus (peut être un long JWT)
     
     statut = models.CharField(
         max_length=30,
@@ -728,6 +729,10 @@ class AuditLog(models.Model):
         ('resa_force',      'Forçage réservation'),
         # Paiements
         ('payment_refund',  'Remboursement'),
+        # Wallet
+        ('wallet_withdrawal_complete', 'Retrait traité — réussi'),
+        ('wallet_withdrawal_fail',     'Retrait traité — échoué'),
+        ('wallet_adjustment',          'Ajustement manuel wallet'),
         # Évaluations
         ('eval_hide',       'Masquage évaluation'),
         ('eval_restore',    'Restauration évaluation'),
@@ -818,3 +823,201 @@ class PasswordResetCode(models.Model):
 
     def __str__(self):
         return f"Reset {self.email} [{self.code}]"
+
+
+# ══════════════════════════ WALLET / PORTEFEUILLE ═══════════════════════════
+# Aucune écriture directe sur Wallet.solde_disponible / solde_du en dehors de
+# apps.paiements.wallet_service — c'est l'unique point d'entrée autorisé.
+
+class Wallet(models.Model):
+    class Type(models.TextChoices):
+        CONDUCTEUR = 'conducteur', 'Conducteur'
+        PLATEFORME = 'plateforme', 'Plateforme KoVoit'
+
+    # null = wallet plateforme KoVoit (singleton, voir contrainte ci-dessous)
+    proprietaire = models.OneToOneField(
+        Utilisateur, on_delete=models.CASCADE, related_name='wallet',
+        null=True, blank=True,
+    )
+    type = models.CharField(max_length=20, choices=Type.choices)
+
+    # Argent retirable par le propriétaire.
+    solde_disponible = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Commission due à KoVoit sur des paiements espèces non encore réglée (toujours >= 0).
+    solde_du = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    date_creation = models.DateTimeField(auto_now_add=True)
+    date_maj      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(solde_disponible__gte=0),
+                name='wallet_solde_disponible_non_negatif',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(solde_du__gte=0),
+                name='wallet_solde_du_non_negatif',
+            ),
+            models.UniqueConstraint(
+                fields=['type'],
+                condition=models.Q(proprietaire__isnull=True),
+                name='wallet_unique_plateforme',
+            ),
+        ]
+        indexes = [models.Index(fields=['type'])]
+
+    def __str__(self):
+        who = self.proprietaire.username if self.proprietaire else 'KoVoit (plateforme)'
+        return f"Wallet({who}) — dispo {self.solde_disponible} / dû {self.solde_du}"
+
+    @classmethod
+    def plateforme(cls):
+        """Wallet unique appartenant à KoVoit (commissions collectées)."""
+        wallet, _ = cls.objects.get_or_create(
+            type=cls.Type.PLATEFORME, proprietaire=None,
+        )
+        return wallet
+
+    @classmethod
+    def pour(cls, utilisateur):
+        """Wallet du conducteur, créé au premier accès."""
+        wallet, _ = cls.objects.get_or_create(
+            proprietaire=utilisateur, defaults={'type': cls.Type.CONDUCTEUR},
+        )
+        return wallet
+
+
+class Withdrawal(models.Model):
+    class Statut(models.TextChoices):
+        EN_ATTENTE = 'EN_ATTENTE', 'En attente'
+        EN_COURS   = 'EN_COURS',   'En cours de traitement'
+        REUSSI     = 'REUSSI',     'Réussi'
+        ECHOUE     = 'ECHOUE',     'Échoué'
+        ANNULE     = 'ANNULE',     'Annulé'
+
+    class Moyen(models.TextChoices):
+        FLOOZ = 'FLOOZ', 'Moov Flooz'
+        YAS   = 'YAS',   'Mixx by Yas'
+
+    wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name='retraits')
+    montant = models.DecimalField(max_digits=12, decimal_places=2, validators=[validate_positive_number])
+    moyen = models.CharField(max_length=20, choices=Moyen.choices)
+    numero_destination = models.CharField(max_length=20)
+
+    statut = models.CharField(max_length=20, choices=Statut.choices, default=Statut.EN_ATTENTE, db_index=True)
+    reference_agregateur = models.CharField(max_length=100, blank=True)
+    motif_echec = models.CharField(max_length=255, blank=True)
+
+    traite_par = models.ForeignKey(
+        Utilisateur, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='retraits_traites', limit_choices_to={'role': 'admin'},
+    )
+
+    date_demande    = models.DateTimeField(auto_now_add=True)
+    date_traitement = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-date_demande']
+        indexes = [
+            models.Index(fields=['wallet', '-date_demande']),
+            models.Index(fields=['statut']),
+        ]
+
+    def __str__(self):
+        return f"Retrait {self.montant} FCFA vers {self.numero_destination} — {self.statut}"
+
+
+class DepotWallet(models.Model):
+    """
+    Dépôt Mobile Money en attente de confirmation PayPlus (checkout-invoice).
+
+    Nécessaire car PayPlus ne renvoie pas le montant lors de la vérification
+    de statut — le montant doit donc être mémorisé côté serveur au moment de
+    la création de la facture, jamais accepté depuis le client au moment de
+    la confirmation (un client malveillant pourrait sinon revendiquer
+    n'importe quel montant).
+    """
+    class Statut(models.TextChoices):
+        EN_ATTENTE = 'EN_ATTENTE', 'En attente'
+        CONFIRME   = 'CONFIRME',   'Confirmé'
+        ECHOUE     = 'ECHOUE',     'Échoué'
+
+    wallet   = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name='depots')
+    montant  = models.DecimalField(max_digits=12, decimal_places=2, validators=[validate_positive_number])
+    token    = models.CharField(max_length=512, unique=True)  # token PayPlus (peut être un long JWT)
+    transref = models.CharField(max_length=100, unique=True)
+    statut   = models.CharField(max_length=20, choices=Statut.choices, default=Statut.EN_ATTENTE, db_index=True)
+
+    date_creation     = models.DateTimeField(auto_now_add=True)
+    date_confirmation = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-date_creation']
+        indexes = [models.Index(fields=['wallet', '-date_creation'])]
+
+    def __str__(self):
+        return f"Dépôt {self.montant} FCFA — {self.wallet} — {self.statut}"
+
+
+class WalletTransaction(models.Model):
+    """Ledger append-only : aucune écriture n'est jamais modifiée ni supprimée."""
+
+    class Type(models.TextChoices):
+        DEPOSIT                 = 'DEPOSIT',                 'Dépôt'
+        WITHDRAWAL_REQUEST       = 'WITHDRAWAL_REQUEST',       'Demande de retrait'
+        WITHDRAWAL_COMPLETED     = 'WITHDRAWAL_COMPLETED',     'Retrait effectué'
+        WITHDRAWAL_FAILED        = 'WITHDRAWAL_FAILED',        'Retrait échoué (remboursé)'
+        RIDE_PAYMENT_CREDIT      = 'RIDE_PAYMENT_CREDIT',      'Crédit paiement de trajet'
+        COMMISSION_ELECTRONIC    = 'COMMISSION_ELECTRONIC',    'Commission (paiement électronique)'
+        COMMISSION_CASH_DUE      = 'COMMISSION_CASH_DUE',      'Commission due (paiement espèces)'
+        COMMISSION_CASH_SETTLED  = 'COMMISSION_CASH_SETTLED',  'Commission espèces réglée'
+        REFUND                   = 'REFUND',                   'Remboursement'
+        CANCELLATION_PENALTY     = 'CANCELLATION_PENALTY',     "Pénalité d'annulation"
+        ADJUSTMENT                = 'ADJUSTMENT',                'Ajustement manuel (admin)'
+
+    class Sens(models.TextChoices):
+        CREDIT = 'CREDIT', 'Crédit'
+        DEBIT  = 'DEBIT',  'Débit'
+
+    class Statut(models.TextChoices):
+        REUSSI = 'REUSSI', 'Réussi'
+        ECHOUE = 'ECHOUE', 'Échoué'
+        ANNULE = 'ANNULE', 'Annulé'
+
+    wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name='transactions')
+    type   = models.CharField(max_length=30, choices=Type.choices, db_index=True)
+    sens   = models.CharField(max_length=10, choices=Sens.choices)
+    montant = models.DecimalField(max_digits=12, decimal_places=2, validators=[validate_positive_number])
+
+    # Traçabilité complète du solde avant/après (audit, jamais recalculé a posteriori)
+    solde_disponible_avant = models.DecimalField(max_digits=12, decimal_places=2)
+    solde_disponible_apres = models.DecimalField(max_digits=12, decimal_places=2)
+    solde_du_avant         = models.DecimalField(max_digits=12, decimal_places=2)
+    solde_du_apres         = models.DecimalField(max_digits=12, decimal_places=2)
+
+    statut      = models.CharField(max_length=10, choices=Statut.choices, default=Statut.REUSSI)
+    # Clé d'idempotence : un même reference ne peut débiter/créditer qu'une seule fois.
+    reference   = models.CharField(max_length=100, unique=True)
+    description = models.CharField(max_length=255, blank=True)
+
+    paiement    = models.ForeignKey(Paiement, on_delete=models.SET_NULL, null=True, blank=True, related_name='wallet_transactions')
+    reservation = models.ForeignKey(Reservation, on_delete=models.SET_NULL, null=True, blank=True, related_name='wallet_transactions')
+    retrait     = models.ForeignKey(Withdrawal, on_delete=models.SET_NULL, null=True, blank=True, related_name='transactions')
+    cree_par    = models.ForeignKey(
+        Utilisateur, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='wallet_transactions_creees',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['wallet', '-created_at']),
+            models.Index(fields=['type', '-created_at']),
+        ]
+
+    def __str__(self):
+        signe = '+' if self.sens == self.Sens.CREDIT else '-'
+        return f"{self.wallet_id} {signe}{self.montant} [{self.type}]"

@@ -27,6 +27,17 @@ class AuthInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
+    // La requête de refresh elle-même ne doit JAMAIS repasser par la logique
+    // de mise en attente ci-dessous : sinon, un refresh token expiré/blacklisté
+    // (401 sur /auth/refresh/) s'auto-enfile dans _pendingRequests pendant que
+    // _isRefreshing est encore true, et le `await _dio.post(refreshToken...)`
+    // n'est alors plus jamais résolu ni rejeté → deadlock permanent qui bloque
+    // tout appel réseau (dont /profil) jusqu'à ce que le storage soit vidé.
+    if (err.requestOptions.path == ApiConstants.refreshToken) {
+      handler.next(err);
+      return;
+    }
+
     if (err.response?.statusCode == 401) {
       final refreshToken = await StorageService.getRefreshToken();
       if (refreshToken == null) {

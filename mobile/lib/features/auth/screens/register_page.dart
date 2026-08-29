@@ -138,6 +138,15 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     return Scaffold(
       backgroundColor: KColors.base200,
+      appBar: AppBar(
+        backgroundColor: KColors.base100,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: KColors.baseContent),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/login'),
+        ),
+        shape: const Border(bottom: BorderSide(color: KColors.border)),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(

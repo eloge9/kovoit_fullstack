@@ -40,8 +40,9 @@ export default function PaiementPage() {
     const [loadingEspeces, setLoadingEspeces] = useState(false);
 
     // État après initiation Mobile Money
-    const [token, setToken]       = useState<string | null>(null);
-    const [transref, setTransref] = useState<string | null>(null);
+    const [token, setToken]           = useState<string | null>(null);
+    const [transref, setTransref]     = useState<string | null>(null);
+    const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
     const [statut, setStatut]     = useState<PaiementStatut | null>(null);
     const [verifying, setVerifying] = useState(false);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -81,7 +82,7 @@ export default function PaiementPage() {
 
     // Arrêter le polling dès confirmation / échec
     useEffect(() => {
-        if (statut?.statut === "CONFIRME" || statut?.statut === "echouee") {
+        if (statut?.statut === "payee" || statut?.statut === "echouee") {
             if (intervalRef.current) clearInterval(intervalRef.current);
         }
     }, [statut]);
@@ -99,6 +100,8 @@ export default function PaiementPage() {
             });
             setToken(data.token);
             setTransref(data.transref);
+            setPaymentUrl(data.payment_url || null);
+            if (data.payment_url) window.open(data.payment_url, "_blank", "noopener,noreferrer");
         } catch (err: any) {
             setError(err.response?.data?.error || "Erreur lors de l'initiation du paiement.");
         } finally {
@@ -129,6 +132,7 @@ export default function PaiementPage() {
         if (intervalRef.current) clearInterval(intervalRef.current);
         setToken(null);
         setTransref(null);
+        setPaymentUrl(null);
         setStatut(null);
         setError(null);
     };
@@ -182,7 +186,7 @@ export default function PaiementPage() {
     const commission = Math.round(montant * 0.10);
 
     // ── Succès Mobile Money ───────────────────────────────────────────────────
-    if (statut?.statut === "CONFIRME") {
+    if (statut?.statut === "payee") {
         return (
             <div className="max-w-lg mx-auto py-16 text-center space-y-5">
                 <div className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center mx-auto">
@@ -433,6 +437,17 @@ export default function PaiementPage() {
                             </div>
                         )}
                     </div>
+
+                    {paymentUrl && statut?.statut !== "echouee" && (
+                        <a
+                            href={paymentUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-outline rounded-full w-full"
+                        >
+                            Ouvrir la page de paiement
+                        </a>
+                    )}
 
                     <div className="flex gap-3">
                         <button

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
@@ -125,6 +126,12 @@ class _DocumentsPageState extends ConsumerState<DocumentsPage> {
         backgroundColor: KColors.base100,
         elevation: 0,
         shape: const Border(bottom: BorderSide(color: KColors.border)),
+        leading: IconButton(
+          icon: Icon(context.canPop() ? Icons.arrow_back : Icons.home_rounded),
+          onPressed: () => context.canPop()
+              ? context.pop()
+              : context.go(user?.role == 'conducteur' ? '/conducteur' : '/passager'),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(KSpacing.pagePaddingH),

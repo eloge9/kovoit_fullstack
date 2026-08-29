@@ -68,6 +68,7 @@ class ApiConstants {
 
   // Profil
   static const String profil = '/utilisateurs/ko/profil/';
+  static const String profilUpdate = '/utilisateurs/ko/profil/update/';
   static const String changePassword = '/utilisateurs/ko/profil/change-password/';
   static const String uploadDocuments = '/utilisateurs/ko/upload-documents/';
   static const String basculerRole = '/utilisateurs/ko/basculer-role/';
@@ -99,6 +100,14 @@ class ApiConstants {
   static const String annulerPaiement   = '/paiements/annuler_paiement/';
   static const String statutReservation = '/paiements/statut_reservation/';
   static const String mesPaiements      = '/paiements/mes_paiements/';
+
+  // Wallet / Portefeuille conducteur
+  static const String monWallet        = '/paiements/wallet/mon_wallet/';
+  static const String mesTransactions  = '/paiements/wallet/mes_transactions/';
+  static const String mesRetraits      = '/paiements/wallet/mes_retraits/';
+  static const String walletDeposerInitier  = '/paiements/wallet/deposer_initier/';
+  static const String walletDeposerVerifier = '/paiements/wallet/deposer_verifier/';
+  static const String walletRetirer         = '/paiements/wallet/retirer/';
 
   // Évaluations
   static const String evaluer = '/evaluations/evaluer/';

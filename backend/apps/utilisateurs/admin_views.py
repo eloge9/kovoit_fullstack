@@ -18,10 +18,13 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ..modeles.commission import taux_commission
 from ..modeles.models import (
     Utilisateur, Conducteur, Passager, Vehicule, Trajet, Reservation,
     Paiement, Evaluation, Plainte, Notification, AuditLog, SysConfig,
+    Wallet, Withdrawal,
 )
+from ..paiements import wallet_service
 
 # ── Permission ────────────────────────────────────────────────────────────────
 
@@ -142,8 +145,8 @@ class AdminViewSet(viewsets.GenericViewSet):
             'ca_semaine':  ca_semaine,
             'ca_mois':     ca_mois,
             'ca_total':    ca_total,
-            'commission_kovoit': round(ca_total * 0.10),
-            'net_conducteurs':   round(ca_total * 0.90),
+            'commission_kovoit': round(ca_total * float(taux_commission())),
+            'net_conducteurs':   round(ca_total * (1 - float(taux_commission()))),
 
             # Qualité
             'nb_evaluations':       Evaluation.objects.count(),
@@ -260,8 +263,8 @@ class AdminViewSet(viewsets.GenericViewSet):
         derniers_paiements = [
             {
                 'id': p.id, 'montant': float(p.montant),
-                'commission': round(float(p.montant) * 0.10),
-                'net': round(float(p.montant) * 0.90),
+                'commission': round(float(p.montant) * float(taux_commission())),
+                'net': round(float(p.montant) * (1 - float(taux_commission()))),
                 'statut': p.statut,
                 'passager': p.passager.username if p.passager else '—',
                 'date': (p.date_payement or p.date_confirmation or p.date_creation).isoformat() if (p.date_payement or p.date_confirmation or p.date_creation) else None,
@@ -690,6 +693,8 @@ class AdminViewSet(viewsets.GenericViewSet):
         total = qs.count()
         qs    = qs[(page-1)*limit : page*limit]
 
+        taux = float(taux_commission())
+
         def _p(p):
             m = float(p.montant)
             return {
@@ -699,8 +704,8 @@ class AdminViewSet(viewsets.GenericViewSet):
                 'conducteur': p.conducteur.username if p.conducteur else '—',
                 'trajet': f"{p.reservation.trajet.depart}→{p.reservation.trajet.destination}" if p.reservation else '—',
                 'montant': m,
-                'commission': round(m * 0.10),
-                'net': round(m * 0.90),
+                'commission': round(m * taux),
+                'net': round(m * (1 - taux)),
                 'moyen': p.moyen_paiement,
                 'statut': p.statut,
                 'date': (p.date_payement or p.date_confirmation or p.date_creation).isoformat() if (p.date_payement or p.date_confirmation or p.date_creation) else None,
@@ -711,7 +716,7 @@ class AdminViewSet(viewsets.GenericViewSet):
 
         return Response({
             'total': total, 'page': page,
-            'ca_total': ca, 'commission_total': round(ca * 0.10), 'net_total': round(ca * 0.90),
+            'ca_total': ca, 'commission_total': round(ca * taux), 'net_total': round(ca * (1 - taux)),
             'resultats': [_p(p) for p in qs],
         })
 
@@ -719,10 +724,11 @@ class AdminViewSet(viewsets.GenericViewSet):
     def statistiques_paiements(self, request):
         pays = Paiement.objects.filter(statut__in=['CONFIRME', 'PAYEE'])
         ca   = float(pays.aggregate(s=Sum('montant'))['s'] or 0)
+        taux = float(taux_commission())
         return Response({
             'ca_total':        ca,
-            'commission':      round(ca * 0.10),
-            'net_conducteurs': round(ca * 0.90),
+            'commission':      round(ca * taux),
+            'net_conducteurs': round(ca * (1 - taux)),
             'nb_transactions': pays.count(),
             'moyen_transaction': round(ca / pays.count(), 2) if pays.count() > 0 else 0,
             'par_moyen': list(pays.values('moyen_paiement').annotate(nb=Count('id'), total=Sum('montant'))),
@@ -734,12 +740,13 @@ class AdminViewSet(viewsets.GenericViewSet):
         buf = io.StringIO()
         w   = csv.writer(buf)
         w.writerow(['ID','Passager','Conducteur','Trajet','Montant','Commission','Net','Moyen','Statut','Date'])
+        taux = float(taux_commission())
         for p in qs:
             m = float(p.montant)
             trajet = f"{p.reservation.trajet.depart}→{p.reservation.trajet.destination}" if p.reservation else ''
             w.writerow([
                 p.id, p.passager.username if p.passager else '', p.conducteur.username if p.conducteur else '',
-                trajet, m, round(m*0.10), round(m*0.90), p.moyen_paiement, p.statut,
+                trajet, m, round(m*taux), round(m*(1-taux)), p.moyen_paiement, p.statut,
                 (p.date_payement or p.date_creation).strftime('%d/%m/%Y %H:%M') if (p.date_payement or p.date_creation) else '',
             ])
         resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
@@ -1052,6 +1059,119 @@ class AdminViewSet(viewsets.GenericViewSet):
 
         return Response({'message': f'Notification envoyée à {len(dest)} utilisateur(s).'})
 
+    # ══════════════════════════ WALLET / PORTEFEUILLE ═════════════════════════
+    # Le retrait est traité manuellement : PayPlus Africa n'expose pas d'API de
+    # payout programmable vers un numéro tiers (seulement un retrait marchand
+    # KoVoit → son propre compte, via leur portail). Un admin valide donc chaque
+    # retrait après avoir effectué le virement par un autre moyen.
+
+    @action(detail=False, methods=['get'], url_path='wallets')
+    def wallets(self, request):
+        qs = Wallet.objects.select_related('proprietaire').order_by('-solde_du', '-solde_disponible')
+        en_dette = request.query_params.get('en_dette')
+        if en_dette:
+            qs = qs.filter(solde_du__gt=0)
+        return Response([
+            {
+                'id':                w.id,
+                'proprietaire':      w.proprietaire.username if w.proprietaire else 'KoVoit',
+                'type':              w.type,
+                'solde_disponible':  float(w.solde_disponible),
+                'solde_du':          float(w.solde_du),
+                'date_maj':          w.date_maj.isoformat(),
+            }
+            for w in qs
+        ])
+
+    @action(detail=False, methods=['get'], url_path='wallets/retraits')
+    def wallets_retraits(self, request):
+        qs = Withdrawal.objects.select_related('wallet__proprietaire').order_by('-date_demande')
+        statut = request.query_params.get('statut')
+        if statut:
+            qs = qs.filter(statut=statut)
+        return Response([
+            {
+                'id':                  r.id,
+                'conducteur':          r.wallet.proprietaire.username if r.wallet.proprietaire else '—',
+                'montant':             float(r.montant),
+                'moyen':               r.moyen,
+                'numero_destination':  r.numero_destination,
+                'statut':              r.statut,
+                'motif_echec':         r.motif_echec,
+                'date_demande':        r.date_demande.isoformat(),
+                'date_traitement':     r.date_traitement.isoformat() if r.date_traitement else None,
+            }
+            for r in qs
+        ])
+
+    @action(detail=False, methods=['post'], url_path=r'wallets/retraits/(?P<retrait_id>\d+)/completer')
+    def wallets_retrait_completer(self, request, retrait_id=None):
+        reference_agregateur = str(request.data.get('reference_agregateur', '')).strip()
+        try:
+            retrait = Withdrawal.objects.get(pk=retrait_id)
+        except Withdrawal.DoesNotExist:
+            return Response({'error': 'Retrait introuvable.'}, status=404)
+
+        retrait = wallet_service.completer_retrait(
+            retrait=retrait, reference_agregateur=reference_agregateur, admin=request.user,
+        )
+        _log(
+            request, 'wallet_withdrawal_complete',
+            f"Retrait #{retrait.id} ({retrait.montant} FCFA vers {retrait.numero_destination}) marqué réussi. "
+            f"Réf. agrégateur/virement : {reference_agregateur or '—'}",
+            'withdrawal', retrait.id,
+        )
+        return Response({'message': 'Retrait marqué comme réussi.', 'statut': retrait.statut})
+
+    @action(detail=False, methods=['post'], url_path=r'wallets/retraits/(?P<retrait_id>\d+)/echouer')
+    def wallets_retrait_echouer(self, request, retrait_id=None):
+        motif = str(request.data.get('motif', '')).strip()
+        if not motif:
+            return Response({'error': 'motif requis.'}, status=400)
+        try:
+            retrait = Withdrawal.objects.get(pk=retrait_id)
+        except Withdrawal.DoesNotExist:
+            return Response({'error': 'Retrait introuvable.'}, status=404)
+
+        retrait = wallet_service.echouer_retrait(retrait=retrait, motif=motif, admin=request.user)
+        _log(
+            request, 'wallet_withdrawal_fail',
+            f"Retrait #{retrait.id} ({retrait.montant} FCFA) échoué et remboursé au wallet. Motif : {motif}",
+            'withdrawal', retrait.id,
+        )
+        return Response({'message': 'Retrait marqué comme échoué, montant remboursé au wallet.', 'statut': retrait.statut})
+
+    @action(detail=False, methods=['post'], url_path=r'wallets/(?P<wallet_id>\d+)/ajuster')
+    def wallets_ajuster(self, request, wallet_id=None):
+        description = str(request.data.get('description', '')).strip()
+        try:
+            montant = Decimal(str(request.data.get('montant')))
+        except Exception:
+            return Response({'error': 'montant invalide.'}, status=400)
+        try:
+            wallet = Wallet.objects.get(pk=wallet_id)
+        except Wallet.DoesNotExist:
+            return Response({'error': 'Wallet introuvable.'}, status=404)
+
+        try:
+            t = wallet_service.ajustement_manuel(
+                wallet=wallet, montant=montant, description=description,
+                admin=request.user, reference=f'ADJUSTMENT-{wallet.id}-{timezone.now().timestamp()}',
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+
+        _log(
+            request, 'wallet_adjustment',
+            f"Ajustement wallet #{wallet.id} : {montant:+} FCFA — {description}",
+            'wallet', wallet.id,
+        )
+        return Response({
+            'message': 'Ajustement appliqué.',
+            'solde_disponible': float(t.solde_disponible_apres),
+            'solde_du':         float(t.solde_du_apres),
+        })
+
     # ══════════════════════════ CONFIGURATION ════════════════════════════════
 
     CONFIG_DEFAUTS = {
@@ -1171,8 +1291,8 @@ class AdminViewSet(viewsets.GenericViewSet):
             'nb_reservations':    Reservation.objects.count(),
             'nb_paiements':       pays.count(),
             'ca_total':           ca,
-            'commission':         round(ca * 0.10),
-            'net_conducteurs':    round(ca * 0.90),
+            'commission':         round(ca * float(taux_commission())),
+            'net_conducteurs':    round(ca * (1 - float(taux_commission()))),
             'nb_evaluations':     Evaluation.objects.count(),
             'nb_plaintes':        Plainte.objects.count(),
             'nb_plaintes_att':    Plainte.objects.filter(statut='en_attente').count(),

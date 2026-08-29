@@ -33,18 +33,26 @@ void showDriverActivationDialog(BuildContext context) {
         style: TextStyle(fontSize: 13, height: 1.5),
       ),
       actionsAlignment: MainAxisAlignment.center,
+      actionsOverflowButtonSpacing: 8,
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Fermer'),
-        ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: KColors.primary),
           onPressed: () {
             Navigator.pop(ctx);
-            context.push('/conducteur/statut');
+            context.push('/conducteur/dossier');
           },
-          child: const Text('Compléter mon dossier'),
+          child: const Text('Envoyer mes documents'),
+        ),
+        OutlinedButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            context.push('/conducteur/documents');
+          },
+          child: const Text('Voir mes documents'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Retour'),
         ),
       ],
     ),

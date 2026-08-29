@@ -19,6 +19,7 @@ const navItems = [
 
 const moreItems = [
     { href: "/communication/messages",     label: "Messages" },
+    { href: "/conducteur/portefeuille",    label: "Portefeuille" },
     { href: "/conducteur/economie",        label: "Économies" },
     { href: "/conducteur/evaluations",     label: "Évaluations" },
     { href: "/conducteur/profil",          label: "Profil & Paramètres" },
